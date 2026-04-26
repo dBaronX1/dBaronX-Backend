@@ -1,0 +1,37 @@
+﻿node_modules/
+.next/
+dist/
+build/
+.turbo/
+.medusa/
+.venv/
+venv/
+__pycache__/
+.pytest_cache/
+*.pyc
+
+.env
+.env.*
+!.env.example
+
+.dbx-source/
+.dbx-candidates/
+.dbx-canonical/
+.dbx-reports/
+.dbx-tools/
+.dbx-repair-backups/
+
+.DS_Store
+Thumbs.db
+
+# DBX raw extraction/archive files
+.dbx-source/
+.dbx-candidates/
+.dbx-canonical/
+.dbx-extracted/
+.dbx-reports/
+.dbx-tools/
+.dbx-repair-backups/
+dBaronX Ltd ChatGPT.txt
+dbx payment.txt
+*.patch
