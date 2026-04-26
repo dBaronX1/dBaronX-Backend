@@ -1,0 +1,11 @@
+{
+  "name": "dbaronx-fastapi",
+  "version": "1.0.0",
+  "private": true,
+  "scripts": {
+    "build": "python -m compileall src",
+    "typecheck": "python -m compileall src",
+    "dev": "python -m uvicorn main:app --reload --host 0.0.0.0 --port 8080",
+    "start": "python -m uvicorn main:app --host 0.0.0.0 --port 8080"
+  }
+}

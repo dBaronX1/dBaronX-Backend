@@ -1,0 +1,11 @@
+{
+  "name": "dbaronx-telegram-bot",
+  "version": "1.0.0",
+  "private": true,
+  "scripts": {
+    "build": "python -m compileall src",
+    "typecheck": "python -m compileall src",
+    "dev": "python -m src.main",
+    "start": "python -m src.main"
+  }
+}
