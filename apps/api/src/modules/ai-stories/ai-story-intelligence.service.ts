@@ -39,9 +39,21 @@ export class AiStoryIntelligenceService {
       requestId,
     );
 
+    const creatorPromotionRisk = response.creator_promotion_risk && typeof response.creator_promotion_risk === "object"
+      ? response.creator_promotion_risk
+      : {
+          creator_account_id: body.creatorAccountId,
+          decision: "deny" as const,
+          allow: false,
+          risk_score: 100,
+          trust: {},
+          eligibility: {},
+          reasons: ["missing_creator_promotion_risk_payload"],
+        };
+
     return {
       success: true,
-      creatorPromotionRisk: response.creator_promotion_risk,
+      creatorPromotionRisk,
     };
   }
 }

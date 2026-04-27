@@ -42,4 +42,12 @@ export class DateUtil {
   static diffMs(a: Date | string | number, b: Date | string | number): number {
     return new Date(b).getTime() - new Date(a).getTime();
   }
+
+  static diffSeconds(a: Date | string | number, b: Date | string | number): number {
+    return Math.floor(this.diffMs(a, b) / 1000);
+  }
+
+  static isExpired(expiresAt: Date | string | number): boolean {
+    return new Date(expiresAt).getTime() <= Date.now();
+  }
 }

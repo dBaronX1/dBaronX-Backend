@@ -11,6 +11,14 @@ export interface FastapiTracePayload {
 
 @Injectable()
 export class FastapiTraceExportService {
+  private resolveField<T>(value: T | undefined, field: string): T {
+    if (value === undefined) {
+      throw new Error(`FastAPI response missing required field: ${field}`);
+    }
+
+    return value;
+  }
+
   constructor(
     private readonly fastapiHttp: FastapiIntelligenceHttpService,
     private readonly headers: InternalRequestHeadersService,
@@ -46,7 +54,7 @@ export class FastapiTraceExportService {
 
     return {
       success: true,
-      decisionTrace: response.decision_trace,
+      decisionTrace: this.resolveField(response.decision_trace, "decision_trace"),
     };
   }
 
@@ -88,7 +96,7 @@ export class FastapiTraceExportService {
 
     return {
       success: true,
-      requestAuditEnvelope: response.request_audit_envelope,
+      requestAuditEnvelope: this.resolveField(response.request_audit_envelope, "request_audit_envelope"),
     };
   }
 }

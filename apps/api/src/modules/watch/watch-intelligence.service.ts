@@ -41,9 +41,20 @@ export class WatchIntelligenceService {
       requestId,
     );
 
+    const rewardDecision = response.reward_decision && typeof response.reward_decision === "object"
+      ? response.reward_decision
+      : {
+          allow: false,
+          decision: "deny" as const,
+          decision_score: 1,
+          telemetry: {},
+          trust: {},
+          reasons: ["missing_watch_reward_payload"],
+        };
+
     return {
       success: true,
-      rewardDecision: response.reward_decision,
+      rewardDecision,
     };
   }
 }

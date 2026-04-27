@@ -1,4 +1,5 @@
-import { NextFunction, Request, Response } from "express";
+import { Injectable, NestMiddleware } from "@nestjs/common";
+import type { NextFunction, Request, Response } from "express";
 
 function parseBlockedIps(): Set<string> {
   return new Set(
@@ -20,8 +21,10 @@ function extractIp(req: Request): string {
   return req.ip || "";
 }
 
+type RequestWithContext = Request & { context?: Record<string, unknown> };
+
 export function ipBlockMiddleware(
-  req: Request & { context?: Record<string, unknown> },
+  req: RequestWithContext,
   res: Response,
   next: NextFunction,
 ): void {
@@ -46,4 +49,11 @@ export function ipBlockMiddleware(
     method: req.method,
     timestamp: new Date().toISOString(),
   });
+}
+
+@Injectable()
+export class IpBlockMiddleware implements NestMiddleware {
+  use(req: RequestWithContext, res: Response, next: NextFunction): void {
+    ipBlockMiddleware(req, res, next);
+  }
 }

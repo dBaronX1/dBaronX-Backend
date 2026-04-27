@@ -69,7 +69,6 @@ export interface FastapiLaunchControlManifest {
   blockers: string[];
 }
 
-export interface FastapiEnvelope<T> {
+export type FastapiEnvelope<T> = {
   success: boolean;
-  [key: string]: T | boolean | undefined;
-}
+} & Partial<T> & Record<string, unknown>;

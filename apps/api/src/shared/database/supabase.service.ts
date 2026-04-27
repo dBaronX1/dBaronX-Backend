@@ -62,11 +62,19 @@ export class SupabaseService implements OnModuleInit, OnModuleDestroy {
     this.logger.log("Supabase service shutdown complete");
   }
 
-  schema(schemaName: string) {
+
+  getClient(): SupabaseClient {
+    return this.client;
+  }
+
+  getSupabaseClient(): SupabaseClient {
+    return this.client;
+  }
+  schema(schemaName: string): ReturnType<SupabaseClient["schema"]> {
     return this.client.schema(schemaName);
   }
 
-  from(table: string) {
+  from(table: string): ReturnType<SupabaseClient["from"]> {
     return this.client.from(table);
   }
 

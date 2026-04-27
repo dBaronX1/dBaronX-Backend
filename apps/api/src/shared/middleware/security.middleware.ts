@@ -1,3 +1,4 @@
+import { Injectable, NestMiddleware } from "@nestjs/common";
 import type { NextFunction, Request, Response } from "express";
 
 const ONE_YEAR_SECONDS = 31_536_000;
@@ -36,4 +37,11 @@ export function securityMiddleware(
   }
 
   next();
+}
+
+@Injectable()
+export class SecurityMiddleware implements NestMiddleware {
+  use(req: Request, res: Response, next: NextFunction): void {
+    securityMiddleware(req, res, next);
+  }
 }

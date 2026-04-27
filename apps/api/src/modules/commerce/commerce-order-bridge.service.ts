@@ -32,7 +32,7 @@ export class CommerceOrderBridgeService {
       routePath: "/api/v1/commerce/orders/sync",
       method: "POST",
       requestPayload: body as unknown as Record<string, unknown>,
-      decisionPayload: sync.medusaOrder as Record<string, unknown>,
+      decisionPayload: sync.medusaOrder as unknown as Record<string, unknown>,
       metadata: {
         syncMode: body.syncMode,
         medusaOrderId: body.medusaOrderId,

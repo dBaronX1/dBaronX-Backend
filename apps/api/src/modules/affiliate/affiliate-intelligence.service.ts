@@ -49,9 +49,23 @@ export class AffiliateIntelligenceService {
       requestId,
     );
 
+    const affiliatePayoutRisk = response.affiliate_payout_risk && typeof response.affiliate_payout_risk === "object"
+      ? response.affiliate_payout_risk
+      : {
+          account_id: body.accountId,
+          payout_method: body.payoutMethod,
+          risk_score: 100,
+          decision: "deny" as const,
+          allow: false,
+          trust: {},
+          velocity: {},
+          ip_reputation: {},
+          reasons: ["missing_affiliate_payout_risk_payload"],
+        };
+
     return {
       success: true,
-      affiliatePayoutRisk: response.affiliate_payout_risk,
+      affiliatePayoutRisk,
     };
   }
 }
