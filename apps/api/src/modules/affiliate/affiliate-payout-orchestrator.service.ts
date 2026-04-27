@@ -15,6 +15,8 @@ export class AffiliatePayoutOrchestratorService {
 
   async evaluateAndAudit(body: AffiliatePayoutRiskDto, requestId?: string) {
     const risk = await this.affiliateIntelligence.payoutRisk(body, requestId);
+    const decision = risk.affiliatePayoutRisk;
+    const allow = isAllowDecision(decision) ? decision.allow : Boolean(decision);
 
     await this.intelligenceAudit.persistGuardedDecisionAudit({
       requestId,
@@ -22,7 +24,7 @@ export class AffiliatePayoutOrchestratorService {
       routePath: "/api/v1/affiliate/orchestration/payout-risk",
       method: "POST",
       requestPayload: body as unknown as Record<string, unknown>,
-      decisionPayload: risk.affiliatePayoutRisk as Record<string, unknown>,
+      decisionPayload: toRecord(decision),
       decisionType: "affiliate_payout_risk",
       metadata: {
         accountId: body.accountId,
@@ -31,18 +33,28 @@ export class AffiliatePayoutOrchestratorService {
       tags: ["affiliate", "payout", "risk"],
     });
 
-    if (!risk.affiliatePayoutRisk.allow) {
+    if (!allow) {
       throw new BadRequestException({
         success: false,
         message: "Affiliate payout not approved",
-        decision: risk.affiliatePayoutRisk,
+        decision,
       });
     }
 
     return {
       success: true,
       approved: true,
-      decision: risk.affiliatePayoutRisk,
+      decision,
     };
   }
+}
+
+function isAllowDecision(value: unknown): value is { allow: boolean } {
+  return typeof value === "object" && value !== null && "allow" in value;
+}
+
+function toRecord(value: unknown): Record<string, unknown> {
+  return typeof value === "object" && value !== null
+    ? (value as Record<string, unknown>)
+    : { value };
 }

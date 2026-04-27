@@ -18,6 +18,8 @@ export class PaymentPreflightOrchestratorService {
     requestId?: string,
   ) {
     const preflight = await this.paymentIntelligence.preflight(body, requestId);
+    const decision = preflight.paymentPreflight;
+    const allow = isAllowDecision(decision) ? decision.allow : Boolean(decision);
 
     await this.intelligenceAudit.persistGuardedDecisionAudit({
       requestId,
@@ -25,7 +27,7 @@ export class PaymentPreflightOrchestratorService {
       routePath: "/api/v1/payments/orchestration/preflight",
       method: "POST",
       requestPayload: body as unknown as Record<string, unknown>,
-      decisionPayload: preflight.paymentPreflight as Record<string, unknown>,
+      decisionPayload: toRecord(decision),
       decisionType: "payment_preflight",
       metadata: {
         orderId: body.orderId,
@@ -35,18 +37,28 @@ export class PaymentPreflightOrchestratorService {
       tags: ["payments", "preflight", "risk"],
     });
 
-    if (!preflight.paymentPreflight.allow) {
+    if (!allow) {
       throw new BadRequestException({
         success: false,
         message: "Payment preflight not approved",
-        decision: preflight.paymentPreflight,
+        decision,
       });
     }
 
     return {
       success: true,
       approved: true,
-      decision: preflight.paymentPreflight,
+      decision,
     };
   }
+}
+
+function isAllowDecision(value: unknown): value is { allow: boolean } {
+  return typeof value === "object" && value !== null && "allow" in value;
+}
+
+function toRecord(value: unknown): Record<string, unknown> {
+  return typeof value === "object" && value !== null
+    ? (value as Record<string, unknown>)
+    : { value };
 }

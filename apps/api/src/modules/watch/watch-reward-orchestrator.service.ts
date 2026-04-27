@@ -15,6 +15,10 @@ export class WatchRewardOrchestratorService {
 
   async decideAndAudit(body: WatchRewardDecisionDto, requestId?: string) {
     const decision = await this.watchIntelligence.rewardDecision(body, requestId);
+    const rewardDecision = decision.rewardDecision;
+    const allow = isAllowDecision(rewardDecision)
+      ? rewardDecision.allow
+      : Boolean(rewardDecision);
 
     await this.intelligenceAudit.persistGuardedDecisionAudit({
       requestId,
@@ -22,7 +26,7 @@ export class WatchRewardOrchestratorService {
       routePath: "/api/v1/watch/orchestration/reward-decision",
       method: "POST",
       requestPayload: body as unknown as Record<string, unknown>,
-      decisionPayload: decision.rewardDecision as Record<string, unknown>,
+      decisionPayload: toRecord(rewardDecision),
       decisionType: "watch_reward_decision",
       metadata: {
         sessionId: body.sessionId,
@@ -31,18 +35,28 @@ export class WatchRewardOrchestratorService {
       tags: ["watch", "reward", "decision"],
     });
 
-    if (!decision.rewardDecision.allow) {
+    if (!allow) {
       throw new BadRequestException({
         success: false,
         message: "Watch reward not approved",
-        decision: decision.rewardDecision,
+        decision: rewardDecision,
       });
     }
 
     return {
       success: true,
       approved: true,
-      decision: decision.rewardDecision,
+      decision: rewardDecision,
     };
   }
+}
+
+function isAllowDecision(value: unknown): value is { allow: boolean } {
+  return typeof value === "object" && value !== null && "allow" in value;
+}
+
+function toRecord(value: unknown): Record<string, unknown> {
+  return typeof value === "object" && value !== null
+    ? (value as Record<string, unknown>)
+    : { value };
 }
