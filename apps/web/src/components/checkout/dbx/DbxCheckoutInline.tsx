@@ -64,7 +64,9 @@ export function DbxCheckoutInline({
         instruction={controller.intent.instructions}
         usdCents={checkout.cart.expectedUsdCents}
         verifying={controller.verifying}
-        onVerify={controller.verify}
+        onVerify={async (signature) => {
+          await controller.verify(signature);
+        }}
       />
 
       <DbxPaymentErrorAlert error={controller.error} className="mt-4" />

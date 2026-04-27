@@ -35,7 +35,7 @@ export function serverLogEvent(
   const level = (payload.level as LogLevel | undefined) || "info";
   const entry = JSON.stringify({
     event,
-    ...redact(payload),
+    ...(redact(payload) as Record<string, unknown>),
     timestamp: new Date().toISOString(),
   });
 
