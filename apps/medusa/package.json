@@ -1,0 +1,54 @@
+﻿{
+  "name": "@dbaronx/medusa",
+  "version": "0.0.1",
+  "private": true,
+  "description": "dBaronX commerce-only Medusa backend.",
+  "author": "dBaronX",
+  "license": "UNLICENSED",
+  "keywords": [
+    "postgres",
+    "typescript",
+    "ecommerce",
+    "headless",
+    "medusa",
+    "dbaronx"
+  ],
+  "scripts": {
+    "build": "pnpm exec medusa build",
+    "seed": "pnpm exec medusa exec ./src/scripts/seed.ts",
+    "start": "pnpm exec medusa start",
+    "dev": "pnpm exec medusa develop",
+    "lint": "echo \"No Medusa lint configured\"",
+    "typecheck": "tsc --noEmit",
+    "test:integration:http": "TEST_TYPE=integration:http NODE_OPTIONS=--experimental-vm-modules jest --silent=false --runInBand --forceExit",
+    "test:integration:modules": "TEST_TYPE=integration:modules NODE_OPTIONS=--experimental-vm-modules jest --silent=false --runInBand --forceExit",
+    "test:unit": "TEST_TYPE=unit NODE_OPTIONS=--experimental-vm-modules jest --silent --runInBand --forceExit"
+  },
+  "dependencies": {
+    "@medusajs/admin-sdk": "2.13.6",
+    "@medusajs/cli": "2.13.6",
+    "@medusajs/framework": "2.13.6",
+    "@medusajs/medusa": "2.13.6"
+  },
+  "devDependencies": {
+    "@medusajs/test-utils": "2.13.6",
+    "@swc/core": "^1.7.28",
+    "@swc/jest": "^0.2.36",
+    "@types/jest": "^29.5.13",
+    "@types/node": "^20.12.11",
+    "@types/react": "^18.3.2",
+    "@types/react-dom": "^18.2.25",
+    "jest": "^29.7.0",
+    "prop-types": "^15.8.1",
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1",
+    "ts-node": "^10.9.2",
+    "typescript": "^5.6.2",
+    "vite": "^5.4.14",
+    "yalc": "^1.0.0-pre.53"
+  },
+  "engines": {
+    "node": ">=20 <21"
+  },
+  "packageManager": "pnpm@10.0.0"
+}
