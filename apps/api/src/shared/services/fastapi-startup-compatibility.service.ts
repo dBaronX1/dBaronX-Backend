@@ -17,10 +17,22 @@ export class FastapiStartupCompatibilityService {
   async verifyOrThrow(requestId?: string) {
     const bundle = await this.fastapiConsumption.readinessBundle(requestId);
 
-    const handshake = bundle.handshake.nestjs_handshake!;
-    const runtime = bundle.runtime.runtime_snapshot!;
-    const step1Closure = bundle.step1Closure.fastapi_step1_closure!;
-    const launchControl = bundle.launchControl.launch_control_manifest!;
+    const handshake = ensureObject(
+      bundle.handshake.nestjs_handshake,
+      "handshake",
+    );
+    const runtime = ensureObject(
+      bundle.runtime.runtime_snapshot,
+      "runtime_snapshot",
+    );
+    const step1Closure = ensureObject(
+      bundle.step1Closure.fastapi_step1_closure,
+      "fastapi_step1_closure",
+    );
+    const launchControl = ensureObject(
+      bundle.launchControl.launch_control_manifest,
+      "launch_control_manifest",
+    );
 
     const blockers = this.runtimeBlockers.collectFastapiBlockers({
       handshake,
@@ -63,4 +75,12 @@ export class FastapiStartupCompatibilityService {
       launchControl,
     };
   }
+}
+
+function ensureObject<T>(value: T | boolean | undefined, field: string): T {
+  if (value && typeof value === "object") {
+    return value as T;
+  }
+
+  throw new Error(`Missing or invalid FastAPI payload field: ${field}`);
 }

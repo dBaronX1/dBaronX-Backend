@@ -11,8 +11,11 @@ export interface FastapiTracePayload {
 
 @Injectable()
 export class FastapiTraceExportService {
-  private resolveField<T>(value: T | undefined, field: string): T {
-    if (value === undefined) {
+  private resolveField<T extends Record<string, unknown>>(
+    value: T | boolean | undefined,
+    field: string,
+  ): T {
+    if (!value || typeof value !== "object") {
       throw new Error(`FastAPI response missing required field: ${field}`);
     }
 

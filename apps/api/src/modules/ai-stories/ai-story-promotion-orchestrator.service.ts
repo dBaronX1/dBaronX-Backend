@@ -18,6 +18,8 @@ export class AiStoryPromotionOrchestratorService {
     requestId?: string,
   ) {
     const risk = await this.aiStoryIntelligence.promotionRisk(body, requestId);
+    const decision = risk.creatorPromotionRisk;
+    const allow = isAllowDecision(decision) ? decision.allow : Boolean(decision);
 
     await this.intelligenceAudit.persistGuardedDecisionAudit({
       requestId,
@@ -25,7 +27,7 @@ export class AiStoryPromotionOrchestratorService {
       routePath: "/api/v1/ai-stories/orchestration/promotion-risk",
       method: "POST",
       requestPayload: body as unknown as Record<string, unknown>,
-      decisionPayload: risk.creatorPromotionRisk as Record<string, unknown>,
+      decisionPayload: toRecord(decision),
       decisionType: "ai_story_promotion_risk",
       metadata: {
         creatorAccountId: body.creatorAccountId,
@@ -35,18 +37,28 @@ export class AiStoryPromotionOrchestratorService {
       tags: ["ai-stories", "promotion", "risk"],
     });
 
-    if (!risk.creatorPromotionRisk.allow) {
+    if (!allow) {
       throw new BadRequestException({
         success: false,
         message: "AI story promotion not approved",
-        decision: risk.creatorPromotionRisk,
+        decision,
       });
     }
 
     return {
       success: true,
       approved: true,
-      decision: risk.creatorPromotionRisk,
+      decision,
     };
   }
+}
+
+function isAllowDecision(value: unknown): value is { allow: boolean } {
+  return typeof value === "object" && value !== null && "allow" in value;
+}
+
+function toRecord(value: unknown): Record<string, unknown> {
+  return typeof value === "object" && value !== null
+    ? (value as Record<string, unknown>)
+    : { value };
 }

@@ -42,6 +42,8 @@ export class PayoutsService {
       } as any,
       requestId,
     );
+    const decision = risk.affiliatePayoutRisk;
+    const allow = isAllowDecision(decision) ? decision.allow : Boolean(decision);
 
     await this.intelligenceAudit.persistGuardedDecisionAudit({
       requestId,
@@ -49,7 +51,7 @@ export class PayoutsService {
       routePath: "/api/v1/payouts/request",
       method: "POST",
       requestPayload: body as unknown as Record<string, unknown>,
-      decisionPayload: risk.affiliatePayoutRisk as Record<string, unknown>,
+      decisionPayload: toRecord(decision),
       decisionType: "payout_request_risk",
       metadata: {
         userId: body.userId,
@@ -58,11 +60,11 @@ export class PayoutsService {
       tags: ["payout", "affiliate", "risk"],
     });
 
-    if (!risk.affiliatePayoutRisk.allow) {
+    if (!allow) {
       throw new BadRequestException({
         success: false,
         message: "Payout request denied by intelligence layer",
-        risk: risk.affiliatePayoutRisk,
+        risk: decision,
       });
     }
 
@@ -71,8 +73,18 @@ export class PayoutsService {
       payoutRequest: {
         status: "approved_for_next_step",
         eligibility,
-        risk: risk.affiliatePayoutRisk,
+        risk: decision,
       },
     };
   }
+}
+
+function isAllowDecision(value: unknown): value is { allow: boolean } {
+  return typeof value === "object" && value !== null && "allow" in value;
+}
+
+function toRecord(value: unknown): Record<string, unknown> {
+  return typeof value === "object" && value !== null
+    ? (value as Record<string, unknown>)
+    : { value };
 }
