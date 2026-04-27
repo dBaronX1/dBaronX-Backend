@@ -13,30 +13,3 @@ __all__ = [
     "risk_router",
     "root_router",
 ]
-
-This batch stays inside the new canonical direction you just clarified:
-
-these are not archive-driven clones
-
-each file is a cross-subsystem consolidation layer
-
-the shared schemas and routes are written to serve NestJS, web, Telegram, affiliate, W2E, AI stories, and ops
-
-no previously emitted path was repeated in this batch
-
-
-What I corrected here is structural: instead of subsystem-local request shapes and ad hoc route logic, the intelligence layer now has a single route contract family for:
-
-checkout risk
-
-affiliate risk
-
-watch-to-earn telemetry risk
-
-captcha verification
-
-AI story generation
-
-internal ops/admin
-
-health/root surfaces
