@@ -26,6 +26,7 @@ import { AppLoggerService } from "./services/app-logger.service";
 import { AuthJwtService } from "./services/auth.jwt.service";
 import { AuthSessionService } from "./services/auth.session.service";
 import { CacheTTLService } from "./services/cache-ttl.service";
+import { RedisCacheService } from "./services/cache.redis.service";
 import { LockService } from "./services/lock.service";
 import { MetricsService } from "./services/metrics.service";
 import { RateLimitService } from "./services/rate-limit.service";
@@ -56,6 +57,7 @@ const providers = [
   AuthJwtService,
   AuthSessionService,
   CacheTTLService,
+  RedisCacheService,
   LockService,
   MetricsService,
   RateLimitService,

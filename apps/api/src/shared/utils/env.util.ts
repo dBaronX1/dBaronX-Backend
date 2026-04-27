@@ -12,6 +12,23 @@ export class EnvUtil {
     return Number.isFinite(parsed) ? parsed : fallback;
   }
 
+  static getInteger(key: string, fallback = 0): number {
+    return Math.trunc(this.getNumber(key, fallback));
+  }
+
+  static getUrl(key: string, fallback = ""): string {
+    const value = this.getString(key, fallback).trim();
+
+    if (!value) return fallback;
+
+    try {
+      const parsed = new URL(value);
+      return parsed.toString().replace(/\/$/, "");
+    } catch {
+      return fallback;
+    }
+  }
+
   static getBoolean(key: string, fallback = false): boolean {
     const raw = String(process.env[key] ?? "").trim().toLowerCase();
 

@@ -1,6 +1,6 @@
 import { Logger, ValidationPipe, VersioningType } from "@nestjs/common";
 import { ConfigService } from "@nestjs/config";
-import { NestFactory, Reflector } from "@nestjs/core";
+import { NestFactory } from "@nestjs/core";
 import { DocumentBuilder, SwaggerModule } from "@nestjs/swagger";
 import compression from "compression";
 import cookieParser from "cookie-parser";
@@ -41,7 +41,6 @@ async function bootstrap() {
 
   const logger = new Logger("dBaronXBootstrap");
   const configService = app.get(ConfigService);
-  const reflector = app.get(Reflector);
 
   const port = Number(configService.get<string>("PORT") ?? process.env.PORT ?? 3001);
   const apiPrefix = configService.get<string>("API_PREFIX") ?? "api";
@@ -88,14 +87,14 @@ async function bootstrap() {
     defaultVersion: "1",
   });
 
-  const requestIdMiddleware = new RequestIdMiddleware();
-  const securityMiddleware = new SecurityMiddleware();
-  const maintenanceMiddleware = new MaintenanceMiddleware();
-  const ipBlockMiddleware = new IpBlockMiddleware();
-  const userAgentMiddleware = new UserAgentMiddleware();
-  const bodySizeMiddleware = new BodySizeMiddleware();
-  const rateLimitMiddleware = new RateLimitMiddleware();
-  const requestLoggerMiddleware = new RequestLoggerMiddleware();
+  const requestIdMiddleware = app.get(RequestIdMiddleware);
+  const securityMiddleware = app.get(SecurityMiddleware);
+  const maintenanceMiddleware = app.get(MaintenanceMiddleware);
+  const ipBlockMiddleware = app.get(IpBlockMiddleware);
+  const userAgentMiddleware = app.get(UserAgentMiddleware);
+  const bodySizeMiddleware = app.get(BodySizeMiddleware);
+  const rateLimitMiddleware = app.get(RateLimitMiddleware);
+  const requestLoggerMiddleware = app.get(RequestLoggerMiddleware);
 
   app.use(requestIdMiddleware.use.bind(requestIdMiddleware));
   app.use(securityMiddleware.use.bind(securityMiddleware));
@@ -121,21 +120,21 @@ async function bootstrap() {
     }),
   );
 
-  app.useGlobalFilters(new AllExceptionsFilter());
+  app.useGlobalFilters(app.get(AllExceptionsFilter));
 
   app.useGlobalGuards(
-    new PublicGuard(reflector),
+    app.get(PublicGuard),
     app.get(JwtAuthGuard),
     app.get(RateLimitGuard),
     app.get(RolesGuard),
   );
 
   app.useGlobalInterceptors(
-    new RequestContextInterceptor(),
-    new LoggingInterceptor(),
-    new TimeoutInterceptor(),
-    new CacheInterceptor(),
-    new ResponseTransformInterceptor(),
+    app.get(RequestContextInterceptor),
+    app.get(LoggingInterceptor),
+    app.get(TimeoutInterceptor),
+    app.get(CacheInterceptor),
+    app.get(ResponseTransformInterceptor),
   );
 
   if (process.env.NODE_ENV !== "production" || process.env.ENABLE_SWAGGER === "true") {

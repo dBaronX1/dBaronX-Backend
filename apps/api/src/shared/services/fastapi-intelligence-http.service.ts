@@ -5,7 +5,7 @@ import {
   Logger,
 } from "@nestjs/common";
 import { ConfigService } from "@nestjs/config";
-import axios, { AxiosInstance, AxiosRequestConfig } from "axios";
+import axios, { AxiosInstance, AxiosRequestConfig, RawAxiosRequestHeaders } from "axios";
 import { randomUUID } from "crypto";
 import {
   FastapiEnvelope,
@@ -82,7 +82,7 @@ export class FastapiIntelligenceHttpService {
       url: path,
       method,
       data,
-      headers: finalHeaders,
+      headers: finalHeaders as unknown as RawAxiosRequestHeaders,
     };
 
     const response = await this.client.request(config);

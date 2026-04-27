@@ -1,6 +1,15 @@
 import { SYSTEM_CONSTANTS } from "../constants/system.constants";
 
 export class PaginationUtil {
+  static toRange(page: number, limit: number): { from: number; to: number } {
+    const safePage = Math.max(1, Math.trunc(Number(page) || 1));
+    const safeLimit = Math.max(1, Math.trunc(Number(limit) || 1));
+    const from = (safePage - 1) * safeLimit;
+    const to = from + safeLimit - 1;
+
+    return { from, to };
+  }
+
   static fromQuery(query: Record<string, unknown>) {
     const page = Math.max(
       1,

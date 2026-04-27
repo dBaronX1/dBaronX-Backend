@@ -1,4 +1,5 @@
-import { NextFunction, Request, Response } from "express";
+import { Injectable, NestMiddleware } from "@nestjs/common";
+import type { NextFunction, Request, Response } from "express";
 
 const ALLOWED_PREFIXES = [
   "/",
@@ -13,6 +14,8 @@ const ALLOWED_PREFIXES = [
   "/api/v1/health/ready",
 ];
 
+type RequestWithContext = Request & { context?: Record<string, unknown> };
+
 function isMaintenanceEnabled(): boolean {
   const raw = String(process.env.MAINTENANCE_MODE || "false").toLowerCase();
   return ["1", "true", "yes", "on"].includes(raw);
@@ -23,7 +26,7 @@ function isAllowedDuringMaintenance(path: string): boolean {
 }
 
 export function maintenanceMiddleware(
-  req: Request & { context?: Record<string, unknown> },
+  req: RequestWithContext,
   res: Response,
   next: NextFunction,
 ): void {
@@ -52,4 +55,11 @@ export function maintenanceMiddleware(
     requestId,
     timestamp: new Date().toISOString(),
   });
+}
+
+@Injectable()
+export class MaintenanceMiddleware implements NestMiddleware {
+  use(req: RequestWithContext, res: Response, next: NextFunction): void {
+    maintenanceMiddleware(req, res, next);
+  }
 }

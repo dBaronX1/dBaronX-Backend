@@ -35,9 +35,20 @@ export class PaymentIntelligenceService {
       requestId,
     );
 
+    const paymentPreflight = response.payment_preflight && typeof response.payment_preflight === "object"
+      ? response.payment_preflight
+      : {
+          allow: false,
+          decision: "deny" as const,
+          decision_score: 1,
+          telemetry: {},
+          trust: {},
+          reasons: ["missing_payment_preflight_payload"],
+        };
+
     return {
       success: true,
-      paymentPreflight: response.payment_preflight,
+      paymentPreflight,
     };
   }
 }

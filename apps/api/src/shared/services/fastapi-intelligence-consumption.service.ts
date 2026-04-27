@@ -17,8 +17,8 @@ export class FastapiIntelligenceConsumptionService {
     private readonly headers: InternalRequestHeadersService,
   ) {}
 
-  async handshake(requestId?: string): Promise<FastapiEnvelope<FastapiHandshakeSummary>> {
-    return this.fastapiHttp.get<FastapiHandshakeSummary>(
+  async handshake(requestId?: string): Promise<FastapiEnvelope<{ nestjs_handshake: FastapiHandshakeSummary }>> {
+    return this.fastapiHttp.get<{ nestjs_handshake: FastapiHandshakeSummary }>(
       "/nestjs-handshake/snapshot",
       this.headers.forStartup(requestId),
     );
@@ -26,8 +26,8 @@ export class FastapiIntelligenceConsumptionService {
 
   async runtimeSnapshot(
     requestId?: string,
-  ): Promise<FastapiEnvelope<FastapiRuntimeSnapshot>> {
-    return this.fastapiHttp.get<FastapiRuntimeSnapshot>(
+  ): Promise<FastapiEnvelope<{ runtime_snapshot: FastapiRuntimeSnapshot }>> {
+    return this.fastapiHttp.get<{ runtime_snapshot: FastapiRuntimeSnapshot }>(
       "/runtime-snapshot/snapshot",
       this.headers.forRuntimeProbe(requestId),
     );
@@ -35,8 +35,8 @@ export class FastapiIntelligenceConsumptionService {
 
   async bootstrapGuard(
     requestId?: string,
-  ): Promise<FastapiEnvelope<FastapiBootstrapRuntimeGuard>> {
-    return this.fastapiHttp.get<FastapiBootstrapRuntimeGuard>(
+  ): Promise<FastapiEnvelope<{ bootstrap_runtime_guard: FastapiBootstrapRuntimeGuard }>> {
+    return this.fastapiHttp.get<{ bootstrap_runtime_guard: FastapiBootstrapRuntimeGuard }>(
       "/bootstrap-runtime-guard/snapshot",
       this.headers.forStartup(requestId),
     );
@@ -44,8 +44,8 @@ export class FastapiIntelligenceConsumptionService {
 
   async step1Closure(
     requestId?: string,
-  ): Promise<FastapiEnvelope<FastapiStep1Closure>> {
-    return this.fastapiHttp.get<FastapiStep1Closure>(
+  ): Promise<FastapiEnvelope<{ fastapi_step1_closure: FastapiStep1Closure }>> {
+    return this.fastapiHttp.get<{ fastapi_step1_closure: FastapiStep1Closure }>(
       "/fastapi-step1-closure/snapshot",
       this.headers.forStartup(requestId),
     );
@@ -53,8 +53,8 @@ export class FastapiIntelligenceConsumptionService {
 
   async launchControl(
     requestId?: string,
-  ): Promise<FastapiEnvelope<FastapiLaunchControlManifest>> {
-    return this.fastapiHttp.get<FastapiLaunchControlManifest>(
+  ): Promise<FastapiEnvelope<{ launch_control_manifest: FastapiLaunchControlManifest }>> {
+    return this.fastapiHttp.get<{ launch_control_manifest: FastapiLaunchControlManifest }>(
       "/launch-control-manifest/snapshot",
       this.headers.forEconomicBrain(requestId),
     );

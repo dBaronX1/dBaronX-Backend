@@ -21,6 +21,14 @@ import {
 
 @Injectable()
 export class DbxPaymentService {
+  private toRecord(value: unknown): Record<string, unknown> {
+    if (value && typeof value === "object" && !Array.isArray(value)) {
+      return value as Record<string, unknown>;
+    }
+
+    return { value };
+  }
+
   private readonly logger = new Logger(DbxPaymentService.name);
 
   private readonly allowedTransitions: Record<DbxPaymentStatus, DbxPaymentStatus[]> = {
@@ -173,7 +181,7 @@ export class DbxPaymentService {
         transactionSignature: dto.transactionSignature,
         status: verification.verified ? "passed" : "failed",
         reason: verification.reason || null,
-        rawResponse: verification.raw || verification,
+        rawResponse: this.toRecord(verification.raw || verification),
       });
 
       if (!verification.verified) {

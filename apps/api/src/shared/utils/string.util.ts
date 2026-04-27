@@ -26,4 +26,12 @@ export class StringUtil {
   static oneLine(value: string): string {
     return String(value || "").replace(/\s+/g, " ").trim();
   }
+
+  static compact(value: unknown): string {
+    return String(value ?? "").replace(/\s+/g, "").trim();
+  }
+
+  static normalizeEmail(value: unknown): string {
+    return String(value ?? "").trim().toLowerCase();
+  }
 }
