@@ -41,4 +41,5 @@ export default async function AffiliatePerformancePage() {
         payload={payouts.statusCounts ?? {}}
       />
     </main>
-  }
+  );
+}
