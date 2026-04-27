@@ -1,6 +1,6 @@
-import { loadEnv, defineConfig } from "@medusajs/framework/utils"
+﻿import { loadEnv, defineConfig } from "@medusajs/framework/utils"
 
-loadEnv(process.env.NODE_ENV || "development", process.cwd())
+loadEnv(process.env.NODE_ENV || "development", __dirname)
 
 const DATABASE_URL = process.env.DATABASE_URL
 const REDIS_URL = process.env.REDIS_URL
