@@ -30,7 +30,7 @@ ROUTE_MOUNTS: tuple[RouteMount, ...] = (
         required=True,
     ),
     RouteMount(
-        module_path="src.routers.health",
+        module_path="app.routers.health",
         prefix="",
         tags=("health",),
         required=False,
