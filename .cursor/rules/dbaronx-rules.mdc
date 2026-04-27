@@ -1,0 +1,40 @@
+---
+description: dBaronX non-negotiable coding rules
+alwaysApply: true
+---
+
+You are working on the dBaronX unified monorepo.
+
+Architecture:
+- apps/api = NestJS economic brain / API gateway.
+- apps/web = Rocket/Next.js frontend. Preserve Rocket UI and design.
+- apps/services-fastapi = FastAPI intelligence/risk/AI/DBX verification.
+- apps/telegram-bot = Telegram control/distribution surface.
+- Medusa is commerce-only.
+- Supabase/Postgres is persistence.
+
+Non-negotiable rules:
+1. Inspect existing files before editing.
+2. Do not rewrite files from scratch unless the file is proven corrupted.
+3. Do not weaken advanced files into smaller/basic shells.
+4. Do not touch Rocket frontend UI unless compile requires it.
+5. Do not create duplicate paths.
+6. Do not create placeholder files.
+7. Do not create temporary “rewrite later” files.
+8. Preserve app.module.ts and main.ts unless making surgical compile fixes.
+9. Make small compile-driven edits only.
+10. Run the relevant build after each repair batch.
+11. Show changed files and reason for each change.
+12. Stop and ask before deleting or replacing large files.
+
+Current priority:
+Make `pnpm --filter dbaronx-api build` pass first.
+
+Known NestJS blockers:
+- request-logger.middleware.ts was polluted/concatenated and should contain only RequestLoggerMiddleware.
+- SupabaseService needs getClient() compatibility while preserving existing client getter.
+- shared utilities may need missing methods added, not replaced.
+- middleware files may need class exports added while preserving function exports.
+- TooManyRequestsException must be replaced with HttpException + HttpStatus.TOO_MANY_REQUESTS.
+- boolean | object FastAPI response types need safe guards.
+- Supabase schema/auth/storage methods need explicit type annotations.
