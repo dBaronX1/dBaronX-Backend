@@ -1,0 +1,29 @@
+# Archived Fly.io reference config copied from apps/medusa/fly.toml.
+# Reference only; not active deployment source of truth.
+
+app = "dbaronx-medusa-backend"
+primary_region = "ams"
+
+[env]
+NODE_ENV = "production"
+PORT = "9000"
+
+[http_service]
+  internal_port = 9000
+  force_https = true
+  auto_stop_machines = "off"
+  auto_start_machines = true
+  min_machines_running = 1
+  processes = ["app"]
+
+[[http_service.checks]]
+  grace_period = "45s"
+  interval = "15s"
+  method = "GET"
+  path = "/health"
+  timeout = "10s"
+
+[[vm]]
+  cpu_kind = "shared"
+  cpus = 1
+  memory_mb = 1024

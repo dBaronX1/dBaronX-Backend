@@ -12,7 +12,8 @@
     "lint": "pnpm -r lint",
     "typecheck": "pnpm -r typecheck",
     "check:python": "python -m compileall apps/services-fastapi/src apps/telegram-bot/src",
-    "check:repo": "python .dbx-tools/scan_oversized_source_files.py && python .dbx-tools/scan_real_repo_pollution.py"
+    "check:repo": "python .dbx-tools/scan_oversized_source_files.py && python .dbx-tools/scan_real_repo_pollution.py",
+    "check:env-contracts": "node scripts/check-env-contracts.mjs"
   },
   "pnpm": {
     "onlyBuiltDependencies": [
