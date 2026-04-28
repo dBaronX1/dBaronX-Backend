@@ -1,0 +1,85 @@
+{
+    "name": "dBaronX \u2014 Eco-Commerce Platform",
+    "short_name": "dBaronX",
+    "description": "One Platform. Real Impact. Zero Waste. Ghana farm & recycling loops \u2192 your hands \u2192 verifiable on-chain proof.",
+    "start_url": "/home",
+    "display": "standalone",
+    "background_color": "#050510",
+    "theme_color": "#5E17EB",
+    "orientation": "portrait-primary",
+    "scope": "/",
+    "lang": "en",
+    "categories": [
+        "shopping",
+        "sustainability",
+        "finance"
+    ],
+    "icons": [
+        {
+            "src": "/favicon.ico",
+            "sizes": "48x48",
+            "type": "image/x-icon"
+        },
+        {
+            "src": "/assets/images/app_logo.png",
+            "sizes": "192x192",
+            "type": "image/png",
+            "purpose": "any maskable"
+        },
+        {
+            "src": "/assets/images/app_logo.png",
+            "sizes": "512x512",
+            "type": "image/png",
+            "purpose": "any maskable"
+        }
+    ],
+    "screenshots": [
+        {
+            "src": "/assets/images/app_logo.png",
+            "sizes": "1280x720",
+            "type": "image/png",
+            "form_factor": "wide",
+            "label": "dBaronX Shop \u2014 Eco-Commerce"
+        }
+    ],
+    "shortcuts": [
+        {
+            "name": "Shop",
+            "short_name": "Shop",
+            "description": "Browse eco-products",
+            "url": "/shop",
+            "icons": [
+                {
+                    "src": "/assets/images/app_logo.png",
+                    "sizes": "96x96"
+                }
+            ]
+        },
+        {
+            "name": "Impact Hub",
+            "short_name": "Impact",
+            "description": "Live impact metrics",
+            "url": "/impact",
+            "icons": [
+                {
+                    "src": "/assets/images/app_logo.png",
+                    "sizes": "96x96"
+                }
+            ]
+        },
+        {
+            "name": "DBX Token",
+            "short_name": "DBX",
+            "description": "Token portal",
+            "url": "/dbx-token",
+            "icons": [
+                {
+                    "src": "/assets/images/app_logo.png",
+                    "sizes": "96x96"
+                }
+            ]
+        }
+    ],
+    "related_applications": [],
+    "prefer_related_applications": false
+}

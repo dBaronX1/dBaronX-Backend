@@ -1,0 +1,96 @@
+{
+    "nav": {
+        "home": "Accueil",
+        "shop": "Boutique",
+        "dreams": "R\u00eaves",
+        "aiStories": "Histoires IA",
+        "watchEarn": "Regarder & Gagner",
+        "affiliates": "Affili\u00e9s",
+        "dbxToken": "Token DBX",
+        "impact": "Hub d'Impact",
+        "blog": "Blog",
+        "admin": "Admin",
+        "login": "Connexion",
+        "join": "Rejoindre",
+        "signOut": "D\u00e9connexion"
+    },
+    "hero": {
+        "tagline": "Une Plateforme. Un Impact R\u00e9el. Z\u00e9ro D\u00e9chet.",
+        "subtitle": "Des fermes du Ghana et boucles de recyclage \u2192 vos mains \u2192 preuve v\u00e9rifiable sur la blockchain.",
+        "cta_shop": "Acheter Maintenant",
+        "cta_impact": "Voir l'Impact",
+        "cta_community": "Rejoindre la Communaut\u00e9"
+    },
+    "impact": {
+        "title": "Hub d'Impact en Temps R\u00e9el",
+        "subtitle": "M\u00e9triques en direct de nos op\u00e9rations au Ghana \u2014 mises \u00e0 jour quotidiennement",
+        "waste_processed": "D\u00e9chets Trait\u00e9s",
+        "co2_saved": "CO\u2082 \u00c9conomis\u00e9",
+        "jobs_created": "Emplois Cr\u00e9\u00e9s",
+        "farm_yield": "Rendement Agricole",
+        "biogas_energy": "\u00c9nergie Biogaz",
+        "plastic_recycled": "Plastique Recycl\u00e9",
+        "soap_produced": "Savons Produits",
+        "biochar_produced": "Biochar Produit",
+        "tons": "tonnes",
+        "kg": "kg",
+        "kwh": "kWh",
+        "bars": "barres",
+        "download_certificate": "T\u00e9l\u00e9charger le Certificat Carbone",
+        "mint_onchain": "Frapper On-Chain"
+    },
+    "shop": {
+        "title": "Boutique \u00c9co-Commerce",
+        "subtitle": "Produits sourc\u00e9s au Ghana, \u00e9conomie circulaire",
+        "add_to_cart": "Ajouter au Panier",
+        "view_trace": "Voir la Tra\u00e7abilit\u00e9",
+        "in_stock": "En Stock",
+        "out_of_stock": "Rupture de Stock",
+        "dbx_discount": "Remise DBX",
+        "categories": {
+            "all": "Tous les Produits",
+            "soaps": "Savons Naturels",
+            "biochar": "Biochar",
+            "pavers": "Pav\u00e9s Recycl\u00e9s",
+            "produce": "Produits Agricoles",
+            "biogas": "Produits Biogaz"
+        }
+    },
+    "blog": {
+        "title": "Histoires de Ferme & Recyclage",
+        "subtitle": "Vraies histoires de nos op\u00e9rations au Ghana",
+        "read_more": "Lire la Suite",
+        "categories": {
+            "farm-stories": "Histoires de Ferme",
+            "sustainability": "Durabilit\u00e9",
+            "recycling": "Recyclage",
+            "community": "Communaut\u00e9"
+        }
+    },
+    "shipping": {
+        "title": "Livraison Anonyme Sans Tracas",
+        "subtitle": "Aucune adresse domicile requise. R\u00e9cup\u00e9rez en bureau de poste, casier ou centre de s\u00e9curit\u00e9.",
+        "select_option": "Choisir un Point de Retrait",
+        "post_office": "Bureau de Poste",
+        "parcel_locker": "Casier \u00e0 Colis",
+        "security_center": "Centre de S\u00e9curit\u00e9",
+        "tracking": "Suivre Votre Commande"
+    },
+    "traceability": {
+        "title": "Tra\u00e7abilit\u00e9 Blockchain",
+        "subtitle": "Scannez le QR pour v\u00e9rifier la preuve on-chain",
+        "farm_source": "Source Agricole",
+        "processing": "Traitement",
+        "waste_impact": "Impact D\u00e9chets",
+        "co2_impact": "Impact CO\u2082",
+        "jobs_supported": "Emplois Soutenus",
+        "verified": "V\u00e9rifi\u00e9 On-Chain",
+        "view_solana": "Voir sur Solana"
+    },
+    "accessibility": {
+        "skip_to_content": "Aller au contenu principal",
+        "high_contrast": "Basculer le contraste \u00e9lev\u00e9",
+        "reduce_motion": "R\u00e9duire les animations",
+        "language_select": "Choisir la langue"
+    }
+}
