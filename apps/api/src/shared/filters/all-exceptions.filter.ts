@@ -8,6 +8,7 @@ import {
   Logger,
 } from "@nestjs/common";
 import { Request, Response } from "express";
+import { PublicReferenceUtil } from "../utils/public-reference.util";
 import { SecurityUtil } from "../utils/security.util";
 
 type JsonLike = Record<string, unknown>;
@@ -33,7 +34,7 @@ export class AllExceptionsFilter implements ExceptionFilter {
 
     const requestId = this.extractRequestId(request);
     const correlationId = requestId;
-    const reference = this.buildPublicReference(requestId);
+    const reference = PublicReferenceUtil.fromRequestId(requestId);
     const startedAt = this.resolveStartedAt(request);
     const durationMs = startedAt ? Math.max(0, Date.now() - startedAt) : undefined;
 
@@ -263,13 +264,6 @@ export class AllExceptionsFilter implements ExceptionFilter {
     }
 
     return SecurityUtil.redactObject(details);
-  }
-
-  private buildPublicReference(requestId: string): string {
-    const normalized = String(requestId || "").replace(/[^a-zA-Z0-9]/g, "");
-    const suffix = normalized.slice(-12) || `${Date.now()}`;
-
-    return `ref_${suffix}`;
   }
 
   private defaultCodeForStatus(status: number): string {

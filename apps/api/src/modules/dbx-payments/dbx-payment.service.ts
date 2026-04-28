@@ -83,12 +83,12 @@ export class DbxPaymentService {
   }
 
   async getIntent(reference: string): Promise<DbxPaymentIntentRecord> {
-    const intent = await this.repository.findByReferenceOrThrow(reference);
+    const intent = await this.findIntentByReferenceOrThrowCompat(reference);
     return this.expireIfNeeded(intent);
   }
 
   async submitPayment(dto: SubmitDbxPaymentDto): Promise<DbxPaymentIntentRecord> {
-    const intent = await this.repository.findByReferenceOrThrow(dto.intentReference);
+    const intent = await this.findIntentByReferenceOrThrowCompat(dto.intentReference);
     const checked = await this.expireIfNeeded(intent);
 
     if (checked.status === "expired") {
@@ -132,7 +132,8 @@ export class DbxPaymentService {
   }
 
   async confirmPayment(dto: ConfirmDbxPaymentDto): Promise<DbxPaymentIntentRecord> {
-    const lockKey = `dbx-payment-confirm:${dto.intentReference}`;
+    const normalizedLockReference = this.reference.normalizeForLookup(dto.intentReference);
+    const lockKey = `dbx-payment-confirm:${normalizedLockReference}`;
     const lock = this.locks.acquire(lockKey, 30_000);
 
     if (!lock.acquired || !lock.token) {
@@ -218,7 +219,7 @@ export class DbxPaymentService {
   }
 
   async retryOrderSync(reference: string): Promise<DbxPaymentIntentRecord> {
-    const intent = await this.repository.findByReferenceOrThrow(reference);
+    const intent = await this.findIntentByReferenceOrThrowCompat(reference);
 
     if (!["verified", "verified_pending_order_sync"].includes(intent.status)) {
       throw new ConflictException({
@@ -228,6 +229,21 @@ export class DbxPaymentService {
     }
 
     return this.completeVerifiedPayment(intent);
+  }
+
+  private async findIntentByReferenceOrThrowCompat(
+    rawReference: string,
+  ): Promise<DbxPaymentIntentRecord> {
+    const candidates = this.reference.toLookupCandidates(rawReference);
+
+    for (const candidate of candidates) {
+      const intent = await this.repository.findByReference(candidate);
+      if (intent) {
+        return intent;
+      }
+    }
+
+    return this.repository.findByReferenceOrThrow(rawReference);
   }
 
   private async completeVerifiedPayment(
