@@ -1,0 +1,96 @@
+{
+    "nav": {
+        "home": "Fie",
+        "shop": "Duka",
+        "dreams": "Anidasom",
+        "aiStories": "AI Ns\u025bm",
+        "watchEarn": "Hw\u025b & Nya",
+        "affiliates": "Nkaaho\u0254",
+        "dbxToken": "DBX Token",
+        "impact": "Nk\u0254so\u0254 Hub",
+        "blog": "Blog",
+        "admin": "Admin",
+        "login": "Wo k\u0254 mu",
+        "join": "Baa mu",
+        "signOut": "Pue"
+    },
+    "hero": {
+        "tagline": "Platform Baako. Nk\u0254so\u0254 Nokware. Mfifide Biara Nni H\u0254.",
+        "subtitle": "\u0190firi Ghana afuo ne nk\u0254so\u0254 loops \u2192 wo nsa \u2192 blockchain so adanse.",
+        "cta_shop": "T\u0254 Nn\u025b",
+        "cta_impact": "Hw\u025b Nk\u0254so\u0254",
+        "cta_community": "Baa \u0186manfo\u0254 Mu"
+    },
+    "impact": {
+        "title": "Nk\u0254so\u0254 Hub Bere Biara",
+        "subtitle": "Nk\u0254so\u0254 data firi Ghana \u2014 w\u0254 update da biara",
+        "waste_processed": "Mfifide a W\u0254de Ay\u025b Adwuma",
+        "co2_saved": "CO\u2082 a W\u0254agye",
+        "jobs_created": "Adwuma a W\u0254ay\u025b",
+        "farm_yield": "Afuo Aba",
+        "biogas_energy": "Biogas Tumi",
+        "plastic_recycled": "Plastic a W\u0254de Sane",
+        "soap_produced": "Samina a W\u0254ay\u025b",
+        "biochar_produced": "Biochar a W\u0254ay\u025b",
+        "tons": "ton",
+        "kg": "kg",
+        "kwh": "kWh",
+        "bars": "bars",
+        "download_certificate": "Fa Carbon Certificate",
+        "mint_onchain": "Mint On-Chain"
+    },
+    "shop": {
+        "title": "Eco-Commerce Duka",
+        "subtitle": "Ghana afuo nn\u025b\u025bma, circular economy",
+        "add_to_cart": "Fa K\u0254 Cart",
+        "view_trace": "Hw\u025b Trace",
+        "in_stock": "W\u0254 H\u0254",
+        "out_of_stock": "Nni H\u0254",
+        "dbx_discount": "DBX Discount",
+        "categories": {
+            "all": "Nn\u025b\u025bma Nyinaa",
+            "soaps": "Samina Nokware",
+            "biochar": "Biochar",
+            "pavers": "Plastic Pavers",
+            "produce": "Afuo Nn\u025b\u025bma",
+            "biogas": "Biogas Nn\u025b\u025bma"
+        }
+    },
+    "blog": {
+        "title": "Afuo ne Nk\u0254so\u0254 Ns\u025bm",
+        "subtitle": "Nokware ns\u025bm firi Ghana",
+        "read_more": "Kenkan Biara",
+        "categories": {
+            "farm-stories": "Afuo Ns\u025bm",
+            "sustainability": "Nk\u0254so\u0254",
+            "recycling": "Nk\u0254so\u0254 Sane",
+            "community": "\u0186man"
+        }
+    },
+    "shipping": {
+        "title": "Delivery a W\u0254nim Wo Din",
+        "subtitle": "Wo fie address nhia. Fa firi post office, locker, anaa security centre.",
+        "select_option": "Paw Pickup Point",
+        "post_office": "Post Office",
+        "parcel_locker": "Parcel Locker",
+        "security_center": "Security Centre",
+        "tracking": "Hw\u025b Wo Order"
+    },
+    "traceability": {
+        "title": "Blockchain Trace",
+        "subtitle": "Scan QR na hw\u025b blockchain adanse",
+        "farm_source": "Afuo Source",
+        "processing": "Adwuma",
+        "waste_impact": "Mfifide Impact",
+        "co2_impact": "CO\u2082 Impact",
+        "jobs_supported": "Adwuma a W\u0254boa",
+        "verified": "Blockchain so Adanse",
+        "view_solana": "Hw\u025b Solana So"
+    },
+    "accessibility": {
+        "skip_to_content": "K\u0254 content titiriw",
+        "high_contrast": "Sesa contrast",
+        "reduce_motion": "Sua motion",
+        "language_select": "Paw kasa"
+    }
+}

@@ -1,0 +1,96 @@
+{
+    "nav": {
+        "home": "Home",
+        "shop": "Shop",
+        "dreams": "Dreams",
+        "aiStories": "AI Stories",
+        "watchEarn": "Watch & Earn",
+        "affiliates": "Affiliates",
+        "dbxToken": "DBX Token",
+        "impact": "Impact Hub",
+        "blog": "Blog",
+        "admin": "Admin",
+        "login": "Login",
+        "join": "Join",
+        "signOut": "Sign Out"
+    },
+    "hero": {
+        "tagline": "One Platform. Real Impact. Zero Waste.",
+        "subtitle": "From Ghana farm & recycling loops \u2192 your hands \u2192 verifiable on-chain proof.",
+        "cta_shop": "Shop Now",
+        "cta_impact": "View Impact",
+        "cta_community": "Join Community"
+    },
+    "impact": {
+        "title": "Real-Time Impact Hub",
+        "subtitle": "Live metrics from our Ghana operations \u2014 updated daily",
+        "waste_processed": "Waste Processed",
+        "co2_saved": "CO\u2082 Saved",
+        "jobs_created": "Jobs Created",
+        "farm_yield": "Farm Yield",
+        "biogas_energy": "Biogas Energy",
+        "plastic_recycled": "Plastic Recycled",
+        "soap_produced": "Soap Bars Produced",
+        "biochar_produced": "Biochar Produced",
+        "tons": "tons",
+        "kg": "kg",
+        "kwh": "kWh",
+        "bars": "bars",
+        "download_certificate": "Download Carbon Certificate",
+        "mint_onchain": "Mint On-Chain"
+    },
+    "shop": {
+        "title": "Eco-Commerce Store",
+        "subtitle": "Ghana-sourced, circular economy products",
+        "add_to_cart": "Add to Cart",
+        "view_trace": "View Trace",
+        "in_stock": "In Stock",
+        "out_of_stock": "Out of Stock",
+        "dbx_discount": "DBX Discount",
+        "categories": {
+            "all": "All Products",
+            "soaps": "Natural Soaps",
+            "biochar": "Biochar",
+            "pavers": "Recycled Pavers",
+            "produce": "Farm Produce",
+            "biogas": "Biogas Products"
+        }
+    },
+    "blog": {
+        "title": "Farm & Recycling Stories",
+        "subtitle": "Real stories from our Ghana operations",
+        "read_more": "Read More",
+        "categories": {
+            "farm-stories": "Farm Stories",
+            "sustainability": "Sustainability",
+            "recycling": "Recycling",
+            "community": "Community"
+        }
+    },
+    "shipping": {
+        "title": "Anonymous Hustle-Free Shipping",
+        "subtitle": "No home address required. Pick up from post offices, parcel lockers, or security centers.",
+        "select_option": "Select Pickup Point",
+        "post_office": "Post Office",
+        "parcel_locker": "Parcel Locker",
+        "security_center": "Security Center",
+        "tracking": "Track Your Order"
+    },
+    "traceability": {
+        "title": "Blockchain Traceability",
+        "subtitle": "Scan QR to verify on-chain proof",
+        "farm_source": "Farm Source",
+        "processing": "Processing",
+        "waste_impact": "Waste Impact",
+        "co2_impact": "CO\u2082 Impact",
+        "jobs_supported": "Jobs Supported",
+        "verified": "Verified On-Chain",
+        "view_solana": "View on Solana"
+    },
+    "accessibility": {
+        "skip_to_content": "Skip to main content",
+        "high_contrast": "Toggle high contrast",
+        "reduce_motion": "Reduce motion",
+        "language_select": "Select language"
+    }
+}

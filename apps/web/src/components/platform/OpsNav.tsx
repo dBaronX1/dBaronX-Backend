@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
+import { LocaleAccessibilityControls } from "@/components/platform/LocaleAccessibilityControls";
 import { OPS_NAV_ITEMS } from "@/lib/ops/navigation";
 
 export function OpsNav() {
@@ -12,6 +13,10 @@ export function OpsNav() {
       aria-label="Operations navigation"
       className="rounded-2xl border bg-white p-3 shadow-sm"
     >
+      <div className="mb-3 flex justify-end">
+        <LocaleAccessibilityControls />
+      </div>
+
       <div className="grid gap-2 md:grid-cols-2 xl:grid-cols-3">
         {OPS_NAV_ITEMS.map((item) => {
           const active =
