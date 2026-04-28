@@ -28,6 +28,7 @@ class Settings(BaseSettings):
 
     REQUEST_TIMEOUT_SECONDS: int = Field(default=20)
     ENABLE_WEBHOOK_SIGNATURE_CHECK: bool = Field(default=False)
+    MAX_WEBHOOK_BODY_BYTES: int = Field(default=1_048_576)
 
     @property
     def admin_id_set(self) -> set[str]:

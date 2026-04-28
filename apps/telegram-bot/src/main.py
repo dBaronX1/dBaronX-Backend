@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI, Header, HTTPException, Request
@@ -12,17 +13,28 @@ from core.settings import get_settings
 configure_logging()
 settings = get_settings()
 telegram_app = build_telegram_application()
+telegram_app_started = False
+
+
+async def _ensure_telegram_runtime_started() -> None:
+    global telegram_app_started
+    if telegram_app_started:
+        return
+
+    await telegram_app.initialize()
+    await telegram_app.start()
+    telegram_app_started = True
 
 
 @asynccontextmanager
 async def lifespan(_app: FastAPI):
-    await telegram_app.initialize()
-    await telegram_app.start()
+    await _ensure_telegram_runtime_started()
     try:
         yield
     finally:
-        await telegram_app.stop()
-        await telegram_app.shutdown()
+        if telegram_app_started:
+            await telegram_app.stop()
+            await telegram_app.shutdown()
 
 
 app = FastAPI(
@@ -38,7 +50,15 @@ async def health() -> dict[str, object]:
         "success": True,
         "service": settings.APP_NAME,
         "environment": settings.ENVIRONMENT,
+        "telegramRuntimeStarted": telegram_app_started,
     }
+
+
+@app.get("/ready")
+async def ready() -> dict[str, object]:
+    if not telegram_app_started:
+        raise HTTPException(status_code=503, detail="telegram runtime not started")
+    return {"ok": True, "telegramRuntimeStarted": True}
 
 
 @app.post("/webhook/telegram")
@@ -51,7 +71,19 @@ async def telegram_webhook(
         if not expected or x_telegram_bot_api_secret_token != expected:
             raise HTTPException(status_code=401, detail="invalid webhook secret")
 
-    payload = await request.json()
+    body = await request.body()
+    if len(body) > settings.MAX_WEBHOOK_BODY_BYTES:
+        raise HTTPException(status_code=413, detail="webhook payload too large")
+
+    try:
+        payload = json.loads(body)
+    except json.JSONDecodeError as exc:
+        raise HTTPException(status_code=400, detail="invalid webhook payload") from exc
+
+    if not isinstance(payload, dict):
+        raise HTTPException(status_code=400, detail="invalid webhook payload")
+
+    await _ensure_telegram_runtime_started()
     update = Update.de_json(payload, telegram_app.bot)
     await telegram_app.process_update(update)
     return {"ok": True}
