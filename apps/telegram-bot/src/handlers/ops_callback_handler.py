@@ -23,6 +23,9 @@ async def ops_callback_handler(update: Update, context: ContextTypes.DEFAULT_TYP
         "ops:commerce": "Use /commerce_ops",
         "ops:status": "Use /status",
         "ops:admin": "Use /admin",
+        "ops:ops_pack": "Use /ops_pack",
+        "ops:commands": "Use /commands",
+        "ops:help": "Use /help",
     }
 
     await query.edit_message_text(mapping.get(query.data or "", "Unknown ops action."))

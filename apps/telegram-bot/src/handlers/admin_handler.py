@@ -85,6 +85,20 @@ class AdminHandlerService:
                 actor_id=actor.telegram_user_id
             )
             text = format_fastapi_closure(payload)
+        elif query.data == "admin:ops":
+            text = "Use /ops"
+        elif query.data == "admin:admin_summary":
+            text = "Use /admin_summary"
+        elif query.data == "admin:launch_audit":
+            text = "Use /launch_audit"
+        elif query.data == "admin:commands":
+            text = "Use /commands"
+        elif query.data == "admin:help":
+            text = "Use /help"
+        elif query.data == "admin:telegram_closure":
+            text = "Use /telegram_closure"
+        elif query.data == "admin:telegram_handoff":
+            text = "Use /telegram_handoff"
         else:
             text = "Unknown admin action."
 

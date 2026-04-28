@@ -18,5 +18,12 @@ def ops_surface_keyboard() -> InlineKeyboardMarkup:
                 InlineKeyboardButton("Status", callback_data="ops:status"),
                 InlineKeyboardButton("Admin", callback_data="ops:admin"),
             ],
+            [
+                InlineKeyboardButton("Ops Pack", callback_data="ops:ops_pack"),
+                InlineKeyboardButton("Command Manifest", callback_data="ops:commands"),
+            ],
+            [
+                InlineKeyboardButton("Help", callback_data="ops:help"),
+            ],
         ]
     )
