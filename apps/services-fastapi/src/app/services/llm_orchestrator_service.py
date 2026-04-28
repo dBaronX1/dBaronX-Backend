@@ -3,10 +3,6 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Any
 
-from app.services.anthropic_provider import AnthropicProvider
-from app.services.gemini_provider import GeminiProvider
-from app.services.openai_provider import OpenAIProvider
-
 
 @dataclass(slots=True)
 class LLMGenerationResult:
@@ -30,9 +26,9 @@ class LLMOrchestratorService:
     def __init__(
         self,
         *,
-        anthropic_provider: AnthropicProvider | None = None,
-        openai_provider: OpenAIProvider | None = None,
-        gemini_provider: GeminiProvider | None = None,
+        anthropic_provider: Any | None = None,
+        openai_provider: Any | None = None,
+        gemini_provider: Any | None = None,
     ) -> None:
         self.anthropic_provider = anthropic_provider
         self.openai_provider = openai_provider

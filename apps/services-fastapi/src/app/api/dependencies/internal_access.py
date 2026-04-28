@@ -4,7 +4,7 @@ from fastapi import Depends, Header, HTTPException, Request, status
 
 from app.core.security.internal_access import InternalAccessValidator
 from app.core.security.request_identity import RequestIdentity, RequestIdentityBuilder
-from app.core.settings import get_settings
+from app.core.config import get_settings
 
 
 def require_internal_access(

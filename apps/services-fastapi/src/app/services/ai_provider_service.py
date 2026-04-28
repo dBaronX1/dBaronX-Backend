@@ -390,3 +390,6 @@ class AiProviderService:
 
 
 ai_provider_service = AiProviderService()
+
+# Backward-compatible class alias for legacy imports.
+AIProviderService = AiProviderService
