@@ -1,0 +1,106 @@
+# Draft Render blueprint for dBaronX unified repo
+services:
+  - type: web
+    name: dbaronx-api
+    env: node
+    rootDir: apps/api
+    plan: starter
+    buildCommand: pnpm install --frozen-lockfile && pnpm --filter dbaronx-api build
+    startCommand: pnpm --filter dbaronx-api start
+    healthCheckPath: /health
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: PORT
+        value: 3001
+      - key: APP_URL
+        sync: false
+      - key: FRONTEND_URL
+        sync: false
+      - key: SUPABASE_URL
+        sync: false
+      - key: SUPABASE_SERVICE_ROLE_KEY
+        sync: false
+      - key: MEDUSA_BASE_URL
+        sync: false
+      - key: FASTAPI_BASE_URL
+        sync: false
+      - key: INTERNAL_SERVICE_TOKEN
+        sync: false
+
+  - type: web
+    name: dbaronx-fastapi
+    env: python
+    rootDir: apps/services-fastapi
+    plan: starter
+    buildCommand: pip install -e .
+    startCommand: PYTHONPATH=src python -m uvicorn src.main:app --host 0.0.0.0 --port $PORT
+    healthCheckPath: /health
+    envVars:
+      - key: APP_ENV
+        value: production
+      - key: PORT
+        value: 8080
+      - key: FRONTEND_URL
+        sync: false
+      - key: NESTJS_BASE_URL
+        sync: false
+      - key: INTERNAL_SERVICE_TOKEN
+        sync: false
+      - key: JWT_SECRET
+        sync: false
+      - key: SUPABASE_URL
+        sync: false
+      - key: SUPABASE_SERVICE_ROLE_KEY
+        sync: false
+
+  - type: web
+    name: dbaronx-medusa
+    env: node
+    rootDir: apps/medusa
+    plan: starter
+    buildCommand: pnpm install --frozen-lockfile && pnpm --filter @dbaronx/medusa build
+    startCommand: pnpm --filter @dbaronx/medusa start
+    healthCheckPath: /health
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: PORT
+        value: 9000
+      - key: DATABASE_URL
+        sync: false
+      - key: REDIS_URL
+        sync: false
+      - key: STORE_CORS
+        sync: false
+      - key: ADMIN_CORS
+        sync: false
+      - key: AUTH_CORS
+        sync: false
+      - key: JWT_SECRET
+        sync: false
+      - key: COOKIE_SECRET
+        sync: false
+
+  - type: worker
+    name: dbaronx-telegram-bot
+    env: python
+    rootDir: apps/telegram-bot
+    plan: starter
+    buildCommand: pip install -r requirements.txt || pip install pydantic-settings python-telegram-bot httpx
+    startCommand: python -m src.main
+    envVars:
+      - key: ENVIRONMENT
+        value: production
+      - key: TELEGRAM_BOT_TOKEN
+        sync: false
+      - key: TELEGRAM_WEBHOOK_SECRET
+        sync: false
+      - key: TELEGRAM_ADMIN_IDS
+        sync: false
+      - key: NESTJS_BASE_URL
+        sync: false
+      - key: FASTAPI_BASE_URL
+        sync: false
+      - key: INTERNAL_SERVICE_TOKEN
+        sync: false
