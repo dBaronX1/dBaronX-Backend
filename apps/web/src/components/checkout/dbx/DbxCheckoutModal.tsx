@@ -1,6 +1,6 @@
 "use client";
 
-import { ReactNode, useEffect } from "react";
+import { useEffect } from "react";
 import { DbxCheckoutInline } from "@/components/checkout/dbx/DbxCheckoutInline";
 import type { DbxCheckoutInput } from "@/types/dbx-checkout";
 
@@ -11,7 +11,7 @@ interface DbxCheckoutModalProps {
   onClose: () => void;
   onCompleted?: (reference: string) => void;
   onFailed?: (reason: string) => void;
-  footer?: ReactNode;
+  footer?: React.ReactNode;
 }
 
 export function DbxCheckoutModal({
