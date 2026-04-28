@@ -21,6 +21,8 @@ class Settings(BaseSettings):
     TELEGRAM_BOT_TOKEN: str
     TELEGRAM_WEBHOOK_SECRET: str | None = None
     TELEGRAM_ADMIN_IDS: str = Field(default="")
+    TELEGRAM_ADMIN_USERNAMES: str = Field(default="")
+    TELEGRAM_ADMIN_CHAT_IDS: str = Field(default="")
 
     NESTJS_BASE_URL: str
     FASTAPI_BASE_URL: str
@@ -32,10 +34,23 @@ class Settings(BaseSettings):
 
     @property
     def admin_id_set(self) -> set[str]:
-        raw = self.TELEGRAM_ADMIN_IDS.strip()
-        if not raw:
-            return set()
-        return {part.strip() for part in raw.split(",") if part.strip()}
+        return _parse_csv_set(self.TELEGRAM_ADMIN_IDS)
+
+    @property
+    def admin_username_set(self) -> set[str]:
+        usernames = _parse_csv_set(self.TELEGRAM_ADMIN_USERNAMES)
+        return {name.removeprefix("@").lower() for name in usernames if name}
+
+    @property
+    def admin_chat_id_set(self) -> set[str]:
+        return _parse_csv_set(self.TELEGRAM_ADMIN_CHAT_IDS)
+
+
+def _parse_csv_set(raw_value: str) -> set[str]:
+    raw = raw_value.strip()
+    if not raw:
+        return set()
+    return {part.strip() for part in raw.split(",") if part.strip()}
 
 
 @lru_cache(maxsize=1)
