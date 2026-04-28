@@ -27,6 +27,7 @@ class SessionAnomalyCompiler:
         metrics = self._derive_metrics(aggregate)
 
         self._check_duplicate_reward_patterns(aggregate, metrics, signals)
+        self._check_legacy_reward_velocity_patterns(aggregate, metrics, signals)
         self._check_concurrency_patterns(aggregate, metrics, signals)
         self._check_heartbeat_integrity(aggregate, metrics, signals)
         self._check_completion_integrity(aggregate, metrics, signals)
@@ -115,6 +116,48 @@ class SessionAnomalyCompiler:
                         "duplicate_reward_attempts_24h": aggregate.duplicate_reward_attempts_24h,
                     },
                     penalty_score=22 if level == RiskLevel.HIGH else 35,
+                ),
+            )
+
+    def _check_legacy_reward_velocity_patterns(
+        self,
+        aggregate: WatchSessionAggregate,
+        metrics: dict[str, float | int | bool],
+        signals: list[CompiledFraudSignal],
+    ) -> None:
+        recent_reward_attempts_10m = self._read_int_evidence(aggregate.raw_evidence, "recent_reward_attempts_10m")
+        if recent_reward_attempts_10m >= 3:
+            severity = min(98, 66 + (recent_reward_attempts_10m * 5))
+            level = RiskLevel.HIGH if recent_reward_attempts_10m < 5 else RiskLevel.CRITICAL
+            signals.append(
+                CompiledFraudSignal(
+                    event_type=FraudEventType.DUPLICATE_REWARD_ATTEMPT,
+                    severity=severity,
+                    risk_level=level,
+                    title="Legacy reward burst pattern detected",
+                    detail="Multiple reward attempts were observed in a short legacy compatibility window.",
+                    evidence={
+                        "recent_reward_attempts_10m": recent_reward_attempts_10m,
+                        "window_minutes": 10,
+                    },
+                    penalty_score=14 if level == RiskLevel.HIGH else 24,
+                ),
+            )
+
+        distinct_ip_count_24h = self._read_int_evidence(aggregate.raw_evidence, "distinct_ip_count_24h")
+        if distinct_ip_count_24h >= 4 and aggregate.ip_session_count_15m >= 4:
+            signals.append(
+                CompiledFraudSignal(
+                    event_type=FraudEventType.IP_CLUSTER_RISK,
+                    severity=72,
+                    risk_level=RiskLevel.HIGH,
+                    title="Legacy IP rotation reward pattern",
+                    detail="Reward attempts show rapid IP diversity and short-window reuse, consistent with legacy abuse patterns.",
+                    evidence={
+                        "distinct_ip_count_24h": distinct_ip_count_24h,
+                        "ip_session_count_15m": aggregate.ip_session_count_15m,
+                    },
+                    penalty_score=18,
                 ),
             )
 
@@ -443,3 +486,23 @@ class SessionAnomalyCompiler:
         if total_penalty >= 18:
             return TelemetryIntegrityGrade.MODERATE
         return TelemetryIntegrityGrade.STRONG
+
+    def _read_int_evidence(self, evidence: dict[str, object], key: str) -> int:
+        raw = evidence.get(key)
+        if raw is None:
+            return 0
+        if isinstance(raw, bool):
+            return int(raw)
+        if isinstance(raw, int):
+            return max(0, raw)
+        if isinstance(raw, float):
+            return max(0, int(raw))
+        if isinstance(raw, str):
+            parsed = raw.strip()
+            if not parsed:
+                return 0
+            try:
+                return max(0, int(float(parsed)))
+            except ValueError:
+                return 0
+        return 0
