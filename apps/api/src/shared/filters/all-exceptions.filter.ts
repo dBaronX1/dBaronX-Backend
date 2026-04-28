@@ -8,6 +8,7 @@ import {
   Logger,
 } from "@nestjs/common";
 import { Request, Response } from "express";
+import { SecurityUtil } from "../utils/security.util";
 
 type JsonLike = Record<string, unknown>;
 
@@ -31,6 +32,8 @@ export class AllExceptionsFilter implements ExceptionFilter {
     const normalized = this.normalizeException(exception, status);
 
     const requestId = this.extractRequestId(request);
+    const correlationId = requestId;
+    const reference = this.buildPublicReference(requestId);
     const startedAt = this.resolveStartedAt(request);
     const durationMs = startedAt ? Math.max(0, Date.now() - startedAt) : undefined;
 
@@ -44,6 +47,8 @@ export class AllExceptionsFilter implements ExceptionFilter {
       method: request.method,
       timestamp: new Date().toISOString(),
       requestId,
+      correlationId,
+      reference,
       details: normalized.details ?? null,
     };
 
@@ -54,6 +59,8 @@ export class AllExceptionsFilter implements ExceptionFilter {
     this.logException({
       status,
       requestId,
+      correlationId,
+      reference,
       method: request.method,
       path: request.originalUrl || request.url,
       userId: this.extractUserId(request),
@@ -121,7 +128,7 @@ export class AllExceptionsFilter implements ExceptionFilter {
           error,
           message,
           code,
-          details,
+          details: this.redactDetails(details),
           stack: exception.stack,
         };
       }
@@ -162,6 +169,8 @@ export class AllExceptionsFilter implements ExceptionFilter {
   private logException(input: {
     status: number;
     requestId: string;
+    correlationId: string;
+    reference: string;
     method?: string;
     path?: string;
     userId?: string | null;
@@ -175,6 +184,8 @@ export class AllExceptionsFilter implements ExceptionFilter {
   }): void {
     const payload = {
       requestId: input.requestId,
+      correlationId: input.correlationId,
+      reference: input.reference,
       status: input.status,
       method: input.method || "",
       path: input.path || "",
@@ -244,6 +255,21 @@ export class AllExceptionsFilter implements ExceptionFilter {
 
   private isObject(value: unknown): value is JsonLike {
     return typeof value === "object" && value !== null && !Array.isArray(value);
+  }
+
+  private redactDetails(details: unknown): unknown {
+    if (!this.isObject(details)) {
+      return details;
+    }
+
+    return SecurityUtil.redactObject(details);
+  }
+
+  private buildPublicReference(requestId: string): string {
+    const normalized = String(requestId || "").replace(/[^a-zA-Z0-9]/g, "");
+    const suffix = normalized.slice(-12) || `${Date.now()}`;
+
+    return `ref_${suffix}`;
   }
 
   private defaultCodeForStatus(status: number): string {
