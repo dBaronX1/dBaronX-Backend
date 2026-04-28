@@ -1,9 +1,7 @@
-import type { ReactNode } from "react";
-
 interface SurfaceSectionProps {
   title: string;
   description?: string;
-  children: ReactNode;
+  children: React.ReactNode;
 }
 
 export function SurfaceSection({
