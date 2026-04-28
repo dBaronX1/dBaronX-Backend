@@ -13,6 +13,8 @@ export interface InternalApiRequestOptions {
   cache?: RequestCache;
   next?: NextFetchRequestConfig;
   timeoutMs?: number;
+  baseUrls?: string[] | undefined;
+  allowBaseUrlFallback?: boolean | undefined;
 }
 
 export class InternalApiError extends Error {
@@ -27,19 +29,29 @@ export class InternalApiError extends Error {
   }
 }
 
-function getBaseUrl(): string {
-  const baseUrl =
-    process.env.NEXT_PUBLIC_API_BASE_URL ||
-    process.env.NEXT_PUBLIC_NESTJS_BASE_URL ||
-    "";
+function getBaseUrlCandidates(explicitBaseUrls?: string[]): string[] {
+  const envCandidates = [
+    process.env.NEXT_PUBLIC_API_BASE_URL,
+    process.env.NEXT_PUBLIC_NESTJS_BASE_URL,
+    process.env.NEXT_PUBLIC_API_URL,
+    process.env.NEXT_PUBLIC_NEST_API_URL,
+    typeof window === "undefined" ? process.env.NEST_API_URL : "",
+  ];
 
-  if (!baseUrl) {
+  const resolved = [...(explicitBaseUrls ?? []), ...envCandidates]
+    .map((value) => String(value ?? "").trim())
+    .filter(Boolean)
+    .map((value) => value.replace(/\/+$/, ""));
+
+  const unique = [...new Set(resolved)];
+
+  if (unique.length === 0) {
     throw new Error(
-      "Missing NEXT_PUBLIC_API_BASE_URL or NEXT_PUBLIC_NESTJS_BASE_URL",
+      "Missing API base URL. Expected at least one of: NEXT_PUBLIC_API_BASE_URL, NEXT_PUBLIC_NESTJS_BASE_URL, NEXT_PUBLIC_API_URL, NEXT_PUBLIC_NEST_API_URL, NEST_API_URL",
     );
   }
 
-  return baseUrl.replace(/\/+$/, "");
+  return unique;
 }
 
 function withTimeout(timeoutMs: number, signal?: AbortSignal) {
@@ -60,39 +72,64 @@ export async function internalApiRequest<T>(
   path: string,
   options: InternalApiRequestOptions = {},
 ): Promise<T> {
-  const baseUrl = getBaseUrl();
   const method = options.method ?? "GET";
   const timeoutMs = options.timeoutMs ?? 15_000;
-  const { signal, cleanup } = withTimeout(timeoutMs);
+  const baseUrls = getBaseUrlCandidates(options.baseUrls);
+  const allowBaseUrlFallback = options.allowBaseUrlFallback ?? true;
+  const candidates = allowBaseUrlFallback ? baseUrls : baseUrls.slice(0, 1);
+  const normalizedPath = path.startsWith("/") ? path : `/${path}`;
+  let lastError: unknown;
 
-  try {
-    const response = await fetch(`${baseUrl}${path.startsWith("/") ? path : `/${path}`}`, {
-      method,
-      headers: {
-        "content-type": "application/json",
-        ...(options.headers ?? {}),
-      },
-      body: options.body ? JSON.stringify(options.body) : undefined,
-      cache: options.cache ?? "no-store",
-      next: options.next,
-      signal,
-    });
+  for (const [index, baseUrl] of candidates.entries()) {
+    const { signal, cleanup } = withTimeout(timeoutMs);
 
-    const text = await response.text();
-    const payload = text ? safeJsonParse(text) : null;
+    try {
+      const response = await fetch(`${baseUrl}${normalizedPath}`, {
+        method,
+        headers: {
+          "content-type": "application/json",
+          ...(options.headers ?? {}),
+        },
+        body: options.body ? JSON.stringify(options.body) : undefined,
+        cache: options.cache ?? "no-store",
+        next: options.next,
+        signal,
+      });
 
-    if (!response.ok) {
-      throw new InternalApiError(
-        `Internal API request failed: ${method} ${path}`,
-        response.status,
-        payload,
-      );
+      const text = await response.text();
+      const payload = text ? safeJsonParse(text) : null;
+
+      if (!response.ok) {
+        const error = new InternalApiError(
+          `Internal API request failed: ${method} ${path}`,
+          response.status,
+          payload,
+        );
+
+        lastError = error;
+        const canRetryWithFallback = response.status >= 500 && index < candidates.length - 1;
+        if (canRetryWithFallback) {
+          continue;
+        }
+
+        throw error;
+      }
+
+      return payload as T;
+    } catch (error) {
+      lastError = error;
+      const canRetryWithFallback = index < candidates.length - 1;
+      if (!canRetryWithFallback) {
+        throw error;
+      }
+    } finally {
+      cleanup();
     }
-
-    return payload as T;
-  } finally {
-    cleanup();
   }
+
+  throw lastError instanceof Error
+    ? lastError
+    : new Error(`Internal API request failed: ${method} ${path}`);
 }
 
 function safeJsonParse(value: string): unknown {
