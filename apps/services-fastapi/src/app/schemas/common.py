@@ -21,6 +21,10 @@ class DBXBaseModel(BaseModel):
     )
 
 
+class DBXModel(DBXBaseModel):
+    """Backward-compatible alias for schemas that still import DBXModel."""
+
+
 class PaginationMeta(DBXBaseModel):
     page: int = Field(ge=1)
     limit: int = Field(ge=1, le=200)

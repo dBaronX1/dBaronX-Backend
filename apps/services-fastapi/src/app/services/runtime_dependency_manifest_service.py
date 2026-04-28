@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from app.core.settings import get_settings
+from app.core.config import get_settings
 
 
 class RuntimeDependencyManifestService:
