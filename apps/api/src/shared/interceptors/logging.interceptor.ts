@@ -8,6 +8,7 @@ import {
 } from "@nestjs/common";
 import { Observable, throwError } from "rxjs";
 import { catchError, tap } from "rxjs/operators";
+import { PublicReferenceUtil } from "../utils/public-reference.util";
 import { SecurityUtil } from "../utils/security.util";
 
 type RequestLogMeta = {
@@ -50,7 +51,7 @@ export class LoggingInterceptor implements NestInterceptor {
     const requestId =
       String(request.headers["x-request-id"] || request.context?.requestId || "").trim();
     const correlationId = requestId;
-    const reference = this.buildPublicReference(requestId);
+    const reference = PublicReferenceUtil.fromRequestId(requestId);
     const method = request.method || "";
     const path = request.originalUrl || request.url || "";
     const userId = String(request.user?.id || request.user?.sub || "").trim() || null;
@@ -123,10 +124,4 @@ export class LoggingInterceptor implements NestInterceptor {
     return SecurityUtil.redactObject(response as Record<string, unknown>);
   }
 
-  private buildPublicReference(requestId: string): string {
-    const normalized = String(requestId || "").replace(/[^a-zA-Z0-9]/g, "");
-    const suffix = normalized.slice(-12) || `${Date.now()}`;
-
-    return `ref_${suffix}`;
-  }
 }
