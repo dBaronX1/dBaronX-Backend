@@ -1,45 +1,29 @@
-﻿# syntax = docker/dockerfile:1
-
-# Adjust NODE_VERSION as desired
-ARG NODE_VERSION=20.19.0
-FROM node:${NODE_VERSION}-slim AS base
-
-LABEL fly_launch_runtime="Node.js"
-
-# Node.js app lives here
+# syntax=docker/dockerfile:1
+FROM node:20-slim AS deps
 WORKDIR /app
+RUN corepack enable
+COPY package.json pnpm-lock.yaml pnpm-workspace.yaml ./
+COPY apps/medusa/package.json apps/medusa/package.json
+RUN pnpm install --frozen-lockfile
 
-# Set production environment
-ENV NODE_ENV="production"
-
-
-# Throw-away build stage to reduce size of final image
-FROM base AS build
-
-# Install packages needed to build node modules
-RUN apt-get update -qq && \
-    apt-get install --no-install-recommends -y build-essential node-gyp pkg-config python-is-python3
-
-# Install node modules
-COPY .npmrc .yarnrc.yml package.json ./
-RUN npm install --include=dev
-
-# Copy application code
+FROM node:20-slim AS build
+WORKDIR /app
+RUN corepack enable
+COPY --from=deps /app/node_modules ./node_modules
+COPY --from=deps /app/apps/medusa/node_modules ./apps/medusa/node_modules
 COPY . .
+RUN pnpm --filter @dbaronx/medusa build
 
-# Build application
-RUN npm run build
-
-# Remove development dependencies
-RUN npm prune --omit=dev
-
-
-# Final stage for app image
-FROM base
-
-# Copy built application
-COPY --from=build /app /app
-
-# Start the server by default, this can be overwritten at runtime
-EXPOSE 3000
-CMD [ "npm", "run", "start" ]
+FROM node:20-slim AS runtime
+WORKDIR /app
+ENV NODE_ENV=production
+RUN corepack enable
+COPY package.json pnpm-lock.yaml pnpm-workspace.yaml ./
+COPY apps/medusa/package.json apps/medusa/package.json
+RUN pnpm install --filter @dbaronx/medusa --prod --frozen-lockfile
+COPY --from=build /app/apps/medusa/.medusa ./apps/medusa/.medusa
+COPY --from=build /app/apps/medusa/medusa-config.ts ./apps/medusa/medusa-config.ts
+COPY --from=build /app/apps/medusa/package.json ./apps/medusa/package.json
+WORKDIR /app/apps/medusa
+EXPOSE 9000
+CMD ["sh", "-c", "HOST=0.0.0.0 PORT=${PORT:-9000} pnpm start"]
