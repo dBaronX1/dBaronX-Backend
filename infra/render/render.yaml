@@ -9,6 +9,8 @@ services:
     startCommand: pnpm --filter dbaronx-api start
     healthCheckPath: /health
     envVars:
+      - key: NODE_VERSION
+        value: 20
       - key: NODE_ENV
         value: production
       - key: PORT
@@ -63,6 +65,8 @@ services:
     startCommand: pnpm --filter @dbaronx/medusa start
     healthCheckPath: /health
     envVars:
+      - key: NODE_VERSION
+        value: 20
       - key: NODE_ENV
         value: production
       - key: PORT
@@ -87,7 +91,7 @@ services:
     env: python
     rootDir: apps/telegram-bot
     plan: starter
-    buildCommand: pip install -r requirements.txt || pip install pydantic-settings python-telegram-bot httpx
+    buildCommand: pip install -r requirements.txt
     startCommand: python -m src.main
     envVars:
       - key: ENVIRONMENT
