@@ -1,4 +1,4 @@
-# fly.toml app configuration file generated for dbaronx-ecosystem on 2026-04-29T21:14:05Z
+# fly.toml app configuration file generated for dbaronx-fastapi on 2026-04-30T10:15:44Z
 #
 # See https://fly.io/docs/reference/configuration/ for information about how to use this file.
 #
@@ -9,9 +9,8 @@ primary_region = 'ams'
 [build]
 
 [env]
-  PORT = "8080"
-  PYTHONPATH = "/app/src"
-  
+  PORT = '8080'
+  PYTHONPATH = '/app/src'
 
 [http_service]
   internal_port = 8080
