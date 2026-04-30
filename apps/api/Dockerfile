@@ -1,26 +1,26 @@
-FROM node:20-slim AS deps
-WORKDIR /app
-RUN corepack enable
-COPY package.json pnpm-lock.yaml pnpm-workspace.yaml ./
-COPY apps/api/package.json apps/api/package.json
-RUN pnpm install --frozen-lockfile
-
 FROM node:20-slim AS build
 WORKDIR /app
 RUN corepack enable
-COPY --from=deps /app/node_modules ./node_modules
-COPY --from=deps /app/apps/api/node_modules ./apps/api/node_modules
+
+COPY package.json ./
+COPY pnpm-lock.yaml* ./
+RUN if [ -f pnpm-lock.yaml ]; then pnpm install --frozen-lockfile; else pnpm install --no-frozen-lockfile; fi
+
 COPY . .
-RUN pnpm --filter dbaronx-api build
+RUN pnpm build
 
 FROM node:20-slim AS runtime
 WORKDIR /app
 ENV NODE_ENV=production
+ENV HOST=0.0.0.0
+ENV PORT=8080
 RUN corepack enable
-COPY package.json pnpm-lock.yaml pnpm-workspace.yaml ./
-COPY apps/api/package.json apps/api/package.json
-RUN pnpm install --filter dbaronx-api --prod --frozen-lockfile
-COPY --from=build /app/apps/api/dist ./apps/api/dist
-WORKDIR /app/apps/api
-EXPOSE 3001
-CMD ["sh", "-c", "node dist/main.js"]
+
+COPY package.json ./
+COPY pnpm-lock.yaml* ./
+RUN if [ -f pnpm-lock.yaml ]; then pnpm install --prod --frozen-lockfile; else pnpm install --prod --no-frozen-lockfile; fi
+
+COPY --from=build /app/dist ./dist
+
+EXPOSE 8080
+CMD ["sh", "-c", "pnpm start"]
