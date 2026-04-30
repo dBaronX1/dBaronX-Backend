@@ -9,8 +9,9 @@ primary_region = 'ams'
 [build]
 
 [env]
-  PORT = '8080'
-  PYTHONPATH = '/app/src'
+  PORT = "8080"
+  PYTHONPATH = "/app/src"
+  
 
 [http_service]
   internal_port = 8080
