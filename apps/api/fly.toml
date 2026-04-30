@@ -1,4 +1,4 @@
-app = 'dbaronx-nestjs-api'
+app = 'dbaronx-api-unified'
 primary_region = 'ams'
 
 [build]
