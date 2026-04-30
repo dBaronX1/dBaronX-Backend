@@ -1,5 +1,5 @@
 app = "dbaronx-bot"
-primary_region = "amd"
+primary_region = "ams"
 
 [env]
   PYTHONPATH = "/app/src"
