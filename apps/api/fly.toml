@@ -1,4 +1,4 @@
-app = "dbaronx-api"
+app = "dbaronx-nestjs-api"
 primary_region = "iad"
 
 [env]
