@@ -13,6 +13,7 @@ import { FastapiTraceExportService } from "../../shared/services/fastapi-trace-e
 import { DecisionTracePersistenceBridgeService } from "../../shared/services/decision-trace-persistence-bridge.service";
 import { FastapiIntelligenceHttpService } from "../../shared/services/fastapi-intelligence-http.service";
 import { InternalRequestHeadersService } from "../../shared/services/internal-request-headers.service";
+import { SupplierAdminService } from "./supplier-admin.service";
 
 @Module({
   imports: [ConfigModule, CommerceModule, WalletModule],
@@ -25,9 +26,10 @@ import { InternalRequestHeadersService } from "../../shared/services/internal-re
     DecisionTracePersistenceBridgeService,
     IntelligenceAuditPipelineService,
     LaunchReadinessPersistenceService,
+    SupplierAdminService,
     SupplierOrchestrationService,
     SupplierLifecycleService,
   ],
-  exports: [SupplierOrchestrationService, SupplierLifecycleService],
+  exports: [SupplierAdminService, SupplierOrchestrationService, SupplierLifecycleService],
 })
 export class SuppliersModule {}

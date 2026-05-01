@@ -11,6 +11,7 @@ import { FastapiTraceExportService } from "../../shared/services/fastapi-trace-e
 import { DecisionTracePersistenceBridgeService } from "../../shared/services/decision-trace-persistence-bridge.service";
 import { FastapiIntelligenceHttpService } from "../../shared/services/fastapi-intelligence-http.service";
 import { InternalRequestHeadersService } from "../../shared/services/internal-request-headers.service";
+import { PayoutsAdminService } from "./payouts-admin.service";
 
 @Module({
   imports: [ConfigModule, AffiliateModule, WalletModule],
@@ -22,9 +23,10 @@ import { InternalRequestHeadersService } from "../../shared/services/internal-re
     FastapiTraceExportService,
     DecisionTracePersistenceBridgeService,
     IntelligenceAuditPipelineService,
+    PayoutsAdminService,
     PayoutsService,
     PayoutLifecycleService,
   ],
-  exports: [PayoutsService, PayoutLifecycleService],
+  exports: [PayoutsAdminService, PayoutsService, PayoutLifecycleService],
 })
 export class PayoutsModule {}

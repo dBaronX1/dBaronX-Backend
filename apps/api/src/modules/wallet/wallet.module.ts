@@ -10,6 +10,7 @@ import { FastapiTraceExportService } from "../../shared/services/fastapi-trace-e
 import { DecisionTracePersistenceBridgeService } from "../../shared/services/decision-trace-persistence-bridge.service";
 import { FastapiIntelligenceHttpService } from "../../shared/services/fastapi-intelligence-http.service";
 import { InternalRequestHeadersService } from "../../shared/services/internal-request-headers.service";
+import { WalletAdminService } from "./wallet-admin.service";
 
 @Module({
   imports: [ConfigModule],
@@ -21,9 +22,10 @@ import { InternalRequestHeadersService } from "../../shared/services/internal-re
     FastapiTraceExportService,
     DecisionTracePersistenceBridgeService,
     IntelligenceAuditPipelineService,
+    WalletAdminService,
     WalletLedgerService,
     WalletOrchestrationService,
   ],
-  exports: [WalletLedgerService, WalletOrchestrationService],
+  exports: [WalletAdminService, WalletLedgerService, WalletOrchestrationService],
 })
 export class WalletModule {}

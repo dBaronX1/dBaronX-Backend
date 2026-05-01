@@ -19,6 +19,7 @@ import { DecisionTracePersistenceBridgeService } from "../../shared/services/dec
 import { IntelligenceAuditPipelineService } from "../../shared/services/intelligence-audit-pipeline.service";
 import { LaunchReadinessPersistenceService } from "../../shared/services/launch-readiness-persistence.service";
 import { SupabaseService } from "../../shared/services/supabase.service";
+import { AiStoriesAdminService } from "./ai-stories-admin.service";
 
 @Module({
   imports: [ConfigModule, WalletModule],
@@ -38,6 +39,7 @@ import { SupabaseService } from "../../shared/services/supabase.service";
     IntelligenceAuditPipelineService,
     LaunchReadinessPersistenceService,
     SupabaseService,
+    AiStoriesAdminService,
     AiStoryIntelligenceService,
     AiStoryPromotionOrchestratorService,
     AiStoryCampaignOrchestrationService,
@@ -46,6 +48,7 @@ import { SupabaseService } from "../../shared/services/supabase.service";
   ],
   exports: [
     AiStoryIntelligenceService,
+    AiStoriesAdminService,
     AiStoryPromotionOrchestratorService,
     AiStoryCampaignOrchestrationService,
     AiStoryCampaignLifecycleService,

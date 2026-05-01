@@ -4,6 +4,10 @@ import { CommerceModule } from "../commerce/commerce.module";
 import { AiStoriesModule } from "../ai-stories/ai-stories.module";
 import { AffiliateModule } from "../affiliate/affiliate.module";
 import { PaymentsModule } from "../payments/payments.module";
+import { PayoutsModule } from "../payouts/payouts.module";
+import { SuppliersModule } from "../suppliers/suppliers.module";
+import { AdsModule } from "../ads/ads.module";
+import { WalletModule } from "../wallet/wallet.module";
 import { WatchModule } from "../watch/watch.module";
 import { SystemAdminOpsController } from "./system-admin-ops.controller";
 import { SystemAdminOpsService } from "./system-admin-ops.service";
@@ -57,6 +61,10 @@ import { SystemOrchestrationIndexService } from "./system-orchestration-index.se
     WatchModule,
     AffiliateModule,
     PaymentsModule,
+    PayoutsModule,
+    SuppliersModule,
+    AdsModule,
+    WalletModule,
     AiStoriesModule,
     CommerceModule,
   ],
