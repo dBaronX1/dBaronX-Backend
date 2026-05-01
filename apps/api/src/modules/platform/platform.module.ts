@@ -9,6 +9,10 @@ import { WalletModule } from "../wallet/wallet.module";
 import { PayoutsModule } from "../payouts/payouts.module";
 import { SuppliersModule } from "../suppliers/suppliers.module";
 import { AdsModule } from "../ads/ads.module";
+import { PlatformAdminPackController } from "./platform-admin-pack.controller";
+import { PlatformAdminPackService } from "./platform-admin-pack.service";
+import { PlatformShellController } from "./platform-shell.controller";
+import { PlatformShellService } from "./platform-shell.service";
 
 @Module({
   imports: [
@@ -23,7 +27,11 @@ import { AdsModule } from "../ads/ads.module";
     SuppliersModule,
     AdsModule,
   ],
+  controllers: [PlatformShellController, PlatformAdminPackController],
+  providers: [PlatformShellService, PlatformAdminPackService],
   exports: [
+    PlatformShellService,
+    PlatformAdminPackService,
     SystemModule,
     WatchModule,
     AffiliateModule,

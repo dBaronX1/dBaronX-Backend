@@ -47,6 +47,9 @@ import { SystemBootstrapOrchestratorService } from "../../shared/services/system
 import { SystemStartupSequenceService } from "../../shared/services/system-startup-sequence.service";
 import { CommerceBoundaryAuditService } from "../commerce/commerce-boundary-audit.service";
 import { SystemLaunchGateGuard } from "../../shared/guards/system-launch-gate.guard";
+import { SystemAdminSummaryService } from "./system-admin-summary.service";
+import { SystemReadinessMatrixService } from "./system-readiness-matrix.service";
+import { SystemOrchestrationIndexService } from "./system-orchestration-index.service";
 
 @Module({
   imports: [
@@ -102,6 +105,9 @@ import { SystemLaunchGateGuard } from "../../shared/guards/system-launch-gate.gu
     SystemLaunchClosureService,
     CommerceBoundaryAuditService,
     SystemAdminOpsService,
+    SystemAdminSummaryService,
+    SystemReadinessMatrixService,
+    SystemOrchestrationIndexService,
   ],
   exports: [
     EnvironmentContractService,
@@ -116,6 +122,9 @@ import { SystemLaunchGateGuard } from "../../shared/guards/system-launch-gate.gu
     SystemBootstrapHardeningService,
     SystemLaunchClosureService,
     SystemAdminOpsService,
+    SystemAdminSummaryService,
+    SystemReadinessMatrixService,
+    SystemOrchestrationIndexService,
   ],
 })
 export class SystemModule {}
