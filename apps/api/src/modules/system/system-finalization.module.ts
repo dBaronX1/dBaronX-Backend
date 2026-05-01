@@ -44,6 +44,7 @@ import { SystemShellClosureService } from "./system-shell-closure.service";
 
 @Module({
   imports: [SystemModule, CommerceModule, PlatformModule],
+  imports: [SystemModule, CommerceModule],
   controllers: [
     CommerceSyncContractController,
     CommerceBoundaryProofController,
