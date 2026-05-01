@@ -12,6 +12,7 @@ import { FastapiTraceExportService } from "../../shared/services/fastapi-trace-e
 import { DecisionTracePersistenceBridgeService } from "../../shared/services/decision-trace-persistence-bridge.service";
 import { FastapiIntelligenceHttpService } from "../../shared/services/fastapi-intelligence-http.service";
 import { InternalRequestHeadersService } from "../../shared/services/internal-request-headers.service";
+import { AdsAdminService } from "./ads-admin.service";
 
 @Module({
   imports: [ConfigModule, WalletModule],
@@ -24,9 +25,10 @@ import { InternalRequestHeadersService } from "../../shared/services/internal-re
     DecisionTracePersistenceBridgeService,
     IntelligenceAuditPipelineService,
     LaunchReadinessPersistenceService,
+    AdsAdminService,
     AdsCampaignOrchestrationService,
     AdsCampaignLifecycleService,
   ],
-  exports: [AdsCampaignOrchestrationService, AdsCampaignLifecycleService],
+  exports: [AdsAdminService, AdsCampaignOrchestrationService, AdsCampaignLifecycleService],
 })
 export class AdsModule {}

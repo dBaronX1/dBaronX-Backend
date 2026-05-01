@@ -15,6 +15,7 @@ import { DecisionTracePersistenceBridgeService } from "../../shared/services/dec
 import { IntelligenceAuditPipelineService } from "../../shared/services/intelligence-audit-pipeline.service";
 import { LaunchReadinessPersistenceService } from "../../shared/services/launch-readiness-persistence.service";
 import { SupabaseService } from "../../shared/services/supabase.service";
+import { PaymentsAdminService } from "./payments-admin.service";
 
 @Module({
   imports: [ConfigModule, WalletModule],
@@ -32,12 +33,14 @@ import { SupabaseService } from "../../shared/services/supabase.service";
     IntelligenceAuditPipelineService,
     LaunchReadinessPersistenceService,
     SupabaseService,
+    PaymentsAdminService,
     PaymentIntelligenceService,
     PaymentPreflightOrchestratorService,
     CheckoutSettlementService,
   ],
   exports: [
     PaymentIntelligenceService,
+    PaymentsAdminService,
     PaymentPreflightOrchestratorService,
     CheckoutSettlementService,
   ],
