@@ -1,5 +1,5 @@
 app = "dbaronx-web"
-primary_region = "amd"
+primary_region = "ams"
 
 [env]
   NODE_ENV = "production"
