@@ -1,4 +1,7 @@
 import { Module } from "@nestjs/common";
+import { CommerceModule } from "../commerce/commerce.module";
+import { SystemModule } from "./system.module";
+import { PlatformModule } from "../platform/platform.module";
 import { CommerceBoundaryProofController } from "../commerce/commerce-boundary-proof.controller";
 import { CommerceFinalClosureController } from "../commerce/commerce-final-closure.controller";
 import { CommerceFinalClosureReadinessController } from "../commerce/commerce-final-closure-readiness.controller";
@@ -40,6 +43,7 @@ import { SystemLaunchClosureService } from "./system-launch-closure.service";
 import { SystemShellClosureService } from "./system-shell-closure.service";
 
 @Module({
+  imports: [SystemModule, CommerceModule, PlatformModule],
   controllers: [
     CommerceSyncContractController,
     CommerceBoundaryProofController,
