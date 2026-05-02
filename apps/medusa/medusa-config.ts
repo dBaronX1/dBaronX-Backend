@@ -31,9 +31,9 @@ const DISABLE_MEDUSA_ADMIN = process.env.DISABLE_MEDUSA_ADMIN === "true"
 export default defineConfig({
   projectConfig: {
     databaseUrl: DATABASE_URL,
-    jwtSecret: JWT_SECRET,
-    cookieSecret: COOKIE_SECRET,
     http: {
+      jwtSecret: JWT_SECRET,
+      cookieSecret: COOKIE_SECRET,
       storeCors: STORE_CORS,
       adminCors: ADMIN_CORS,
       authCors: AUTH_CORS,
