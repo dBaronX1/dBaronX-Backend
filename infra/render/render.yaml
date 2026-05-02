@@ -3,9 +3,9 @@ services:
   - type: web
     name: dbaronx-api
     env: node
-    rootDir: apps/api
+    rootDir: .
     plan: starter
-    buildCommand: pnpm install --frozen-lockfile && pnpm --filter dbaronx-api build
+    buildCommand: corepack enable && pnpm install --frozen-lockfile && pnpm --filter dbaronx-api build
     startCommand: pnpm --filter dbaronx-api start
     healthCheckPath: /health
     envVars:

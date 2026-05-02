@@ -60,11 +60,12 @@ COOKIE_SECRET=<SECRET>
 
 ## Render — `dbaronx-api` (web service)
 - **Root directory:** `apps/api`
-- **Build command:** `pnpm install --frozen-lockfile && pnpm --filter dbaronx-api build`
+- **Build command:** `corepack enable && pnpm install --frozen-lockfile && pnpm --filter dbaronx-api build`
 - **Start command:** `pnpm --filter dbaronx-api start`
 - **Runtime:** `Node`
 - **Health check URL:** `https://<RENDER_API_HOST>/health`
 - **Expected response:** `HTTP 200` with JSON health payload.
+- **Render setup note:** Prefer **repo root** (`.`) as Root Directory for this service so workspace lockfile and filtered builds run from the monorepo root.
 
 ### Required env vars (Render api)
 ```bash

@@ -96,8 +96,8 @@ Health checks after deploy:
 
 - **Name:** `dbaronx-api`
 - **Environment:** `Node`
-- **Root Directory:** `apps/api`
-- **Build Command:** `pnpm install --frozen-lockfile && pnpm --filter dbaronx-api build`
+- **Root Directory:** `.` (recommended; safer monorepo setup)
+- **Build Command:** `corepack enable && pnpm install --frozen-lockfile && pnpm --filter dbaronx-api build`
 - **Start Command:** `pnpm --filter dbaronx-api start`
 - **Health Check Path:** `/health`
 
