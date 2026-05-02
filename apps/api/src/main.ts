@@ -33,6 +33,53 @@ function csv(value: string | undefined, fallback: string): string[] {
     .filter(Boolean);
 }
 
+function formatStartupError(error: unknown): Record<string, unknown> {
+  if (error instanceof Error) {
+    const base: Record<string, unknown> = {
+      name: error.name,
+      message: error.message,
+      stack: error.stack,
+    };
+
+    if (error.cause !== undefined) {
+      base.cause = error.cause;
+    }
+
+    return base;
+  }
+
+  return {
+    name: "NonErrorThrown",
+    message: String(error),
+    stack: undefined,
+    cause: undefined,
+  };
+}
+
+function logFatalStartupError(error: unknown): void {
+  const payload = {
+    event: "dbaronx_api_fatal_startup_error",
+    ...formatStartupError(error),
+    timestamp: new Date().toISOString(),
+  };
+
+  const logger = new Logger("dBaronXBootstrapFailure");
+  logger.error(JSON.stringify(payload));
+  console.error(JSON.stringify(payload));
+}
+
+function registerProcessLevelFatalHandlers(): void {
+  process.on("unhandledRejection", (reason) => {
+    logFatalStartupError(reason);
+    process.exit(1);
+  });
+
+  process.on("uncaughtException", (error) => {
+    logFatalStartupError(error);
+    process.exit(1);
+  });
+}
+
 async function bootstrap() {
   const app = await NestFactory.create(AppModule, {
     bufferLogs: true,
@@ -42,7 +89,8 @@ async function bootstrap() {
   const logger = new Logger("dBaronXBootstrap");
   const configService = app.get(ConfigService);
 
-  const port = Number(configService.get<string>("PORT") ?? process.env.PORT ?? 3001);
+  const host = process.env.HOST || "0.0.0.0";
+  const port = Number(process.env.PORT || 3001);
   const apiPrefix = configService.get<string>("API_PREFIX") ?? "api";
   const corsOrigins = csv(
     configService.get<string>("CORS_ORIGINS") ?? process.env.CORS_ORIGINS,
@@ -161,11 +209,14 @@ async function bootstrap() {
     });
   }
 
-  await app.listen(port, "0.0.0.0");
+  logger.log(`DBX API booting on ${host}/${port}`);
+  await app.listen(port, host);
+  logger.log(`DBX API listening on ${host}/${port}`);
 
   logger.log(
     JSON.stringify({
       event: "dbaronx_api_started",
+      host,
       port,
       apiPrefix,
       corsOrigins,
@@ -175,17 +226,9 @@ async function bootstrap() {
   );
 }
 
+registerProcessLevelFatalHandlers();
+
 bootstrap().catch((error) => {
-  const logger = new Logger("dBaronXBootstrapFailure");
-
-  logger.error(
-    JSON.stringify({
-      event: "dbaronx_api_failed_to_start",
-      message: error instanceof Error ? error.message : String(error),
-      timestamp: new Date().toISOString(),
-    }),
-    error instanceof Error ? error.stack : undefined,
-  );
-
+  logFatalStartupError(error);
   process.exit(1);
 });
