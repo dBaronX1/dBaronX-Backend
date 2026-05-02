@@ -1,16 +1,54 @@
-import { Injectable } from "@nestjs/common";
+import { Injectable, Logger } from "@nestjs/common";
 import { FastapiIntelligenceConsumptionService } from "./fastapi-intelligence-consumption.service";
 import { RuntimeBlockersService } from "./runtime-blockers.service";
 
 @Injectable()
 export class FastapiRuntimeCompatibilityService {
+  private readonly logger = new Logger(FastapiRuntimeCompatibilityService.name);
+
   constructor(
     private readonly fastapiConsumption: FastapiIntelligenceConsumptionService,
     private readonly runtimeBlockers: RuntimeBlockersService,
   ) {}
 
   async snapshot(requestId?: string) {
-    const bundle = await this.fastapiConsumption.readinessBundle(requestId);
+    let bundle: Awaited<
+      ReturnType<FastapiIntelligenceConsumptionService["readinessBundle"]>
+    >;
+
+    try {
+      bundle = await this.fastapiConsumption.readinessBundle(requestId);
+    } catch (error: unknown) {
+      const checkedAt = new Date().toISOString();
+      const message = error instanceof Error ? error.message : String(error);
+
+      this.logger.warn(
+        JSON.stringify({
+          event: "fastapi_runtime_snapshot_degraded",
+          dependency: "fastapi",
+          status: "degraded",
+          message,
+          timestamp: checkedAt,
+        }),
+      );
+
+      return {
+        success: true,
+        status: "degraded",
+        compatible: false,
+        blockers: ["fastapi_readiness_bundle_unavailable"],
+        dependency: {
+          name: "fastapi",
+          status: "degraded",
+          message,
+          timestamp: checkedAt,
+        },
+        handshake: null,
+        runtime: null,
+        step1Closure: null,
+        launchControl: null,
+      };
+    }
 
     const handshake = ensureObject(
       bundle.handshake.nestjs_handshake,
@@ -41,6 +79,15 @@ export class FastapiRuntimeCompatibilityService {
       status: blockers.length === 0 ? "ready" : "degraded",
       compatible: blockers.length === 0,
       blockers,
+      dependency: {
+        name: "fastapi",
+        status: blockers.length === 0 ? "ready" : "degraded",
+        message:
+          blockers.length === 0
+            ? "FastAPI readiness bundle available"
+            : "FastAPI readiness bundle indicates compatibility blockers",
+        timestamp: new Date().toISOString(),
+      },
       handshake,
       runtime,
       step1Closure,
