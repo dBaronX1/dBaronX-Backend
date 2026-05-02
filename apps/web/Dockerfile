@@ -15,6 +15,11 @@ RUN corepack enable
 COPY --from=deps /app/node_modules ./node_modules
 COPY . .
 RUN pnpm build
+RUN mkdir -p /tmp/runtime-assets/public \
+ && if [ -d /app/public ]; then cp -a /app/public/. /tmp/runtime-assets/public/; fi \
+ && if [ -f /app/next.config.ts ]; then cp /app/next.config.ts /tmp/runtime-assets/; fi \
+ && if [ -f /app/next.config.js ]; then cp /app/next.config.js /tmp/runtime-assets/; fi \
+ && if [ -f /app/next.config.mjs ]; then cp /app/next.config.mjs /tmp/runtime-assets/; fi
 
 FROM node:20-slim AS runtime
 WORKDIR /app
@@ -28,8 +33,7 @@ RUN if [ -f pnpm-lock.yaml ]; then \
       pnpm install --prod --no-frozen-lockfile; \
     fi
 COPY --from=build /app/.next ./.next
-COPY --from=build /app/public ./public
-COPY --from=build /app/next.config.ts ./next.config.ts
+COPY --from=build /tmp/runtime-assets/ ./
 COPY --from=build /app/package.json ./package.json
 EXPOSE 8080
 CMD ["sh", "-c", "pnpm start --hostname 0.0.0.0 --port ${PORT:-8080}"]
