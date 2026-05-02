@@ -9,8 +9,10 @@ import { SystemModule } from "./modules/system/system.module";
 import { SystemFinalizationModule } from "./modules/system/system-finalization.module";
 import { DbxPaymentModule } from "./modules/dbx-payments/dbx-payment.module";
 import { DbxPaymentsModule } from "./modules/dbx-payments/dbx-payments.module";
+import { HealthController } from "./health.controller";
 
 @Module({
+  controllers: [HealthController],
   imports: [
     ConfigModule.forRoot({
       isGlobal: true,
