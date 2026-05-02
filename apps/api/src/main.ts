@@ -127,7 +127,7 @@ async function bootstrap() {
   });
 
   app.setGlobalPrefix(apiPrefix, {
-    exclude: ["/", "/health"],
+    exclude: ["/", "/health", "/api/health"],
   });
 
   app.enableVersioning({
