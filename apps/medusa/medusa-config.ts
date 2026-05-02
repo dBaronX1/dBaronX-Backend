@@ -30,6 +30,8 @@ export default defineConfig({
   projectConfig: {
     databaseUrl: DATABASE_URL,
     http: {
+      jwtSecret: JWT_SECRET,
+      cookieSecret: COOKIE_SECRET,
       storeCors: STORE_CORS,
       adminCors: ADMIN_CORS,
       authCors: AUTH_CORS,
