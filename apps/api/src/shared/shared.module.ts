@@ -9,6 +9,7 @@ import { JwtAuthGuard } from "./guards/jwt-auth.guard";
 import { InternalAuthGuard } from "./guards/internal-auth.guard";
 import { RolesGuard } from "./guards/roles.guard";
 import { RateLimitGuard } from "./guards/rate-limit.guard";
+import { PublicGuard } from "./guards/public.guard";
 
 import { RequestIdMiddleware } from "./middleware/request-id.middleware";
 import { RequestLoggerMiddleware } from "./middleware/request-logger.middleware";
@@ -21,6 +22,10 @@ import { RateLimitMiddleware } from "./middleware/rate-limit.middleware";
 
 import { TimeoutInterceptor } from "./interceptors/timeout.interceptor";
 import { RetryInterceptor } from "./interceptors/retry.interceptor";
+import { CacheInterceptor } from "./interceptors/cache.interceptor";
+import { LoggingInterceptor } from "./interceptors/logging.interceptor";
+import { RequestContextInterceptor } from "./interceptors/request-context.interceptor";
+import { ResponseTransformInterceptor } from "./interceptors/response-transform.interceptor";
 
 import { AppLoggerService } from "./services/app-logger.service";
 import { AuthJwtService } from "./services/auth.jwt.service";
@@ -40,6 +45,7 @@ const providers = [
   InternalAuthGuard,
   RolesGuard,
   RateLimitGuard,
+  PublicGuard,
 
   RequestIdMiddleware,
   RequestLoggerMiddleware,
@@ -52,6 +58,10 @@ const providers = [
 
   TimeoutInterceptor,
   RetryInterceptor,
+  RequestContextInterceptor,
+  LoggingInterceptor,
+  CacheInterceptor,
+  ResponseTransformInterceptor,
 
   AppLoggerService,
   AuthJwtService,
