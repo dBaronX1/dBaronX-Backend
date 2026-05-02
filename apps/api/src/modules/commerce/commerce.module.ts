@@ -3,6 +3,8 @@ import { ConfigModule } from "@nestjs/config";
 import { CommerceBoundaryAuditController } from "./commerce-boundary-audit.controller";
 import { CommerceBoundaryAuditService } from "./commerce-boundary-audit.service";
 import { CommerceBoundaryController } from "./commerce-boundary.controller";
+import { CommerceAdminController } from "./commerce-admin.controller";
+import { CommerceAdminService } from "./commerce-admin.service";
 import { CommerceCatalogSyncController } from "./commerce-catalog-sync.controller";
 import { CommerceCatalogSyncService } from "./commerce-catalog-sync.service";
 import { CommerceFulfillmentProviderNormalizationController } from "./commerce-fulfillment-provider-normalization.controller";
@@ -44,6 +46,7 @@ import { WalletModule } from "../wallet/wallet.module";
 @Module({
   imports: [ConfigModule, WalletModule],
   controllers: [
+    CommerceAdminController,
     CommerceHealthController,
     CommerceBoundaryController,
     CommerceBoundaryAuditController,
@@ -74,6 +77,7 @@ import { WalletModule } from "../wallet/wallet.module";
     MedusaVariantBridgeService,
     MedusaFulfillmentBridgeService,
     MedusaBoundaryPolicyService,
+    CommerceAdminService,
     CommerceBoundaryAuditService,
     CommerceHealthService,
     CommerceOrderBridgeService,
@@ -92,6 +96,7 @@ import { WalletModule } from "../wallet/wallet.module";
     MedusaVariantBridgeService,
     MedusaFulfillmentBridgeService,
     MedusaBoundaryPolicyService,
+    CommerceAdminService,
     CommerceBoundaryAuditService,
     CommerceHealthService,
     CommerceOrderBridgeService,
