@@ -45,12 +45,8 @@ export default async function seed({ container }: ExecArgs) {
 
   await linkSalesChannelsToStockLocationWorkflow(container).run({
     input: {
-      links: [
-        {
-          sales_channel_id: salesChannel.id,
-          stock_location_id: stockLocation.id,
-        },
-      ],
+      id: salesChannel.id,
+      add: [stockLocation.id],
     },
   });
 
@@ -75,7 +71,6 @@ export default async function seed({ container }: ExecArgs) {
           currency_code: "usd",
           countries: ["us", "ae", "gb", "ca", "gh"],
           payment_providers: ["pp_system_default"],
-          fulfillment_providers: ["manual_manual"],
         },
       ],
     },
@@ -110,8 +105,6 @@ export default async function seed({ container }: ExecArgs) {
           status: "published",
           sales_channels: [{ id: salesChannel.id }],
           shipping_profile_id: shippingProfile.id,
-          type: { value: "Home & Living" },
-          tags: [{ value: "eco" }, { value: "bottle" }, { value: "lifestyle" }],
           options: [{ title: "Size", values: ["Standard"] }],
           variants: [
             {
@@ -132,8 +125,6 @@ export default async function seed({ container }: ExecArgs) {
           status: "published",
           sales_channels: [{ id: salesChannel.id }],
           shipping_profile_id: shippingProfile.id,
-          type: { value: "Beauty" },
-          tags: [{ value: "soap" }, { value: "organic" }, { value: "skincare" }],
           options: [{ title: "Type", values: ["Classic"] }],
           variants: [
             {
@@ -154,8 +145,6 @@ export default async function seed({ container }: ExecArgs) {
           status: "published",
           sales_channels: [{ id: salesChannel.id }],
           shipping_profile_id: shippingProfile.id,
-          type: { value: "Fashion" },
-          tags: [{ value: "fashion" }, { value: "tshirt" }, { value: "premium" }],
           options: [{ title: "Size", values: ["M"] }],
           variants: [
             {
@@ -207,12 +196,8 @@ export default async function seed({ container }: ExecArgs) {
 
   await linkSalesChannelsToApiKeyWorkflow(container).run({
     input: {
-      links: [
-        {
-          api_key_id: publishableKey.id,
-          sales_channel_id: salesChannel.id,
-        },
-      ],
+      id: publishableKey.id,
+      add: [salesChannel.id],
     },
   });
 
