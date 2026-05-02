@@ -17,6 +17,24 @@ export interface InternalApiRequestOptions {
   allowBaseUrlFallback?: boolean | undefined;
 }
 
+function getInternalServiceHeaders(): Record<string, string> {
+  if (typeof window !== "undefined") {
+    return {};
+  }
+
+  const token = String(process.env.INTERNAL_SERVICE_TOKEN ?? "").trim();
+  if (!token) {
+    return {};
+  }
+
+  return {
+    "x-internal-token": token,
+    "x-service-token": token,
+    "x-api-key": token,
+    authorization: `Bearer ${token}`,
+  };
+}
+
 export class InternalApiError extends Error {
   readonly status: number;
   readonly payload: unknown;
@@ -88,6 +106,7 @@ export async function internalApiRequest<T>(
         method,
         headers: {
           "content-type": "application/json",
+          ...getInternalServiceHeaders(),
           ...(options.headers ?? {}),
         },
         body: options.body ? JSON.stringify(options.body) : undefined,

@@ -1,4 +1,5 @@
 import { internalApiRequest } from "@/lib/http/internal-api-client";
+import { InternalApiError } from "@/lib/http/internal-api-client";
 import type {
   AiStoriesAdminDashboard,
   CommerceAdminDashboard,
@@ -8,11 +9,33 @@ import type {
   ReadinessMatrix,
 } from "@/lib/platform/backend-contracts";
 
+function getLaunchClosureFallback(reason: string): LaunchClosure {
+  return {
+    ready: false,
+    blockers: [`launch-closure unavailable: ${reason}`],
+  };
+}
+
 export async function getLaunchClosure(): Promise<LaunchClosure> {
-  const payload = await internalApiRequest<{ launchClosure: LaunchClosure }>(
-    "/api/v1/system/launch-closure",
-  );
-  return payload.launchClosure;
+  if (typeof window === "undefined") {
+    const internalServiceToken = String(process.env.INTERNAL_SERVICE_TOKEN ?? "").trim();
+    if (!internalServiceToken) {
+      return getLaunchClosureFallback("missing INTERNAL_SERVICE_TOKEN");
+    }
+  }
+
+  try {
+    const payload = await internalApiRequest<{ launchClosure: LaunchClosure }>(
+      "/api/v1/system/launch-closure",
+    );
+    return payload.launchClosure;
+  } catch (error) {
+    if (error instanceof InternalApiError && error.status === 401) {
+      return getLaunchClosureFallback("unauthorized internal API response");
+    }
+
+    throw error;
+  }
 }
 
 export async function getReadinessMatrix(): Promise<ReadinessMatrix> {
