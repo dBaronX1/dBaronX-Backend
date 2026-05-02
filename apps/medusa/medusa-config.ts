@@ -16,8 +16,6 @@ if (missingEnv.length > 0) {
 }
 
 const DATABASE_URL = process.env.DATABASE_URL as string
-const JWT_SECRET = process.env.JWT_SECRET as string
-const COOKIE_SECRET = process.env.COOKIE_SECRET as string
 const REDIS_URL = process.env.REDIS_URL
 
 const STORE_CORS = process.env.STORE_CORS || "http://localhost:3000"
@@ -31,8 +29,6 @@ const DISABLE_MEDUSA_ADMIN = process.env.DISABLE_MEDUSA_ADMIN === "true"
 export default defineConfig({
   projectConfig: {
     databaseUrl: DATABASE_URL,
-    jwtSecret: JWT_SECRET,
-    cookieSecret: COOKIE_SECRET,
     http: {
       storeCors: STORE_CORS,
       adminCors: ADMIN_CORS,
