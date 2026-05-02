@@ -52,6 +52,7 @@ import { SystemStartupSequenceService } from "../../shared/services/system-start
 import { CommerceBoundaryAuditService } from "../commerce/commerce-boundary-audit.service";
 import { SystemLaunchGateGuard } from "../../shared/guards/system-launch-gate.guard";
 import { SystemAdminSummaryService } from "./system-admin-summary.service";
+import { SystemAdminEndpointRegistryService } from "./system-admin-endpoint-registry.service";
 import { SystemReadinessMatrixService } from "./system-readiness-matrix.service";
 import { SystemOrchestrationIndexService } from "./system-orchestration-index.service";
 
@@ -114,6 +115,7 @@ import { SystemOrchestrationIndexService } from "./system-orchestration-index.se
     CommerceBoundaryAuditService,
     SystemAdminOpsService,
     SystemAdminSummaryService,
+    SystemAdminEndpointRegistryService,
     SystemReadinessMatrixService,
     SystemOrchestrationIndexService,
   ],
@@ -131,6 +133,7 @@ import { SystemOrchestrationIndexService } from "./system-orchestration-index.se
     SystemLaunchClosureService,
     SystemAdminOpsService,
     SystemAdminSummaryService,
+    SystemAdminEndpointRegistryService,
     SystemReadinessMatrixService,
     SystemOrchestrationIndexService,
   ],
