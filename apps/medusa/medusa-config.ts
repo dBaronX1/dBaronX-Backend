@@ -16,6 +16,8 @@ if (missingEnv.length > 0) {
 }
 
 const DATABASE_URL = process.env.DATABASE_URL as string
+const JWT_SECRET = process.env.JWT_SECRET as string
+const COOKIE_SECRET = process.env.COOKIE_SECRET as string
 const REDIS_URL = process.env.REDIS_URL
 
 const STORE_CORS = process.env.STORE_CORS || "http://localhost:3000"
