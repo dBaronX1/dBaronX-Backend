@@ -26,4 +26,23 @@ async def get_launch_control_manifest_snapshot(
     ),
 ):
     result = service.build()
-    return LaunchControlManifestResponse(**result)
+    return _compat_snapshot("launch_control_manifest", result)
+
+
+def _compat_snapshot(service_name: str, payload: dict) -> dict:
+    data = payload.get(service_name, {}) if isinstance(payload.get(service_name), dict) else {}
+    status = data.get("status", "ok")
+    ready = bool(data.get("ready", True))
+    blockers = data.get("blockers", [])
+    capabilities = data.get("capabilities", [])
+    timestamp = data.get("timestamp") or payload.get("timestamp")
+    return {
+        "success": bool(payload.get("success", True)),
+        "service": service_name,
+        "status": status,
+        "ready": ready,
+        "timestamp": timestamp,
+        "blockers": blockers,
+        "capabilities": capabilities,
+        service_name: data,
+    }

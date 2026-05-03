@@ -38,3 +38,23 @@ class StoryGenerationResponse(BaseModel):
     metadata: dict | None = None
     meta: dict | None = None
     error: str | None = None
+
+
+class StoryRewriteRequest(BaseModel):
+    content: str = Field(..., min_length=120, max_length=80000)
+    instruction: str = Field(..., min_length=5, max_length=4000)
+    preserve_plot: bool = True
+    preserve_length: bool = True
+    target_tone: str | None = Field(default=None, max_length=80)
+    target_audience: str | None = Field(default=None, max_length=80)
+    language: str | None = Field(default=None, max_length=20)
+
+
+class StoryRewriteResponse(BaseModel):
+    success: bool
+    provider: str
+    latency_ms: int
+    rewritten_content: str
+    moderation: dict
+    meta: dict | None = None
+    error: str | None = None
