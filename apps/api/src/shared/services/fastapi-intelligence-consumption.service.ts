@@ -37,7 +37,7 @@ export class FastapiIntelligenceConsumptionService {
     requestId?: string,
   ): Promise<FastapiEnvelope<{ bootstrap_runtime_guard: FastapiBootstrapRuntimeGuard }>> {
     return this.fastapiHttp.get<{ bootstrap_runtime_guard: FastapiBootstrapRuntimeGuard }>(
-      "/bootstrap-runtime-guard/snapshot",
+      "/intelligence-startup-gate/snapshot",
       this.headers.forStartup(requestId),
     );
   }

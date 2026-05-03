@@ -1,4 +1,5 @@
 import { internalApiRequest } from "@/lib/http/internal-api-client";
+import { fetchMedusaStoreProducts } from "@/lib/medusa/store-client";
 
 export interface StorefrontCatalogSummary {
   productSyncCount: number;
@@ -15,6 +16,7 @@ export interface StorefrontOrderSummary {
 }
 
 export async function getStorefrontCatalogSummary(): Promise<StorefrontCatalogSummary> {
+  try {
   const commerce = await internalApiRequest<{
     commerceAdmin: {
       productSyncCount: number;
@@ -30,6 +32,15 @@ export async function getStorefrontCatalogSummary(): Promise<StorefrontCatalogSu
     recentProducts: commerce.commerceAdmin.recentProducts,
     recentVariants: commerce.commerceAdmin.recentVariants,
   };
+  } catch {
+    const medusa = await fetchMedusaStoreProducts().catch(() => ({ products: [] as Record<string, unknown>[] }));
+    return {
+      productSyncCount: medusa.products.length,
+      variantSyncCount: 0,
+      recentProducts: medusa.products.slice(0, 20),
+      recentVariants: [],
+    };
+  }
 }
 
 export async function getStorefrontOrderSummary(): Promise<StorefrontOrderSummary> {
