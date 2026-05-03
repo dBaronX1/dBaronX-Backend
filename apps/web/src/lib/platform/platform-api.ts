@@ -16,6 +16,32 @@ function getLaunchClosureFallback(reason: string): LaunchClosure {
   };
 }
 
+function getPlatformAdminPackFallback(reason: string): PlatformAdminPack {
+  return {
+    shell: {
+      ready: false,
+      blockers: [`platform-admin-pack unavailable: ${reason}`],
+      orchestrationIndex: {
+        modules: {},
+      },
+    },
+    summary: {},
+    endpoints: {},
+  };
+}
+
+function getAiStoriesDashboardFallback(reason: string): AiStoriesAdminDashboard {
+  return {
+    totalCampaigns: 0,
+    totalStories: 0,
+    campaignStatusCounts: {
+      unavailable: 1,
+    },
+    recentCampaigns: [{ reason }],
+    recentStories: [{ reason }],
+  };
+}
+
 export async function getLaunchClosure(): Promise<LaunchClosure> {
   if (typeof window === "undefined") {
     const internalServiceToken = String(process.env.INTERNAL_SERVICE_TOKEN ?? "").trim();
@@ -46,10 +72,18 @@ export async function getReadinessMatrix(): Promise<ReadinessMatrix> {
 }
 
 export async function getPlatformAdminPack(): Promise<PlatformAdminPack> {
-  const payload = await internalApiRequest<{ platformAdminPack: PlatformAdminPack }>(
-    "/api/v1/platform/admin-pack",
-  );
-  return payload.platformAdminPack;
+  try {
+    const payload = await internalApiRequest<{ platformAdminPack: PlatformAdminPack }>(
+      "/api/v1/platform/admin-pack",
+    );
+    return payload.platformAdminPack;
+  } catch (error) {
+    if (error instanceof InternalApiError && (error.status === 401 || error.status === 404)) {
+      return getPlatformAdminPackFallback(`internal API status ${error.status}`);
+    }
+
+    throw error;
+  }
 }
 
 export async function getFastapiHandoffPack(): Promise<FastapiHandoffPack> {
@@ -67,8 +101,29 @@ export async function getCommerceAdminDashboard(): Promise<CommerceAdminDashboar
 }
 
 export async function getAiStoriesAdminDashboard(): Promise<AiStoriesAdminDashboard> {
-  const payload = await internalApiRequest<{ aiStoriesAdmin: AiStoriesAdminDashboard }>(
+  const candidates = [
     "/api/v1/ai-stories/admin/dashboard",
-  );
-  return payload.aiStoriesAdmin;
+    "/api/v1/platform/ai-stories/admin/dashboard",
+  ];
+
+  for (const path of candidates) {
+    try {
+      const payload = await internalApiRequest<{ aiStoriesAdmin: AiStoriesAdminDashboard }>(path, {
+        allowBaseUrlFallback: false,
+      });
+      return payload.aiStoriesAdmin;
+    } catch (error) {
+      if (error instanceof InternalApiError && error.status === 404) {
+        continue;
+      }
+
+      if (error instanceof InternalApiError && error.status === 401) {
+        return getAiStoriesDashboardFallback("unauthorized internal API response");
+      }
+
+      throw error;
+    }
+  }
+
+  return getAiStoriesDashboardFallback("dashboard endpoint not mounted");
 }
