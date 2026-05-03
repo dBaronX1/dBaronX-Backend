@@ -18,6 +18,10 @@ export class CommerceHealthService {
     return {
       success: true,
       commerceHealth: {
+        publicMedusaStoreCheck: {
+          endpoint: "/store/products",
+          reachable: medusa.ready,
+        },
         status:
           medusa.ready &&
           ecosystem.ecosystemCompatibility.services.fastapi.compatible
