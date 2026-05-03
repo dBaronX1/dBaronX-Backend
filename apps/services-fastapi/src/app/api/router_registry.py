@@ -37,6 +37,8 @@ from app.api.routes.expected_router_registry import (
 from app.api.routes.final_operational_closure import (
     router as final_operational_closure_router,
 )
+from app.api.routes.fastapi_step1_closure import router as fastapi_step1_closure_router
+from app.api.routes.fastapi_handoff_pack import router as fastapi_handoff_pack_router
 from app.api.routes.fraud_decision import router as fraud_decision_router
 from app.api.routes.intelligence_bootstrap_manifest import (
     router as intelligence_bootstrap_manifest_router,
@@ -63,6 +65,9 @@ from app.api.routes.internal_route_protection_audit import (
 from app.api.routes.ip_reputation import router as ip_reputation_router
 from app.api.routes.launch_operation_manifest import (
     router as launch_operation_manifest_router,
+)
+from app.api.routes.launch_control_manifest import (
+    router as launch_control_manifest_router,
 )
 from app.api.routes.launch_readiness_score import (
     router as launch_readiness_score_router,
