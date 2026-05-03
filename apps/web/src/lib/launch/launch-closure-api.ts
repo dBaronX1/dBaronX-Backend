@@ -1,4 +1,5 @@
 import { internalApiRequest } from "@/lib/http/internal-api-client";
+import { InternalApiError } from "@/lib/http/internal-api-client";
 
 export interface LaunchClosurePayload {
   success: boolean;
@@ -19,9 +20,23 @@ export interface LaunchReadinessPayload {
 }
 
 export async function getLaunchClosurePayload(): Promise<LaunchClosurePayload> {
-  return internalApiRequest<LaunchClosurePayload>(
-    "/api/v1/system/launch-closure",
-  );
+  try {
+    return await internalApiRequest<LaunchClosurePayload>(
+      "/api/v1/system/launch-closure",
+    );
+  } catch (error) {
+    if (error instanceof InternalApiError && (error.status === 401 || error.status === 404)) {
+      return {
+        success: false,
+        launchClosure: {
+          ready: false,
+          blockers: [`launch-closure unavailable: internal API status ${error.status}`],
+        },
+      };
+    }
+
+    throw error;
+  }
 }
 
 export async function getLaunchReadinessPayload(): Promise<LaunchReadinessPayload> {
