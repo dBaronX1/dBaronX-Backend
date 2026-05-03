@@ -31,10 +31,33 @@ function buildSyntheticReviews(products: Record<string, unknown>[]) {
   });
 }
 
+
+function buildProductCards(products: Record<string, unknown>[]) {
+  return products.map((product, index) => {
+    const variants = Array.isArray(product.variants) ? (product.variants as Record<string, unknown>[]) : [];
+    const firstVariant = variants[0] || {};
+    const firstPrice = Array.isArray(firstVariant.prices) ? (firstVariant.prices as Record<string, unknown>[])[0] || {} : {};
+    const priceAmount = Number(firstPrice.amount ?? 0);
+    const currency = String(firstPrice.currency_code ?? "usd").toUpperCase();
+    const inStock = typeof firstVariant.inventory_quantity === "number" ? firstVariant.inventory_quantity > 0 : true;
+    return {
+      key: String(product.id ?? product.handle ?? index),
+      title: String(product.title ?? "Untitled Product"),
+      handle: String(product.handle ?? "pending-handle"),
+      variantId: String(firstVariant.id ?? "variant-pending"),
+      priceLabel: priceAmount > 0 ? `${(priceAmount / 100).toFixed(2)} ${currency}` : "Price pending",
+      image: String(product.thumbnail ?? ""),
+      availability: inStock ? "Available" : "Out of stock",
+      supplierRef: String((product.metadata as Record<string, unknown> | undefined)?.supplierRef ?? "n/a"),
+    };
+  });
+}
+
 export default async function StorefrontCatalogPage() {
   const summary = await getStorefrontCatalogSummary();
   const reviews = buildSyntheticReviews(summary.recentProducts);
   const primaryProduct = summary.recentProducts[0] ?? {};
+  const productCards = buildProductCards(summary.recentProducts);
 
   const traceabilityProductId = String(primaryProduct.id ?? primaryProduct.handle ?? "catalog-product");
   const traceabilityLotCode = String(primaryProduct.sku ?? primaryProduct.variant_sku ?? "lot-pending");
@@ -60,6 +83,26 @@ export default async function StorefrontCatalogPage() {
       />
 
       <StorefrontCatalogCards summary={summary} />
+
+      {productCards.length === 0 ? (
+        <section className="rounded-xl border border-dashed border-zinc-700 bg-zinc-900/30 p-4 text-sm text-zinc-300">
+          Products coming soon. Catalog seed/import can be run once Medusa product data is ready.
+        </section>
+      ) : (
+        <section className="grid gap-4 md:grid-cols-2">
+          {productCards.slice(0, 8).map((item) => (
+            <article key={item.key} className="rounded-xl border border-zinc-800 bg-zinc-950/40 p-4">
+              <p className="text-sm font-semibold text-zinc-100">{item.title}</p>
+              <p className="text-xs text-zinc-400">/{item.handle}</p>
+              <p className="mt-2 text-sm text-zinc-200">{item.priceLabel}</p>
+              <p className="text-xs text-zinc-400">Variant: {item.variantId}</p>
+              <p className="text-xs text-zinc-400">Stock: {item.availability}</p>
+              <p className="text-xs text-zinc-400">Supplier: {item.supplierRef}</p>
+              <p className="text-xs text-zinc-500">Image: {item.image || "fallback-placeholder"}</p>
+            </article>
+          ))}
+        </section>
+      )}
 
       <section className="grid gap-4 lg:grid-cols-2">
         <ProductReviews title="Catalog Review Signals" reviews={reviews} />
