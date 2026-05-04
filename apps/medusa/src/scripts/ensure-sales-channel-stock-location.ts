@@ -4,7 +4,48 @@ import { createInventoryLevelsWorkflow, linkSalesChannelsToStockLocationWorkflow
 
 type SalesChannelRecord = { id: string; name?: string; is_default?: boolean; stock_locations?: StockLocationRecord[] };
 type StockLocationRecord = { id: string; name?: string };
-type ProductVariantRecord = { id: string; inventory_items?: { id: string }[] };
+
+const isRecord = (value: unknown): value is Record<string, unknown> =>
+  typeof value === "object" && value !== null;
+
+const getInventoryItemIdFromVariant = (variant: unknown): string | null => {
+  if (!isRecord(variant)) {
+    return null;
+  }
+
+  const inventoryItems = variant.inventory_items;
+  if (!Array.isArray(inventoryItems) || inventoryItems.length === 0) {
+    return null;
+  }
+
+  for (const item of inventoryItems) {
+    if (!isRecord(item)) {
+      continue;
+    }
+
+    const directId = item.id;
+    if (typeof directId === "string" && directId.length > 0) {
+      return directId;
+    }
+
+    const inventoryItemId = item.inventory_item_id;
+    if (typeof inventoryItemId === "string" && inventoryItemId.length > 0) {
+      return inventoryItemId;
+    }
+
+    const nestedInventoryItem = item.inventory_item;
+    if (isRecord(nestedInventoryItem) && typeof nestedInventoryItem.id === "string" && nestedInventoryItem.id.length > 0) {
+      return nestedInventoryItem.id;
+    }
+
+    const nestedInventory = item.inventory;
+    if (isRecord(nestedInventory) && typeof nestedInventory.id === "string" && nestedInventory.id.length > 0) {
+      return nestedInventory.id;
+    }
+  }
+
+  return null;
+};
 
 const TARGET_SALES_CHANNEL_ID = "sc_01KQNM6EQZ19Y1BCSRVF9XV61H";
 const TARGET_VARIANT_ID = "variant_01KQR5QC1GWD6Z6Q4S9EY358JQ";
@@ -43,10 +84,11 @@ export default async function ensureSalesChannelStockLocation({ container }: Exe
     pagination: { take: 1 },
   });
 
-  const variant = (variantRes.data?.[0] || null) as ProductVariantRecord | null;
-  if (!variant?.id) blockers.push("variant_missing");
+  const variant = variantRes.data?.[0] || null;
+  const variantId = isRecord(variant) && typeof variant.id === "string" ? variant.id : null;
+  if (!variantId) blockers.push("variant_missing");
 
-  const inventoryItemId = variant?.inventory_items?.[0]?.id || null;
+  const inventoryItemId = getInventoryItemIdFromVariant(variant);
   if (!inventoryItemId) blockers.push("inventory_item_missing");
 
   const inventoryLevelsRes = inventoryItemId
@@ -119,7 +161,7 @@ export default async function ensureSalesChannelStockLocation({ container }: Exe
         success: blockers.length === 0,
         salesChannelId: selectedSalesChannel?.id ?? null,
         stockLocationId: selectedStockLocation?.id ?? null,
-        variantId: variant?.id ?? null,
+        variantId,
         inventoryItemId,
         inventoryLevelReady,
         salesChannelStockLocationLinked,
