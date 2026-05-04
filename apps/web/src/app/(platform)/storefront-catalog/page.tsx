@@ -36,15 +36,22 @@ function buildProductCards(products: Record<string, unknown>[]) {
   return products.map((product, index) => {
     const variants = Array.isArray(product.variants) ? (product.variants as Record<string, unknown>[]) : [];
     const firstVariant = variants[0] || {};
-    const firstPrice = Array.isArray(firstVariant.prices) ? (firstVariant.prices as Record<string, unknown>[])[0] || {} : {};
+    const variantPrices = Array.isArray(firstVariant.prices) ? (firstVariant.prices as Record<string, unknown>[]) : [];
+    const firstPrice = variantPrices.find((price) => Number(price.amount ?? 0) > 0) || variantPrices[0] || {};
     const calculated = (firstVariant.calculated_price as Record<string, unknown> | undefined) || {};
-    const calculatedAmount = Number(calculated.calculated_amount ?? calculated.amount ?? 0);
+    const calculatedSet = (firstVariant.calculated_price_set as Record<string, unknown> | undefined) || {};
+    const calcAmount = Number(calculated.calculated_amount ?? calculated.amount ?? calculatedSet.amount ?? 0);
     const rawPriceAmount = Number(firstPrice.amount ?? 0);
-    const priceAmount = calculatedAmount > 0 ? calculatedAmount : rawPriceAmount;
-    const currency = String(calculated.currency_code ?? firstPrice.currency_code ?? "usd").toUpperCase();
-    const inventoryQty = Number(firstVariant.inventory_quantity ?? firstVariant.inventoryQuantity ?? -1);
-    const manageInventory = Boolean(firstVariant.manage_inventory ?? false);
-    const inStock = manageInventory ? inventoryQty > 0 : true;
+    const priceAmount = calcAmount > 0 ? calcAmount : rawPriceAmount;
+    const currency = String(calculated.currency_code ?? calculatedSet.currency_code ?? firstPrice.currency_code ?? "usd").toUpperCase();
+    const inventoryQty = Number(firstVariant.inventory_quantity ?? firstVariant.inventoryQuantity ?? firstVariant.stocked_quantity ?? -1);
+    const manageInventory = Boolean(firstVariant.manage_inventory ?? firstVariant.manageInventory ?? false);
+    const backorder = Boolean(firstVariant.allow_backorder ?? firstVariant.allowBackorder ?? false);
+    const inStock = manageInventory ? inventoryQty > 0 || backorder : true;
+    const pMeta = (product.metadata as Record<string, unknown> | undefined) || {};
+    const vMeta = (firstVariant.metadata as Record<string, unknown> | undefined) || {};
+    const supplierRef = String(pMeta.supplierRef ?? pMeta.supplier ?? pMeta.supplier_ref ?? vMeta.supplierRef ?? vMeta.supplier ?? vMeta.supplier_ref ?? "n/a");
+    const degraded = [priceAmount > 0 ? null : "price_pending", inStock ? null : "out_of_stock", supplierRef !== "n/a" ? null : "supplier_n/a"].filter(Boolean).join(", ");
     return {
       key: String(product.id ?? product.handle ?? index),
       title: String(product.title ?? "Untitled Product"),
@@ -53,7 +60,8 @@ function buildProductCards(products: Record<string, unknown>[]) {
       priceLabel: priceAmount > 0 ? `${(priceAmount / 100).toFixed(2)} ${currency}` : "Price pending",
       image: String(product.thumbnail ?? ""),
       availability: inStock ? "Available" : "Out of stock",
-      supplierRef: String((product.metadata as Record<string, unknown> | undefined)?.supplierRef ?? "n/a"),
+      supplierRef,
+      degradedReason: degraded || "ready",
     };
   });
 }
@@ -110,6 +118,7 @@ export default async function StorefrontCatalogPage() {
               <p className="text-xs text-zinc-400">Stock: {item.availability}</p>
               <p className="text-xs text-zinc-400">Supplier: {item.supplierRef}</p>
               <p className="text-xs text-zinc-500">Image: {item.image || "fallback-placeholder"}</p>
+              <p className="text-xs text-amber-300">Status: {item.degradedReason}</p>
             </article>
           ))}
         </section>

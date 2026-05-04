@@ -5,7 +5,6 @@ const publishableKey = process.env.MEDUSA_PUBLISHABLE_KEY || process.env.NEXT_PU
 
 const headers = publishableKey ? { "x-publishable-api-key": publishableKey } : {};
 const blockers = [];
-
 if (!publishableKey) blockers.push("missing_publishable_key");
 
 async function getJson(path, init = {}) {
@@ -27,17 +26,16 @@ const result = { success: false, baseUrl, blockers, productId: null, variantId: 
 
 try {
   const productsRes = await getJson("/store/products?limit=20", { headers });
-  if (!productsRes.ok) blockers.push(`store_products_http_${productsRes.status}`);
-
   const products = Array.isArray(productsRes.json?.products) ? productsRes.json.products : [];
   const product = products.find((p) => Array.isArray(p?.variants) && p.variants.length > 0);
-
-  if (!product) blockers.push("no_product_with_variant");
   const variant = product?.variants?.[0];
-  if (!variant?.id) blockers.push("variant_id_missing");
 
   result.productId = product?.id || null;
   result.variantId = variant?.id || null;
+
+  if (!productsRes.ok) blockers.push(`store_products_http_${productsRes.status}`);
+  if (!product) blockers.push("no_product_with_variant");
+  if (!variant?.id) blockers.push("variant_id_missing");
 
   const regionsRes = await getJson("/store/regions?limit=20", { headers });
   if (!regionsRes.ok) blockers.push(`store_regions_http_${regionsRes.status}`);
@@ -61,7 +59,6 @@ try {
       result.cartCreateError = cartRes.json;
     } else {
       result.cartId = cartRes.json.cart.id;
-
       const lineItemRes = await getJson(`/store/carts/${result.cartId}/line-items`, {
         method: "POST",
         headers: { "content-type": "application/json", ...headers },
