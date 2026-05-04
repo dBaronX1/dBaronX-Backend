@@ -64,6 +64,7 @@ The script:
 - never reports fake success
 
 ## Medusa prerequisites for cart readiness
+- Sales channel used by storefront must be linked to at least one stock location.
 - At least one published product with at least one variant.
 - At least one region configured (`region:ensure`).
 - Currency compatible with product pricing.
@@ -94,6 +95,7 @@ node scripts/e2e-commerce-flow-smoke.mjs
 - `pnpm --filter @dbaronx/medusa commerce:ensure`
 - `pnpm --filter @dbaronx/medusa region:ensure`
 - `pnpm --filter @dbaronx/medusa shipping:ensure`
+- `pnpm --filter @dbaronx/medusa channel:stock:ensure`
 
 ### Cart smoke usage
 - `MEDUSA_BACKEND_URL=http://localhost:9000 MEDUSA_PUBLISHABLE_KEY=<pk> node scripts/e2e-cart-readiness-smoke.mjs`
