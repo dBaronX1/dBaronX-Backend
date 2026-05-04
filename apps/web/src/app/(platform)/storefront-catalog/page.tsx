@@ -37,9 +37,14 @@ function buildProductCards(products: Record<string, unknown>[]) {
     const variants = Array.isArray(product.variants) ? (product.variants as Record<string, unknown>[]) : [];
     const firstVariant = variants[0] || {};
     const firstPrice = Array.isArray(firstVariant.prices) ? (firstVariant.prices as Record<string, unknown>[])[0] || {} : {};
-    const priceAmount = Number(firstPrice.amount ?? 0);
-    const currency = String(firstPrice.currency_code ?? "usd").toUpperCase();
-    const inStock = typeof firstVariant.inventory_quantity === "number" ? firstVariant.inventory_quantity > 0 : true;
+    const calculated = (firstVariant.calculated_price as Record<string, unknown> | undefined) || {};
+    const calculatedAmount = Number(calculated.calculated_amount ?? calculated.amount ?? 0);
+    const rawPriceAmount = Number(firstPrice.amount ?? 0);
+    const priceAmount = calculatedAmount > 0 ? calculatedAmount : rawPriceAmount;
+    const currency = String(calculated.currency_code ?? firstPrice.currency_code ?? "usd").toUpperCase();
+    const inventoryQty = Number(firstVariant.inventory_quantity ?? firstVariant.inventoryQuantity ?? -1);
+    const manageInventory = Boolean(firstVariant.manage_inventory ?? false);
+    const inStock = manageInventory ? inventoryQty > 0 : true;
     return {
       key: String(product.id ?? product.handle ?? index),
       title: String(product.title ?? "Untitled Product"),
@@ -83,6 +88,12 @@ export default async function StorefrontCatalogPage() {
       />
 
       <StorefrontCatalogCards summary={summary} />
+
+      {summary.degradedReason ? (
+        <section className="rounded-xl border border-amber-600/60 bg-amber-950/20 p-4 text-sm text-amber-200">
+          Degraded catalog mode: {summary.degradedReason}
+        </section>
+      ) : null}
 
       {productCards.length === 0 ? (
         <section className="rounded-xl border border-dashed border-zinc-700 bg-zinc-900/30 p-4 text-sm text-zinc-300">

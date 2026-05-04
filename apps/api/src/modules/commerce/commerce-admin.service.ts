@@ -1,9 +1,13 @@
 import { Injectable } from "@nestjs/common";
+import { MedusaBridgeService } from "../../shared/services/medusa-bridge.service";
 import { SupabaseService } from "../../shared/services/supabase.service";
 
 @Injectable()
 export class CommerceAdminService {
-  constructor(private readonly supabase: SupabaseService) {}
+  constructor(
+    private readonly supabase: SupabaseService,
+    private readonly medusaBridge: MedusaBridgeService,
+  ) {}
 
   async dashboard() {
     const [
@@ -53,6 +57,34 @@ export class CommerceAdminService {
 
     const settlements = settlementResult.data || [];
 
+    const persistedVariants = variantSyncResult.data || [];
+    const persistedProducts = productSyncResult.data || [];
+    let mirroredVariants = persistedVariants;
+    let degradedReason: string | null = null;
+
+    if (!persistedVariants.length && persistedProducts.length) {
+      const products = await this.medusaBridge.listProducts();
+      mirroredVariants = products.flatMap((product) => {
+        const variants = Array.isArray((product as { variants?: unknown[] }).variants)
+          ? ((product as { variants?: Record<string, unknown>[] }).variants || [])
+          : [];
+        return variants.map((variant) => ({
+          medusa_variant_id: String(variant.id || ""),
+          medusa_product_id: String((product as { id?: string }).id || ""),
+          title: variant.title || null,
+          sku: variant.sku || null,
+          prices: Array.isArray(variant.prices) ? variant.prices : [],
+          manage_inventory: variant.manage_inventory ?? null,
+          inventory_quantity: variant.inventory_quantity ?? null,
+          metadata: variant.metadata || {},
+        }));
+      });
+
+      if (!mirroredVariants.length) {
+        degradedReason = "products visible but variants not synced";
+      }
+    }
+
     const totals = settlements.reduce(
       (acc, item) => {
         acc.gross += Number(item.gross_amount || 0);
@@ -73,14 +105,15 @@ export class CommerceAdminService {
       success: true,
       commerceAdmin: {
         orderSyncCount: (orderSyncResult.data || []).length,
-        productSyncCount: (productSyncResult.data || []).length,
-        variantSyncCount: (variantSyncResult.data || []).length,
+        productSyncCount: persistedProducts.length,
+        variantSyncCount: mirroredVariants.length,
         fulfillmentSyncCount: (fulfillmentSyncResult.data || []).length,
         settlementCount: settlements.length,
         settlementTotals: totals,
         recentOrders: (orderSyncResult.data || []).slice(0, 25),
-        recentProducts: (productSyncResult.data || []).slice(0, 25),
-        recentVariants: (variantSyncResult.data || []).slice(0, 25),
+        recentProducts: persistedProducts.slice(0, 25),
+        recentVariants: mirroredVariants.slice(0, 25),
+        degradedReason,
         recentFulfillments: (fulfillmentSyncResult.data || []).slice(0, 25),
         recentSettlements: settlements.slice(0, 25),
       },
