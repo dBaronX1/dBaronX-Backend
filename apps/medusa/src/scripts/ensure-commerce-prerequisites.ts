@@ -1,6 +1,9 @@
 import { ExecArgs } from "@medusajs/framework/types";
 import { ContainerRegistrationKeys } from "@medusajs/framework/utils";
-import { createRegionsWorkflow, createShippingProfilesWorkflow, linkSalesChannelsToStockLocationWorkflow, updateStoresWorkflow } from "@medusajs/medusa/core-flows";
+import { createRegionsWorkflow, createShippingProfilesWorkflow, linkSalesChannelsToStockLocationWorkflow, updateInventoryLevelsWorkflow, updateStoresWorkflow } from "@medusajs/medusa/core-flows";
+
+const TARGET_SALES_CHANNEL_ID = "sc_01KQNM6EQZ19Y1BCSRVF9XV61H";
+const TARGET_VARIANT_ID = "variant_01KQR5QC1GWD6Z6Q4S9EY358JQ";
 
 export default async function ensureCommercePrerequisites({ container }: ExecArgs) {
   const query = container.resolve(ContainerRegistrationKeys.QUERY);
@@ -30,12 +33,14 @@ export default async function ensureCommercePrerequisites({ container }: ExecArg
   const salesChannelsRes = await query.graph({ entity: "sales_channel", fields: ["id", "name", "is_default", "stock_locations.id"], pagination: { take: 50 } });
   const salesChannels = (salesChannelsRes.data || []) as any[];
   const salesChannel =
+    salesChannels.find((sc: any) => sc?.id === TARGET_SALES_CHANNEL_ID) ||
     salesChannels.find((sc: any) => sc?.is_default) ||
     salesChannels.find((sc: any) => String(sc?.name || "").toLowerCase().includes("default")) ||
     salesChannels[0];
 
   if (salesChannel?.id) existing.push("sales_channel");
   else blockers.push("sales_channel_missing");
+  if (salesChannel?.id !== TARGET_SALES_CHANNEL_ID) blockers.push("sales_channel_mismatch");
 
   if (salesChannel?.id && stockLocation?.id) {
     const linked = (Array.isArray(salesChannel?.stock_locations) ? salesChannel.stock_locations : []).some((location: any) => location?.id === stockLocation.id);
@@ -48,6 +53,47 @@ export default async function ensureCommercePrerequisites({ container }: ExecArg
     }
   } else {
     blockers.push("sales_channel_stock_location_link_missing");
+  }
+
+  let inventoryItemId: string | null = null;
+  let inventoryLevelReady = false;
+  let salesChannelStockLocationLinked = false;
+
+  if (salesChannel?.id && stockLocation?.id) {
+    salesChannelStockLocationLinked = (Array.isArray(salesChannel?.stock_locations) ? salesChannel.stock_locations : []).some((location: any) => location?.id === stockLocation.id);
+  }
+
+  const variantRes = await query.graph({
+    entity: "product_variant",
+    fields: ["id", "inventory_items.id"],
+    filters: { id: TARGET_VARIANT_ID },
+    pagination: { take: 1 },
+  });
+  const variant = (variantRes.data || [])[0] as { id: string; inventory_items?: { id: string }[] } | undefined;
+  if (!variant?.id) blockers.push("variant_missing");
+  inventoryItemId = variant?.inventory_items?.[0]?.id ?? null;
+  if (!inventoryItemId) blockers.push("inventory_item_missing");
+
+  if (inventoryItemId && stockLocation?.id) {
+    const levelRes = await query.graph({
+      entity: "inventory_level",
+      fields: ["id", "inventory_item_id", "stock_location_id"],
+      filters: { inventory_item_id: inventoryItemId, stock_location_id: stockLocation.id },
+      pagination: { take: 1 },
+    });
+    if (!(levelRes.data || [])[0]?.id) {
+      await updateInventoryLevelsWorkflow(container).run({
+        input: [{ inventory_item_id: inventoryItemId, location_id: stockLocation.id, stocked_quantity: 100 }],
+      });
+    }
+    const verifyRes = await query.graph({
+      entity: "inventory_level",
+      fields: ["id"],
+      filters: { inventory_item_id: inventoryItemId, stock_location_id: stockLocation.id },
+      pagination: { take: 1 },
+    });
+    inventoryLevelReady = Boolean((verifyRes.data || [])[0]?.id);
+    if (!inventoryLevelReady) blockers.push("inventory_level_missing");
   }
 
     const profilesRes = await query.graph({ entity: "shipping_profile", fields: ["id", "name", "type"], pagination: { take: 20 } });
@@ -96,5 +142,5 @@ export default async function ensureCommercePrerequisites({ container }: ExecArg
   });
   if (!supplierMetadataReady) blockers.push("supplier_na");
 
-  console.log(JSON.stringify({ success: blockers.length === 0, created, existing, blockers, regionId: region?.id ?? null, shippingOptionId: shippingOption?.id ?? null, stockLocationId: stockLocation?.id ?? null, productCount, variantCount, priceReady, stockReady, supplierMetadataReady }, null, 2));
+  console.log(JSON.stringify({ success: blockers.length === 0, salesChannelId: salesChannel?.id ?? null, stockLocationId: stockLocation?.id ?? null, variantId: TARGET_VARIANT_ID, inventoryItemId, inventoryLevelReady, salesChannelStockLocationLinked, created, existing, blockers, regionId: region?.id ?? null, shippingOptionId: shippingOption?.id ?? null, productCount, variantCount, priceReady, stockReady, supplierMetadataReady }, null, 2));
 }
