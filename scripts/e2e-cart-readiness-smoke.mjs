@@ -16,7 +16,14 @@ async function getJson(path, init = {}) {
   return { ok: response.ok, status: response.status, json };
 }
 
-const result = { success: false, baseUrl, blockers, productId: null, variantId: null, cartId: null, lineItemAdded: false };
+function appendCheckoutBlockers(errorPayload) {
+  const raw = JSON.stringify(errorPayload || {}).toLowerCase();
+  if (raw.includes("payment") && raw.includes("provider")) blockers.push("payment_provider_missing_or_not_enabled");
+  if (raw.includes("shipping") && (raw.includes("option") || raw.includes("method"))) blockers.push("shipping_option_missing_or_not_configured");
+  if (raw.includes("fulfillment") && raw.includes("provider")) blockers.push("fulfillment_provider_missing_or_not_enabled");
+}
+
+const result = { success: false, baseUrl, blockers, productId: null, variantId: null, regionId: null, cartId: null, lineItemAdded: false };
 
 try {
   const productsRes = await getJson("/store/products?limit=20", { headers });
@@ -33,8 +40,12 @@ try {
   result.variantId = variant?.id || null;
 
   const regionsRes = await getJson("/store/regions?limit=20", { headers });
+  if (!regionsRes.ok) blockers.push(`store_regions_http_${regionsRes.status}`);
+
   const regions = Array.isArray(regionsRes.json?.regions) ? regionsRes.json.regions : [];
   const region = regions[0];
+  result.regionId = region?.id || null;
+
   if (!region?.id) blockers.push("region_missing");
 
   if (result.variantId && region?.id) {
@@ -46,6 +57,8 @@ try {
 
     if (!cartRes.ok || !cartRes.json?.cart?.id) {
       blockers.push(`cart_create_http_${cartRes.status}`);
+      appendCheckoutBlockers(cartRes.json);
+      result.cartCreateError = cartRes.json;
     } else {
       result.cartId = cartRes.json.cart.id;
 
@@ -55,8 +68,11 @@ try {
         body: JSON.stringify({ variant_id: result.variantId, quantity: 1 }),
       });
 
-      if (!lineItemRes.ok) blockers.push(`line_item_add_http_${lineItemRes.status}`);
-      else result.lineItemAdded = true;
+      if (!lineItemRes.ok) {
+        blockers.push(`line_item_add_http_${lineItemRes.status}`);
+        appendCheckoutBlockers(lineItemRes.json);
+        result.lineItemAddError = lineItemRes.json;
+      } else result.lineItemAdded = true;
     }
   }
 
