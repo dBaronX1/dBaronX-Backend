@@ -1,59 +1,86 @@
 import { ExecArgs } from "@medusajs/framework/types";
 import { ContainerRegistrationKeys } from "@medusajs/framework/utils";
-import { createRegionsWorkflow, updateStoresWorkflow } from "@medusajs/medusa/core-flows";
+import { createRegionsWorkflow } from "@medusajs/medusa/core-flows";
 
-const DEFAULT_REGION_NAME = "dBaronX Launch Region";
-const DEFAULT_CURRENCY = "usd";
-const DEFAULT_COUNTRIES = ["us"];
+type RegionRecord = { id: string; name?: string; currency_code?: string };
+
+const DEFAULT_REGION_NAME = "dBaronX Global Launch Region";
+const DEFAULT_CURRENCY_CODE = "usd";
+const DEFAULT_COUNTRIES = ["gh", "ae", "us"];
+
+async function safeQuery(query: any, entity: string, fields: string[]) {
+  try {
+    const result = await query.graph({ entity, fields, pagination: { take: 50 } });
+    return Array.isArray(result?.data) ? result.data : [];
+  } catch {
+    return [];
+  }
+}
 
 export default async function ensureRegion({ container }: ExecArgs) {
   const query = container.resolve(ContainerRegistrationKeys.QUERY);
-  const blockers: string[] = [];
 
-  const existingRegions = await query.graph({
+  const existing = await query.graph({
     entity: "region",
     fields: ["id", "name", "currency_code"],
     pagination: { take: 50 },
   });
 
-  const region =
-    (existingRegions.data || []).find((entry: any) => entry?.name === DEFAULT_REGION_NAME) ||
-    (existingRegions.data || []).find((entry: any) => String(entry?.currency_code || "").toLowerCase() === DEFAULT_CURRENCY);
+  const regions = (existing?.data || []) as RegionRecord[];
+  const matchingRegion =
+    regions.find((region) => region.name === DEFAULT_REGION_NAME) ||
+    regions.find((region) => region.currency_code?.toLowerCase() === DEFAULT_CURRENCY_CODE) ||
+    regions[0];
 
-  let regionId = region?.id as string | undefined;
-  let created = false;
+  const paymentProviders = await safeQuery(query, "payment_provider", ["id"]);
+  const fulfillmentProviders = await safeQuery(query, "fulfillment_provider", ["id"]);
 
-  if (!regionId) {
-    const createdRegion = await createRegionsWorkflow(container).run({
-      input: {
-        regions: [
-          {
-            name: DEFAULT_REGION_NAME,
-            currency_code: DEFAULT_CURRENCY,
-            countries: DEFAULT_COUNTRIES,
-            payment_providers: ["pp_system_default"],
-          },
-        ],
-      },
-    });
+  const blockers: string[] = [];
+  if (paymentProviders.length === 0) blockers.push("payment_provider_missing");
+  if (fulfillmentProviders.length === 0) blockers.push("fulfillment_provider_missing");
 
-    regionId = createdRegion.result?.[0]?.id;
-    created = true;
-  }
-
-  if (!regionId) blockers.push("region_missing");
-
-  if (regionId) {
-    await updateStoresWorkflow(container).run({
-      input: {
-        selector: {},
-        update: {
-          default_region_id: regionId,
-          supported_currencies: [{ currency_code: DEFAULT_CURRENCY, is_default: true }],
+  if (matchingRegion?.id) {
+    console.log(
+      JSON.stringify(
+        {
+          success: true,
+          created: false,
+          regionId: matchingRegion.id,
+          currencyCode: matchingRegion.currency_code ?? DEFAULT_CURRENCY_CODE,
+          blockers,
         },
-      },
-    });
+        null,
+        2
+      )
+    );
+    return;
   }
 
-  console.log(JSON.stringify({ success: blockers.length === 0, created, existing: !created, blockers, regionId: regionId ?? null }, null, 2));
+  const created = await createRegionsWorkflow(container).run({
+    input: {
+      regions: [
+        {
+          name: DEFAULT_REGION_NAME,
+          currency_code: DEFAULT_CURRENCY_CODE,
+          countries: DEFAULT_COUNTRIES,
+        },
+      ],
+    },
+  });
+
+  const createdRegion = created?.result?.[0] as RegionRecord | undefined;
+
+  console.log(
+    JSON.stringify(
+      {
+        success: true,
+        created: true,
+        regionId: createdRegion?.id ?? null,
+        currencyCode: createdRegion?.currency_code ?? DEFAULT_CURRENCY_CODE,
+        blockers,
+      },
+      null,
+      2
+    )
+  );
 }

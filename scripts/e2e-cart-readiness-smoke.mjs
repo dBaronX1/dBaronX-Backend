@@ -15,7 +15,14 @@ async function getJson(path, init = {}) {
   return { ok: response.ok, status: response.status, json };
 }
 
-const result = { success: false, baseUrl, blockers, regionId: null, productId: null, variantId: null, cartId: null, lineItemAdded: false, nextBlocker: null };
+function appendCheckoutBlockers(errorPayload) {
+  const raw = JSON.stringify(errorPayload || {}).toLowerCase();
+  if (raw.includes("payment") && raw.includes("provider")) blockers.push("payment_provider_missing_or_not_enabled");
+  if (raw.includes("shipping") && (raw.includes("option") || raw.includes("method"))) blockers.push("shipping_option_missing_or_not_configured");
+  if (raw.includes("fulfillment") && raw.includes("provider")) blockers.push("fulfillment_provider_missing_or_not_enabled");
+}
+
+const result = { success: false, baseUrl, blockers, productId: null, variantId: null, regionId: null, cartId: null, lineItemAdded: false };
 
 try {
   const productsRes = await getJson("/store/products?limit=20", { headers });
@@ -31,9 +38,12 @@ try {
   if (!variant?.id) blockers.push("variant_id_missing");
 
   const regionsRes = await getJson("/store/regions?limit=20", { headers });
+  if (!regionsRes.ok) blockers.push(`store_regions_http_${regionsRes.status}`);
+
   const regions = Array.isArray(regionsRes.json?.regions) ? regionsRes.json.regions : [];
-  const region = regions.find((r) => r?.id) || null;
+  const region = regions[0];
   result.regionId = region?.id || null;
+
   if (!region?.id) blockers.push("region_missing");
 
   if (result.variantId && region?.id) {
@@ -45,7 +55,8 @@ try {
 
     if (!cartRes.ok || !cartRes.json?.cart?.id) {
       blockers.push(`cart_create_http_${cartRes.status}`);
-      result.nextBlocker = cartRes.json?.message || cartRes.json?.type || "cart_create_failed";
+      appendCheckoutBlockers(cartRes.json);
+      result.cartCreateError = cartRes.json;
     } else {
       result.cartId = cartRes.json.cart.id;
       const lineItemRes = await getJson(`/store/carts/${result.cartId}/line-items`, {
@@ -56,18 +67,9 @@ try {
 
       if (!lineItemRes.ok) {
         blockers.push(`line_item_add_http_${lineItemRes.status}`);
-        result.nextBlocker = lineItemRes.json?.message || lineItemRes.json?.type || "line_item_add_failed";
-      } else {
-        result.lineItemAdded = true;
-        const shippingOptionsRes = await getJson(`/store/shipping-options?cart_id=${result.cartId}`, { headers });
-        const shippingOptions = Array.isArray(shippingOptionsRes.json?.shipping_options) ? shippingOptionsRes.json.shipping_options : [];
-        if (!shippingOptionsRes.ok || shippingOptions.length === 0) {
-          blockers.push("shipping_option_missing");
-          result.nextBlocker = shippingOptionsRes.json?.message || "shipping_option_missing";
-        } else {
-          result.nextBlocker = "payment_session_required";
-        }
-      }
+        appendCheckoutBlockers(lineItemRes.json);
+        result.lineItemAddError = lineItemRes.json;
+      } else result.lineItemAdded = true;
     }
   }
 

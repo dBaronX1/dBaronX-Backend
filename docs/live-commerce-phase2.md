@@ -36,6 +36,19 @@ curl -H "x-publishable-api-key: $MEDUSA_PUBLISHABLE_KEY" "$MEDUSA_URL/store/prod
 
 Verify each product has `variants[]`, and each variant has at minimum `id` plus either `prices[]` or `calculated_price` values.
 
+## Region prerequisite and setup
+A region is mandatory before cart creation can succeed.
+
+Run region bootstrap (idempotent):
+```bash
+pnpm --filter @dbaronx/medusa region:ensure
+```
+
+Expected behavior:
+- Reuses an existing region if one exists and prints `created: false`.
+- Otherwise creates `dBaronX Global Launch Region` with `currency_code: usd` and countries `gh`, `ae`, `us`, then prints `created: true`.
+- Prints blockers if payment/fulfillment providers are still missing.
+
 ## First cart readiness smoke
 ```bash
 node scripts/e2e-cart-readiness-smoke.mjs
@@ -44,17 +57,24 @@ node scripts/e2e-cart-readiness-smoke.mjs
 The script:
 - calls `/store/products` with publishable key
 - selects first product with first variant
-- checks regions
+- fetches `/store/regions`, uses first/default region, and prints `regionId`
 - attempts cart create
 - attempts add line item
-- prints JSON blockers and never reports fake success
+- prints exact blockers (including payment/shipping/provider setup blockers when detected)
+- never reports fake success
 
 ## Medusa prerequisites for cart readiness
 - At least one published product with at least one variant.
-- At least one region configured.
+- At least one region configured (`region:ensure`).
 - Currency compatible with product pricing.
 - Payment provider configured for region (checkout readiness).
 - Shipping profile + shipping options linked to region for full checkout path.
+
+## Remaining checkout blockers after region
+After region setup, checkout may still be blocked by:
+- Missing payment provider registration/enablement for the region.
+- Missing fulfillment provider setup.
+- Missing shipping profile or shipping options tied to the region.
 
 ## Existing E2E commerce smoke
 ```bash
