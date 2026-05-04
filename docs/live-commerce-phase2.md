@@ -60,3 +60,31 @@ The script:
 ```bash
 node scripts/e2e-commerce-flow-smoke.mjs
 ```
+
+## First-sale blocker removal (Phase 3)
+
+### Fixed blockers targeted
+- `region_missing`: use `pnpm --filter @dbaronx/medusa commerce:ensure` (or `region:ensure`) to confirm a launch region and default store region.
+- `price_pending`: `commerce:ensure` inspects product variants and flags missing currency prices.
+- `out_of_stock`: `commerce:ensure` checks inventory-backed variants for stock readiness.
+- `supplier_na`: `commerce:ensure` validates supplier metadata presence on product/variant metadata.
+- `cart_readiness`: `scripts/e2e-cart-readiness-smoke.mjs` now discovers region, creates cart, adds variant, and reports the next exact blocker.
+
+### Commands
+- `pnpm --filter @dbaronx/medusa commerce:ensure`
+- `pnpm --filter @dbaronx/medusa region:ensure`
+- `pnpm --filter @dbaronx/medusa shipping:ensure`
+
+### Cart smoke usage
+- `MEDUSA_BACKEND_URL=http://localhost:9000 MEDUSA_PUBLISHABLE_KEY=<pk> node scripts/e2e-cart-readiness-smoke.mjs`
+- Output includes `nextBlocker` (`shipping_option_missing`, `payment_session_required`, etc.) without faking checkout success.
+
+### Payment preflight usage
+- `NESTJS_API_URL=http://localhost:4000 node scripts/e2e-payment-preflight-smoke.mjs`
+- This is sandbox/test preflight only and never marks a payment as paid.
+
+### Manual steps still needed for real first sale
+- Configure live shipping provider zones/options in Medusa Admin if default/manual provider is unavailable.
+- Configure real payment provider(s) and secure webhook handling in NestJS/Medusa stack.
+- Validate production supplier metadata population from NestJS supplier orchestration.
+- Run end-to-end checkout in a controlled staging environment before enabling real customer checkout.
