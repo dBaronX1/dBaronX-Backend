@@ -20,6 +20,7 @@ function appendCheckoutBlockers(errorPayload) {
   if (raw.includes("payment") && raw.includes("provider")) blockers.push("payment_provider_missing_or_not_enabled");
   if (raw.includes("shipping") && (raw.includes("option") || raw.includes("method"))) blockers.push("shipping_option_missing_or_not_configured");
   if (raw.includes("fulfillment") && raw.includes("provider")) blockers.push("fulfillment_provider_missing_or_not_enabled");
+  if (raw.includes("sales channel") && raw.includes("stock location")) blockers.push("sales_channel_stock_location_link_missing");
 }
 
 const result = { success: false, baseUrl, blockers, productId: null, variantId: null, regionId: null, cartId: null, lineItemAdded: false };

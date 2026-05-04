@@ -1,6 +1,6 @@
 import { ExecArgs } from "@medusajs/framework/types";
 import { ContainerRegistrationKeys } from "@medusajs/framework/utils";
-import { createRegionsWorkflow, createShippingProfilesWorkflow, updateStoresWorkflow } from "@medusajs/medusa/core-flows";
+import { createRegionsWorkflow, createShippingProfilesWorkflow, linkSalesChannelsToStockLocationWorkflow, updateStoresWorkflow } from "@medusajs/medusa/core-flows";
 
 export default async function ensureCommercePrerequisites({ container }: ExecArgs) {
   const query = container.resolve(ContainerRegistrationKeys.QUERY);
@@ -26,7 +26,31 @@ export default async function ensureCommercePrerequisites({ container }: ExecArg
   if (stockLocation?.id) existing.push("stock_location");
   else blockers.push("stock_location_missing");
 
-  const profilesRes = await query.graph({ entity: "shipping_profile", fields: ["id", "name", "type"], pagination: { take: 20 } });
+
+  const salesChannelsRes = await query.graph({ entity: "sales_channel", fields: ["id", "name", "is_default", "stock_locations.id"], pagination: { take: 50 } });
+  const salesChannels = (salesChannelsRes.data || []) as any[];
+  const salesChannel =
+    salesChannels.find((sc: any) => sc?.is_default) ||
+    salesChannels.find((sc: any) => String(sc?.name || "").toLowerCase().includes("default")) ||
+    salesChannels[0];
+
+  if (salesChannel?.id) existing.push("sales_channel");
+  else blockers.push("sales_channel_missing");
+
+  if (salesChannel?.id && stockLocation?.id) {
+    const linked = (Array.isArray(salesChannel?.stock_locations) ? salesChannel.stock_locations : []).some((location: any) => location?.id === stockLocation.id);
+
+    if (!linked) {
+      await linkSalesChannelsToStockLocationWorkflow(container).run({ input: { id: salesChannel.id, add: [stockLocation.id] } });
+      created.push("sales_channel_stock_location_link");
+    } else {
+      existing.push("sales_channel_stock_location_link");
+    }
+  } else {
+    blockers.push("sales_channel_stock_location_link_missing");
+  }
+
+    const profilesRes = await query.graph({ entity: "shipping_profile", fields: ["id", "name", "type"], pagination: { take: 20 } });
   let shippingProfile: any = (profilesRes.data || []).find((p: any) => p?.type === "default") || (profilesRes.data || [])[0];
   if (!shippingProfile?.id) {
     const createdProfiles = await createShippingProfilesWorkflow(container).run({ input: { data: [{ name: "Default Shipping Profile", type: "default" }] } });

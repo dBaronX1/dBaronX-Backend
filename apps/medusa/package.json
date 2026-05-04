@@ -29,7 +29,8 @@
     "stock:ensure": "pnpm exec medusa exec ./src/scripts/ensure-stock-location.ts",
     "region:ensure": "pnpm exec medusa exec ./src/scripts/ensure-region.ts",
     "shipping:ensure": "pnpm exec medusa exec ./src/scripts/ensure-shipping.ts",
-    "commerce:ensure": "pnpm exec medusa exec ./src/scripts/ensure-commerce-prerequisites.ts"
+    "commerce:ensure": "pnpm exec medusa exec ./src/scripts/ensure-commerce-prerequisites.ts",
+    "channel:stock:ensure": "pnpm exec medusa exec ./src/scripts/ensure-sales-channel-stock-location.ts"
   },
   "dependencies": {
     "@medusajs/admin-sdk": "2.13.6",
