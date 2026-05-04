@@ -27,7 +27,9 @@
     "seed:products": "pnpm exec medusa exec ./src/scripts/seed-products.ts",
     "seed:products:dry-run": "DRY_RUN=true pnpm exec medusa exec ./src/scripts/seed-products.ts",
     "stock:ensure": "pnpm exec medusa exec ./src/scripts/ensure-stock-location.ts",
-    "region:ensure": "pnpm exec medusa exec ./src/scripts/ensure-region.ts"
+    "region:ensure": "pnpm exec medusa exec ./src/scripts/ensure-region.ts",
+    "shipping:ensure": "pnpm exec medusa exec ./src/scripts/ensure-shipping.ts",
+    "commerce:ensure": "pnpm exec medusa exec ./src/scripts/ensure-commerce-prerequisites.ts"
   },
   "dependencies": {
     "@medusajs/admin-sdk": "2.13.6",
