@@ -16,6 +16,8 @@ import { IntelligenceAuditPipelineService } from "../../shared/services/intellig
 import { LaunchReadinessPersistenceService } from "../../shared/services/launch-readiness-persistence.service";
 import { SupabaseService } from "../../shared/services/supabase.service";
 import { PaymentsAdminService } from "./payments-admin.service";
+import { StripeCheckoutController } from "./stripe-checkout.controller";
+import { StripeCheckoutService } from "./stripe-checkout.service";
 
 @Module({
   imports: [ConfigModule, WalletModule],
@@ -23,6 +25,7 @@ import { PaymentsAdminService } from "./payments-admin.service";
     PaymentIntelligenceController,
     PaymentOrchestrationController,
     CheckoutSettlementController,
+    StripeCheckoutController,
   ],
   providers: [
     InternalRequestHeadersService,
@@ -37,12 +40,14 @@ import { PaymentsAdminService } from "./payments-admin.service";
     PaymentIntelligenceService,
     PaymentPreflightOrchestratorService,
     CheckoutSettlementService,
+    StripeCheckoutService,
   ],
   exports: [
     PaymentIntelligenceService,
     PaymentsAdminService,
     PaymentPreflightOrchestratorService,
     CheckoutSettlementService,
+    StripeCheckoutService,
   ],
 })
 export class PaymentsModule {}

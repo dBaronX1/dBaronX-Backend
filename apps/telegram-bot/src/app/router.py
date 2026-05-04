@@ -89,6 +89,8 @@ def register_handlers(application: Application) -> None:
     application.add_handler(CommandHandler("payouts", payout_queue_handler))
     application.add_handler(CommandHandler("ads", ads_queue_handler))
     application.add_handler(CommandHandler("suppliers", suppliers_ops_handler))
+    application.add_handler(CommandHandler("payments", payments_ops_handler))
+    application.add_handler(CommandHandler("checkout", payments_ops_handler))
     application.add_handler(CommandHandler("ops_pack", ops_pack_handler))
     application.add_handler(CommandHandler("admin_summary", telegram_admin_summary_handler))
     application.add_handler(CommandHandler("launch_audit", launch_audit_handler))

@@ -110,3 +110,6 @@ node scripts/e2e-commerce-flow-smoke.mjs
 - Configure real payment provider(s) and secure webhook handling in NestJS/Medusa stack.
 - Validate production supplier metadata population from NestJS supplier orchestration.
 - Run end-to-end checkout in a controlled staging environment before enabling real customer checkout.
+
+## commerce:ensure prerequisite scope
+`commerce:ensure` must verify region, stock location, sales channel-to-stock-location link, shipping profile, shipping option, product prices, and inventory availability before real checkout.
