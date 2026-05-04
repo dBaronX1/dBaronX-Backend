@@ -41,6 +41,7 @@ export default async function ensureCommercePrerequisites({ container }: ExecArg
 
   if (salesChannel?.id) existing.push("sales_channel");
   else blockers.push("sales_channel_missing");
+  if (salesChannel?.id !== TARGET_SALES_CHANNEL_ID) blockers.push("sales_channel_mismatch");
 
   if (salesChannel?.id && stockLocation?.id) {
     const linked = (Array.isArray(salesChannel?.stock_locations) ? salesChannel.stock_locations : []).some((location: any) => location?.id === stockLocation.id);
@@ -53,6 +54,47 @@ export default async function ensureCommercePrerequisites({ container }: ExecArg
     }
   } else {
     blockers.push("sales_channel_stock_location_link_missing");
+  }
+
+  let inventoryItemId: string | null = null;
+  let inventoryLevelReady = false;
+  let salesChannelStockLocationLinked = false;
+
+  if (salesChannel?.id && stockLocation?.id) {
+    salesChannelStockLocationLinked = (Array.isArray(salesChannel?.stock_locations) ? salesChannel.stock_locations : []).some((location: any) => location?.id === stockLocation.id);
+  }
+
+  const variantRes = await query.graph({
+    entity: "product_variant",
+    fields: ["id", "inventory_items.id"],
+    filters: { id: TARGET_VARIANT_ID },
+    pagination: { take: 1 },
+  });
+  const variant = (variantRes.data || [])[0] as { id: string; inventory_items?: { id: string }[] } | undefined;
+  if (!variant?.id) blockers.push("variant_missing");
+  inventoryItemId = variant?.inventory_items?.[0]?.id ?? null;
+  if (!inventoryItemId) blockers.push("inventory_item_missing");
+
+  if (inventoryItemId && stockLocation?.id) {
+    const levelRes = await query.graph({
+      entity: "inventory_level",
+      fields: ["id", "inventory_item_id", "stock_location_id"],
+      filters: { inventory_item_id: inventoryItemId, stock_location_id: stockLocation.id },
+      pagination: { take: 1 },
+    });
+    if (!(levelRes.data || [])[0]?.id) {
+      await updateInventoryLevelsWorkflow(container).run({
+        input: [{ inventory_item_id: inventoryItemId, location_id: stockLocation.id, stocked_quantity: 100 }],
+      });
+    }
+    const verifyRes = await query.graph({
+      entity: "inventory_level",
+      fields: ["id"],
+      filters: { inventory_item_id: inventoryItemId, stock_location_id: stockLocation.id },
+      pagination: { take: 1 },
+    });
+    inventoryLevelReady = Boolean((verifyRes.data || [])[0]?.id);
+    if (!inventoryLevelReady) blockers.push("inventory_level_missing");
   }
 
     const profilesRes = await query.graph({ entity: "shipping_profile", fields: ["id", "name", "type"], pagination: { take: 20 } });

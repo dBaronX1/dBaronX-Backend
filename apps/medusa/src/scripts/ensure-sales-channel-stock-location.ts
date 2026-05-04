@@ -9,6 +9,9 @@ type ProductVariantRecord = { id: string; inventory_items?: { id: string }[] };
 const TARGET_SALES_CHANNEL_ID = "sc_01KQNM6EQZ19Y1BCSRVF9XV61H";
 const TARGET_VARIANT_ID = "variant_01KQR5QC1GWD6Z6Q4S9EY358JQ";
 
+const TARGET_SALES_CHANNEL_ID = "sc_01KQNM6EQZ19Y1BCSRVF9XV61H";
+const TARGET_VARIANT_ID = "variant_01KQR5QC1GWD6Z6Q4S9EY358JQ";
+
 export default async function ensureSalesChannelStockLocation({ container }: ExecArgs) {
   const query = container.resolve(ContainerRegistrationKeys.QUERY);
 
