@@ -50,7 +50,7 @@ export class MedusaBridgeService {
     const response = await this.medusaHttp.get<{
       products?: MedusaProductSummary[];
     }>(
-      "/admin/products?limit=50",
+      "/admin/products?limit=50&fields=*variants,*variants.prices,*variants.calculated_price",
       {
         "x-request-id": requestId,
         "x-caller-surface": "catalog-sync",
