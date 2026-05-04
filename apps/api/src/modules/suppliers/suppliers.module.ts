@@ -14,6 +14,7 @@ import { DecisionTracePersistenceBridgeService } from "../../shared/services/dec
 import { FastapiIntelligenceHttpService } from "../../shared/services/fastapi-intelligence-http.service";
 import { InternalRequestHeadersService } from "../../shared/services/internal-request-headers.service";
 import { SupplierAdminService } from "./supplier-admin.service";
+import { CjSupplierAdapterService } from "./adapters/cj/cj-supplier-adapter.service";
 
 @Module({
   imports: [ConfigModule, CommerceModule, WalletModule],
@@ -29,7 +30,8 @@ import { SupplierAdminService } from "./supplier-admin.service";
     SupplierAdminService,
     SupplierOrchestrationService,
     SupplierLifecycleService,
+    CjSupplierAdapterService,
   ],
-  exports: [SupplierAdminService, SupplierOrchestrationService, SupplierLifecycleService],
+  exports: [SupplierAdminService, SupplierOrchestrationService, SupplierLifecycleService, CjSupplierAdapterService],
 })
 export class SuppliersModule {}

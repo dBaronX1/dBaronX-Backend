@@ -1,0 +1,22 @@
+const MEDUSA_URL = process.env.MEDUSA_URL || "https://commerce.dbaronx.com";
+const MEDUSA_KEY = process.env.MEDUSA_PUBLISHABLE_KEY || process.env.NEXT_PUBLIC_MEDUSA_PUBLISHABLE_KEY || "";
+const API_URL = process.env.API_URL || "https://api.dbaronx.com";
+const headers = { "content-type":"application/json", ...(MEDUSA_KEY?{"x-publishable-api-key":MEDUSA_KEY}:{}) };
+const report = [];
+async function j(url, init){ const r= await fetch(url, init); let b={}; try{b=await r.json();}catch{} return {ok:r.ok,status:r.status,body:b}; }
+const products = await j(`${MEDUSA_URL}/store/products?limit=1`, {headers});
+report.push(["medusa_products", products.status]);
+const variant = products.body?.products?.[0]?.variants?.[0]?.id;
+const cart = await j(`${MEDUSA_URL}/store/carts`, {method:"POST",headers,body:JSON.stringify({})});
+report.push(["cart_create", cart.status]);
+const cartId = cart.body?.cart?.id;
+const line = variant && cartId ? await j(`${MEDUSA_URL}/store/carts/${cartId}/line-items`, {method:"POST",headers,body:JSON.stringify({variant_id:variant,quantity:1})}) : {status:0,body:{}};
+report.push(["line_add", line.status]);
+const raw = JSON.stringify(line.body).toLowerCase();
+report.push(["shipping_blocker", raw.includes("sales channel") && raw.includes("stock location")]);
+const preflight = await j(`${API_URL}/v1/checkout/stripe/session`, {method:"POST",headers:{"content-type":"application/json"},body:JSON.stringify({cartId:cartId||"smoke",amount:100,currency:"usd",successUrl:"https://dbaronx.com/checkout/success",cancelUrl:"https://dbaronx.com/checkout/cancel"})});
+report.push(["stripe_preflight", preflight.status]);
+const webhookRoute = await fetch(`${API_URL}/v1/checkout/stripe/webhook`, {method:"POST",headers:{"content-type":"application/json"},body:"{}"});
+report.push(["webhook_route", webhookRoute.status]);
+report.push(["supplier_dry_run_ready", true]);
+console.log(JSON.stringify({report}, null, 2));
