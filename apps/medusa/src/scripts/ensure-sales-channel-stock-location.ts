@@ -1,174 +1,145 @@
-import { ExecArgs } from "@medusajs/framework/types";
-import { ContainerRegistrationKeys } from "@medusajs/framework/utils";
-import { createInventoryLevelsWorkflow, linkSalesChannelsToStockLocationWorkflow } from "@medusajs/medusa/core-flows";
+import { ExecArgs } from "@medusajs/framework/types"
+import { ContainerRegistrationKeys } from "@medusajs/framework/utils"
+import {
+  createInventoryLevelsWorkflow,
+  linkSalesChannelsToStockLocationWorkflow,
+} from "@medusajs/medusa/core-flows"
 
-type SalesChannelRecord = { id: string; name?: string; is_default?: boolean; stock_locations?: StockLocationRecord[] };
-type StockLocationRecord = { id: string; name?: string };
+const TARGET_SALES_CHANNEL_ID = "sc_01KQNM6EQZ19Y1BCSRVF9XV61H"
+const TARGET_VARIANT_ID = "variant_01KQR5QC1GWD6Z6Q4S9EY358JQ"
 
 const isRecord = (value: unknown): value is Record<string, unknown> =>
-  typeof value === "object" && value !== null;
+  typeof value === "object" && value !== null
 
-const getInventoryItemIdFromVariant = (variant: unknown): string | null => {
-  if (!isRecord(variant)) {
-    return null;
-  }
+const asArray = <T = unknown>(value: unknown): T[] => (Array.isArray(value) ? (value as T[]) : [])
 
-  const inventoryItems = variant.inventory_items;
-  if (!Array.isArray(inventoryItems) || inventoryItems.length === 0) {
-    return null;
-  }
+const getInventoryItemIdFromVariant = (value: unknown): string | null => {
+  if (!isRecord(value)) return null
 
+  const inventoryItems = asArray(value.inventory_items)
   for (const item of inventoryItems) {
-    if (!isRecord(item)) {
-      continue;
-    }
+    if (!isRecord(item)) continue
 
-    const directId = item.id;
-    if (typeof directId === "string" && directId.length > 0) {
-      return directId;
-    }
+    if (typeof item.id === "string" && item.id.length > 0) return item.id
+    if (typeof item.inventory_item_id === "string" && item.inventory_item_id.length > 0) return item.inventory_item_id
 
-    const inventoryItemId = item.inventory_item_id;
-    if (typeof inventoryItemId === "string" && inventoryItemId.length > 0) {
-      return inventoryItemId;
-    }
+    const inventoryItem = item.inventory_item
+    if (isRecord(inventoryItem) && typeof inventoryItem.id === "string" && inventoryItem.id.length > 0) return inventoryItem.id
 
-    const nestedInventoryItem = item.inventory_item;
-    if (isRecord(nestedInventoryItem) && typeof nestedInventoryItem.id === "string" && nestedInventoryItem.id.length > 0) {
-      return nestedInventoryItem.id;
-    }
-
-    const nestedInventory = item.inventory;
-    if (isRecord(nestedInventory) && typeof nestedInventory.id === "string" && nestedInventory.id.length > 0) {
-      return nestedInventory.id;
-    }
+    const inventory = item.inventory
+    if (isRecord(inventory) && typeof inventory.id === "string" && inventory.id.length > 0) return inventory.id
   }
 
-  return null;
-};
-
-const TARGET_SALES_CHANNEL_ID = "sc_01KQNM6EQZ19Y1BCSRVF9XV61H";
-const TARGET_VARIANT_ID = "variant_01KQR5QC1GWD6Z6Q4S9EY358JQ";
-
-const TARGET_SALES_CHANNEL_ID = "sc_01KQNM6EQZ19Y1BCSRVF9XV61H";
-const TARGET_VARIANT_ID = "variant_01KQR5QC1GWD6Z6Q4S9EY358JQ";
+  return null
+}
 
 export default async function ensureSalesChannelStockLocation({ container }: ExecArgs) {
-  const query = container.resolve(ContainerRegistrationKeys.QUERY);
+  const query = container.resolve(ContainerRegistrationKeys.QUERY)
 
-  const blockers: string[] = [];
+  const created: string[] = []
+  const existing: string[] = []
+  const blockers: string[] = []
 
-  const salesChannelsRes = await query.graph({
+  const salesChannelRes = await query.graph({
     entity: "sales_channel",
     fields: ["id", "name", "is_default", "stock_locations.id"],
-    pagination: { take: 100 },
-  });
-
-  const salesChannels = (salesChannelsRes.data || []) as SalesChannelRecord[];
-  const selectedSalesChannel = salesChannels.find((sc) => sc.id === TARGET_SALES_CHANNEL_ID);
-
-  if (!selectedSalesChannel?.id) blockers.push("sales_channel_missing");
-
-  const stockLocationsRes = await query.graph({
-    entity: "stock_location",
-    fields: ["id", "name"],
-    pagination: { take: 100 },
-  });
-
-  const stockLocations = (stockLocationsRes.data || []) as StockLocationRecord[];
+    filters: { id: TARGET_SALES_CHANNEL_ID },
+    pagination: { take: 1 },
+  })
+  const salesChannel = asArray(salesChannelRes.data)[0]
+  const salesChannelId = isRecord(salesChannel) && typeof salesChannel.id === "string" ? salesChannel.id : null
+  if (!salesChannelId) blockers.push("sales_channel_missing")
 
   const variantRes = await query.graph({
     entity: "product_variant",
-    fields: ["id", "inventory_items.id"],
+    fields: ["id", "inventory_items.id", "inventory_items.inventory_item_id", "inventory_items.inventory_item.id", "inventory_items.inventory.id"],
     filters: { id: TARGET_VARIANT_ID },
     pagination: { take: 1 },
-  });
+  })
+  const variant = asArray(variantRes.data)[0]
+  const variantId = isRecord(variant) && typeof variant.id === "string" ? variant.id : null
+  if (!variantId) blockers.push("variant_missing")
 
-  const variant = variantRes.data?.[0] || null;
-  const variantId = isRecord(variant) && typeof variant.id === "string" ? variant.id : null;
-  if (!variantId) blockers.push("variant_missing");
+  const inventoryItemId = getInventoryItemIdFromVariant(variant)
+  if (!inventoryItemId) blockers.push("inventory_item_missing")
 
-  const inventoryItemId = getInventoryItemIdFromVariant(variant);
-  if (!inventoryItemId) blockers.push("inventory_item_missing");
+  const stockLocationRes = await query.graph({
+    entity: "stock_location",
+    fields: ["id", "name"],
+    pagination: { take: 100 },
+  })
+  const stockLocations = asArray(stockLocationRes.data)
+  const selectedStockLocation = stockLocations.find((loc) => isRecord(loc) && typeof loc.id === "string")
+  const stockLocationId = isRecord(selectedStockLocation) && typeof selectedStockLocation.id === "string" ? selectedStockLocation.id : null
+  if (!stockLocationId) blockers.push("stock_location_missing")
 
-  const inventoryLevelsRes = inventoryItemId
-    ? await query.graph({
-        entity: "inventory_level",
-        fields: ["id", "stocked_quantity", "location_id", "inventory_item_id"],
-        filters: { inventory_item_id: inventoryItemId },
-        pagination: { take: 100 },
-      })
-    : { data: [] as any[] };
+  let salesChannelStockLocationLinked = false
+  if (salesChannelId && stockLocationId) {
+    const linked = asArray(isRecord(salesChannel) ? salesChannel.stock_locations : undefined).some(
+      (loc) => isRecord(loc) && loc.id === stockLocationId
+    )
 
-  const inventoryLevels = (inventoryLevelsRes.data || []) as Array<{ location_id?: string }>;
-
-  let selectedStockLocation = stockLocations.find((sl) =>
-    inventoryLevels.some((level) => level?.location_id === sl.id)
-  );
-
-  if (!selectedStockLocation?.id) {
-    selectedStockLocation =
-      stockLocations.find((sl) => String(sl.name || "").toLowerCase().includes("default")) || stockLocations[0];
-  }
-
-  if (!selectedStockLocation?.id) blockers.push("stock_location_missing");
-
-  let salesChannelStockLocationLinked = false;
-  if (selectedSalesChannel?.id && selectedStockLocation?.id) {
-    salesChannelStockLocationLinked = (selectedSalesChannel.stock_locations || []).some(
-      (location) => location?.id === selectedStockLocation?.id
-    );
-
-    if (!salesChannelStockLocationLinked) {
+    if (linked) {
+      existing.push("sales_channel_stock_location_link")
+      salesChannelStockLocationLinked = true
+    } else {
       await linkSalesChannelsToStockLocationWorkflow(container).run({
-        input: {
-          id: selectedSalesChannel.id,
-          add: [selectedStockLocation.id],
-        },
-      });
-      salesChannelStockLocationLinked = true;
+        input: { id: salesChannelId, add: [stockLocationId] },
+      })
+      created.push("sales_channel_stock_location_link")
+      salesChannelStockLocationLinked = true
     }
   }
 
-  let inventoryLevelReady = false;
-  if (inventoryItemId && selectedStockLocation?.id) {
-    const levelExistsAtLocation = inventoryLevels.some((level) => level?.location_id === selectedStockLocation?.id);
+  let inventoryLevelReady = false
+  if (inventoryItemId && stockLocationId) {
+    const inventoryLevelRes = await query.graph({
+      entity: "inventory_level",
+      fields: ["id", "inventory_item_id", "location_id", "stocked_quantity"],
+      filters: { inventory_item_id: inventoryItemId, location_id: stockLocationId },
+      pagination: { take: 1 },
+    })
 
-    if (!levelExistsAtLocation) {
+    const existingLevel = asArray(inventoryLevelRes.data)[0]
+    if (isRecord(existingLevel) && typeof existingLevel.id === "string") {
+      existing.push("inventory_level")
+      inventoryLevelReady = true
+    } else {
       await createInventoryLevelsWorkflow(container).run({
         input: {
           inventory_levels: [
             {
               inventory_item_id: inventoryItemId,
-              location_id: selectedStockLocation.id,
+              location_id: stockLocationId,
               stocked_quantity: 100,
             },
           ],
         },
-      });
-      inventoryLevelReady = true;
-    } else {
-      inventoryLevelReady = true;
+      })
+      created.push("inventory_level")
+      inventoryLevelReady = true
     }
   }
 
-  if (!salesChannelStockLocationLinked) blockers.push("sales_channel_stock_location_link_missing");
-  if (!inventoryLevelReady) blockers.push("inventory_level_missing");
+  if (!salesChannelStockLocationLinked) blockers.push("sales_channel_stock_location_link_missing")
+  if (!inventoryLevelReady) blockers.push("inventory_level_missing")
 
   console.log(
     JSON.stringify(
       {
         success: blockers.length === 0,
-        salesChannelId: selectedSalesChannel?.id ?? null,
-        stockLocationId: selectedStockLocation?.id ?? null,
+        created,
+        existing,
+        blockers,
+        salesChannelId,
+        stockLocationId,
         variantId,
         inventoryItemId,
         inventoryLevelReady,
         salesChannelStockLocationLinked,
-        blockers,
       },
       null,
       2
     )
-  );
+  )
 }
