@@ -1,40 +1,16 @@
 import { ExecArgs } from "@medusajs/framework/types"
-import { ContainerRegistrationKeys } from "@medusajs/framework/utils"
 import {
   createInventoryLevelsWorkflow,
   linkSalesChannelsToStockLocationWorkflow,
 } from "@medusajs/medusa/core-flows"
+import { asArray, isRecord } from "./script-utils"
+import { getQueryFromContainer, resolveInventoryItemIdFromVariant } from "./inventory-lookup"
 
 const TARGET_SALES_CHANNEL_ID = "sc_01KQNM6EQZ19Y1BCSRVF9XV61H"
 const TARGET_VARIANT_ID = "variant_01KQR5QC1GWD6Z6Q4S9EY358JQ"
 
-const isRecord = (value: unknown): value is Record<string, unknown> =>
-  typeof value === "object" && value !== null
-
-const asArray = <T = unknown>(value: unknown): T[] => (Array.isArray(value) ? (value as T[]) : [])
-
-const getInventoryItemIdFromVariant = (value: unknown): string | null => {
-  if (!isRecord(value)) return null
-
-  const inventoryItems = asArray(value.inventory_items)
-  for (const item of inventoryItems) {
-    if (!isRecord(item)) continue
-
-    if (typeof item.id === "string" && item.id.length > 0) return item.id
-    if (typeof item.inventory_item_id === "string" && item.inventory_item_id.length > 0) return item.inventory_item_id
-
-    const inventoryItem = item.inventory_item
-    if (isRecord(inventoryItem) && typeof inventoryItem.id === "string" && inventoryItem.id.length > 0) return inventoryItem.id
-
-    const inventory = item.inventory
-    if (isRecord(inventory) && typeof inventory.id === "string" && inventory.id.length > 0) return inventory.id
-  }
-
-  return null
-}
-
 export default async function ensureSalesChannelStockLocation({ container }: ExecArgs) {
-  const query = container.resolve(ContainerRegistrationKeys.QUERY)
+  const query = getQueryFromContainer(container)
 
   const created: string[] = []
   const existing: string[] = []
@@ -50,18 +26,12 @@ export default async function ensureSalesChannelStockLocation({ container }: Exe
   const salesChannelId = isRecord(salesChannel) && typeof salesChannel.id === "string" ? salesChannel.id : null
   if (!salesChannelId) blockers.push("sales_channel_missing")
 
-  const variantRes = await query.graph({
-    entity: "product_variant",
-    fields: ["id", "inventory_items.id", "inventory_items.inventory_item_id", "inventory_items.inventory_item.id", "inventory_items.inventory.id"],
-    filters: { id: TARGET_VARIANT_ID },
-    pagination: { take: 1 },
-  })
-  const variant = asArray(variantRes.data)[0]
-  const variantId = isRecord(variant) && typeof variant.id === "string" ? variant.id : null
-  if (!variantId) blockers.push("variant_missing")
+  const variantLookup = await resolveInventoryItemIdFromVariant(query, TARGET_VARIANT_ID)
+  const variantId = variantLookup.variantId
+  const inventoryItemId = variantLookup.inventoryItemId
 
-  const inventoryItemId = getInventoryItemIdFromVariant(variant)
-  if (!inventoryItemId) blockers.push("inventory_item_missing")
+  if (!variantId) blockers.push("variant_missing")
+  if (!inventoryItemId) blockers.push("inventory_item_lookup_unsupported")
 
   const stockLocationRes = await query.graph({
     entity: "stock_location",
