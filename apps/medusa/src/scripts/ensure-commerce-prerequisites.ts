@@ -1,6 +1,5 @@
 import { ExecArgs } from "@medusajs/framework/types"
 import {
-  createInventoryLevelsWorkflow,
   createRegionsWorkflow,
   createShippingProfilesWorkflow,
   linkSalesChannelsToStockLocationWorkflow,
@@ -13,6 +12,7 @@ import { ensureVariantInventoryLink } from "./ensure-variant-inventory-link"
 const TARGET_SALES_CHANNEL_ID = "sc_01KQNM6EQZ19Y1BCSRVF9XV61H"
 const TARGET_VARIANT_ID = "variant_01KQR5QC1GWD6Z6Q4S9EY358JQ"
 const TARGET_STOCK_LOCATION_ID = "sloc_01KQR5J1PYD7FZ1AF516W1VQWJ"
+const TARGET_INVENTORY_ITEM_ID = "iitem_01KQR5QC2583QHSFDYDWE942Y7"
 
 const isRecord = (value: unknown): value is Record<string, unknown> =>
   typeof value === "object" && value !== null
@@ -84,11 +84,22 @@ export default async function ensureCommercePrerequisites({ container }: ExecArg
   const priceReady = variants.every((v) =>
     asArray(isRecord(v) ? v.prices : undefined).some((price) => isRecord(price) && Number(price.amount || 0) > 0 && String(price.currency_code || "").toLowerCase() === "usd")
   )
-  const stockReady = variants.some((v) => {
-    if (!isRecord(v)) return false
-    const managed = Boolean(v.manage_inventory)
-    return managed ? Number(v.inventory_quantity ?? 0) > 0 : true
+  let inventoryLevelReady = false
+  let stockReady = false
+  const stockInventoryItemId = TARGET_INVENTORY_ITEM_ID
+  const stockLevelRes = await query.graph({
+    entity: "inventory_level",
+    fields: ["id", "inventory_item_id", "location_id", "stocked_quantity"],
+    filters: { inventory_item_id: stockInventoryItemId, location_id: stockLocationId },
+    pagination: { take: 1 },
   })
+  const stockLevel = asArray(stockLevelRes.data)[0]
+  if (isRecord(stockLevel) && typeof stockLevel.id === "string") {
+    inventoryLevelReady = true
+    const stockedQuantity = Number(stockLevel.stocked_quantity ?? 0)
+    stockReady = stockedQuantity > 0
+    existing.push("inventory_level")
+  }
   const supplierMetadataReady = products.every((p) => {
     if (!isRecord(p)) return false
     const meta = isRecord(p.metadata) ? p.metadata : {}
@@ -138,29 +149,6 @@ export default async function ensureCommercePrerequisites({ container }: ExecArg
       })
       created.push("sales_channel_stock_location_link")
       salesChannelStockLocationLinked = true
-    }
-  }
-
-  let inventoryLevelReady = false
-  if (inventoryItemId && stockLocationId) {
-    const levelRes = await query.graph({
-      entity: "inventory_level",
-      fields: ["id", "inventory_item_id", "location_id", "stocked_quantity"],
-      filters: { inventory_item_id: inventoryItemId, location_id: stockLocationId },
-      pagination: { take: 1 },
-    })
-    const level = asArray(levelRes.data)[0]
-    if (isRecord(level) && typeof level.id === "string") {
-      existing.push("inventory_level")
-      inventoryLevelReady = true
-    } else {
-      await createInventoryLevelsWorkflow(container).run({
-        input: {
-          inventory_levels: [{ inventory_item_id: inventoryItemId, location_id: stockLocationId, stocked_quantity: 100 }],
-        },
-      })
-      created.push("inventory_level")
-      inventoryLevelReady = true
     }
   }
 
