@@ -7,7 +7,8 @@ import {
   updateStoresWorkflow,
 } from "@medusajs/medusa/core-flows"
 
-import { getQueryFromContainer, resolveInventoryItemIdBySku, resolveVariantById } from "./inventory-lookup"
+import { getQueryFromContainer } from "./inventory-lookup"
+import { ensureVariantInventoryLink } from "./ensure-variant-inventory-link"
 
 const TARGET_SALES_CHANNEL_ID = "sc_01KQNM6EQZ19Y1BCSRVF9XV61H"
 const TARGET_VARIANT_ID = "variant_01KQR5QC1GWD6Z6Q4S9EY358JQ"
@@ -116,11 +117,12 @@ export default async function ensureCommercePrerequisites({ container }: ExecArg
   const salesChannelId = isRecord(salesChannel) && typeof salesChannel.id === "string" ? salesChannel.id : null
   if (!salesChannelId) blockers.push("sales_channel_missing")
 
-  const { variantId, sku } = await resolveVariantById(query, TARGET_VARIANT_ID)
-  const inventoryItemId = await resolveInventoryItemIdBySku(query, sku)
-
-  if (!variantId) blockers.push("variant_missing")
-  if (!inventoryItemId) blockers.push("inventory_item_link_missing")
+  const variantLink = await ensureVariantInventoryLink(container, TARGET_VARIANT_ID)
+  const variantId = variantLink.variantId
+  const inventoryItemId = variantLink.inventoryItemId
+  created.push(...variantLink.created)
+  existing.push(...variantLink.existing)
+  blockers.push(...variantLink.blockers)
 
   let salesChannelStockLocationLinked = false
   if (salesChannelId && stockLocationId) {
