@@ -1,5 +1,6 @@
 import { Module } from "@nestjs/common";
 import { SystemModule } from "../system/system.module";
+import { SystemAdminEndpointRegistryService } from "../system/system-admin-endpoint-registry.service";
 import { WatchModule } from "../watch/watch.module";
 import { AffiliateModule } from "../affiliate/affiliate.module";
 import { PaymentsModule } from "../payments/payments.module";
@@ -28,7 +29,11 @@ import { PlatformShellService } from "./platform-shell.service";
     AdsModule,
   ],
   controllers: [PlatformShellController, PlatformAdminPackController],
-  providers: [PlatformShellService, PlatformAdminPackService],
+  providers: [
+    PlatformShellService,
+    PlatformAdminPackService,
+    SystemAdminEndpointRegistryService,
+  ],
   exports: [
     PlatformShellService,
     PlatformAdminPackService,
