@@ -28,6 +28,7 @@
 1. Configure Stripe keys/webhook secret in API.
 2. Point webhook to `POST /v1/checkout/stripe/webhook`.
 3. Never mark paid from browser redirects; rely on verified webhook only.
+4. `POST /v1/checkout/stripe/session` is currently a test-readiness preflight path (reachability + config checks), not a fake payment completion path.
 
 ## CJ setup
 1. Add CJ credentials in API secrets.
@@ -41,7 +42,7 @@
 
 ## First controlled purchase checklist
 - Medusa product/variant/cart path green.
-- Stripe session creation works from web -> API.
-- Webhook verification logs payment completion.
+- Stripe session endpoint is reachable in test mode from web -> API.
+- Webhook route verifies Stripe signatures and does not auto-mark paid by redirect.
 - Supplier adapter dry-run emits expected metadata.
 - Telegram receives checkout created/completed alerts in test mode.

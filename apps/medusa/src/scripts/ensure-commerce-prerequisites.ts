@@ -1,6 +1,7 @@
 import { ExecArgs } from "@medusajs/framework/types"
 import {
   createRegionsWorkflow,
+  createShippingOptionsWorkflow,
   createShippingProfilesWorkflow,
   linkSalesChannelsToStockLocationWorkflow,
   updateStoresWorkflow,
@@ -13,6 +14,8 @@ const TARGET_SALES_CHANNEL_ID = "sc_01KQNM6EQZ19Y1BCSRVF9XV61H"
 const TARGET_VARIANT_ID = "variant_01KQR5QC1GWD6Z6Q4S9EY358JQ"
 const TARGET_STOCK_LOCATION_ID = "sloc_01KQR5J1PYD7FZ1AF516W1VQWJ"
 const TARGET_INVENTORY_ITEM_ID = "iitem_01KQR5QC2583QHSFDYDWE942Y7"
+const TARGET_REGION_ID = "reg_01KQSEKK6A9T86NJ0AG05XPK3H"
+const DEFAULT_SHIPPING_OPTION_NAME = "dBaronX Standard Delivery"
 
 const isRecord = (value: unknown): value is Record<string, unknown> =>
   typeof value === "object" && value !== null
@@ -66,7 +69,29 @@ export default async function ensureCommercePrerequisites({ container }: ExecArg
   } else existing.push("shipping_profile")
 
   const shippingOptionsRes = await query.graph({ entity: "shipping_option", fields: ["id", "name"], pagination: { take: 20 } })
-  const shippingOption = asArray(shippingOptionsRes.data)[0]
+  let shippingOption = asArray(shippingOptionsRes.data).find((option) => isRecord(option) && option.name === DEFAULT_SHIPPING_OPTION_NAME)
+  const fulfillmentProvidersRes = await query.graph({ entity: "fulfillment_provider", fields: ["id"], pagination: { take: 20 } })
+  const fulfillmentProviders = asArray(fulfillmentProvidersRes.data)
+  const serviceZonesRes = await query.graph({ entity: "service_zone", fields: ["id", "name"], pagination: { take: 20 } })
+  const serviceZones = asArray(serviceZonesRes.data)
+  if ((!isRecord(shippingOption) || typeof shippingOption.id !== "string") && regionId && isRecord(shippingProfile) && typeof shippingProfile.id === "string" && serviceZones.length > 0 && fulfillmentProviders.length > 0) {
+    const createdShippingOptions = await createShippingOptionsWorkflow(container).run({
+      input: {
+        data: [{
+          name: DEFAULT_SHIPPING_OPTION_NAME,
+          service_zone_id: String((serviceZones[0] as Record<string, unknown>).id || ""),
+          shipping_profile_id: shippingProfile.id,
+          provider_id: String((fulfillmentProviders[0] as Record<string, unknown>).id || ""),
+          type: { label: "Standard", description: "Flat rate shipping" },
+          price_type: "flat",
+          prices: [{ currency_code: "usd", amount: 0 }],
+          rules: [{ operator: "eq", attribute: "region_id", value: regionId }],
+        }],
+      },
+    })
+    shippingOption = asArray(createdShippingOptions.result)[0]
+    if (isRecord(shippingOption) && typeof shippingOption.id === "string") created.push("shipping_option")
+  }
   const shippingOptionId = isRecord(shippingOption) && typeof shippingOption.id === "string" ? shippingOption.id : null
   if (shippingOptionId) existing.push("shipping_option")
   else blockers.push("shipping_option_missing")
@@ -99,6 +124,14 @@ export default async function ensureCommercePrerequisites({ container }: ExecArg
     const stockedQuantity = Number(stockLevel.stocked_quantity ?? 0)
     stockReady = stockedQuantity > 0
     existing.push("inventory_level")
+  }
+  if (!stockReady) {
+    const targetVariant = variants.find((v) => isRecord(v) && v.id === TARGET_VARIANT_ID)
+    if (isRecord(targetVariant)) {
+      const quantity = Number(targetVariant.inventory_quantity ?? 0)
+      const managed = Boolean(targetVariant.manage_inventory)
+      if (!managed || quantity > 0) stockReady = true
+    }
   }
   const supplierMetadataReady = products.every((p) => {
     if (!isRecord(p)) return false
@@ -169,6 +202,7 @@ export default async function ensureCommercePrerequisites({ container }: ExecArg
         inventoryLevelReady,
         salesChannelStockLocationLinked,
         regionId,
+        targetRegionId: TARGET_REGION_ID,
         shippingOptionId,
         productCount,
         variantCount,
