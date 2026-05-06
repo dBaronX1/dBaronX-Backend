@@ -1,23 +1,26 @@
 import { ExecArgs } from "@medusajs/framework/types"
 import {
   createRegionsWorkflow,
-  createShippingProfilesWorkflow,
   linkSalesChannelsToStockLocationWorkflow,
   updateStoresWorkflow,
 } from "@medusajs/medusa/core-flows"
 
 import { getQueryFromContainer } from "./inventory-lookup"
 import { ensureVariantInventoryLink } from "./ensure-variant-inventory-link"
+import { ensureShippingReadiness, TARGET_STOCK_LOCATION_ID } from "./shipping-readiness"
 
 const TARGET_SALES_CHANNEL_ID = "sc_01KQNM6EQZ19Y1BCSRVF9XV61H"
 const TARGET_VARIANT_ID = "variant_01KQR5QC1GWD6Z6Q4S9EY358JQ"
-const TARGET_STOCK_LOCATION_ID = "sloc_01KQR5J1PYD7FZ1AF516W1VQWJ"
 const TARGET_INVENTORY_ITEM_ID = "iitem_01KQR5QC2583QHSFDYDWE942Y7"
 
 const isRecord = (value: unknown): value is Record<string, unknown> =>
   typeof value === "object" && value !== null
 
 const asArray = <T = unknown>(value: unknown): T[] => (Array.isArray(value) ? (value as T[]) : [])
+
+const pushUnique = (values: string[], value: string) => {
+  if (!values.includes(value)) values.push(value)
+}
 
 export default async function ensureCommercePrerequisites({ container }: ExecArgs) {
   const query = getQueryFromContainer(container)
@@ -52,24 +55,18 @@ export default async function ensureCommercePrerequisites({ container }: ExecArg
   const stockLocationId = TARGET_STOCK_LOCATION_ID
   const stockLocationRes = await query.graph({ entity: "stock_location", fields: ["id", "name"], filters: { id: stockLocationId }, pagination: { take: 1 } })
   const stockLocation = asArray(stockLocationRes.data)[0]
-  if (isRecord(stockLocation) && typeof stockLocation.id === "string") existing.push("stock_location")
-  else blockers.push("stock_location_missing")
+  if (isRecord(stockLocation) && typeof stockLocation.id === "string") pushUnique(existing, "stock_location")
+  else pushUnique(blockers, "stock_location_missing")
 
-  const profilesRes = await query.graph({ entity: "shipping_profile", fields: ["id", "name", "type"], pagination: { take: 20 } })
-  let shippingProfile = asArray(profilesRes.data).find((p) => isRecord(p) && p.type === "default")
-  if (!isRecord(shippingProfile) || typeof shippingProfile.id !== "string") {
-    const createdProfiles = await createShippingProfilesWorkflow(container).run({
-      input: { data: [{ name: "Default Shipping Profile", type: "default" }] },
-    })
-    shippingProfile = asArray(createdProfiles.result)[0]
-    if (isRecord(shippingProfile) && typeof shippingProfile.id === "string") created.push("shipping_profile")
-  } else existing.push("shipping_profile")
+  const shippingReadiness = await ensureShippingReadiness(container, { repair: true })
+  for (const item of shippingReadiness.created) pushUnique(created, item)
+  for (const item of shippingReadiness.existing) pushUnique(existing, item)
+  for (const blocker of shippingReadiness.blockers) pushUnique(blockers, blocker)
 
-  const shippingOptionsRes = await query.graph({ entity: "shipping_option", fields: ["id", "name"], pagination: { take: 20 } })
-  const shippingOption = asArray(shippingOptionsRes.data)[0]
-  const shippingOptionId = isRecord(shippingOption) && typeof shippingOption.id === "string" ? shippingOption.id : null
-  if (shippingOptionId) existing.push("shipping_option")
-  else blockers.push("shipping_option_missing")
+  const serviceZoneReady = shippingReadiness.serviceZoneReady
+  const serviceZoneId = shippingReadiness.serviceZoneId
+  const shippingOptionReady = shippingReadiness.shippingOptionReady
+  const shippingOptionId = shippingReadiness.shippingOptionId
 
   const productsRes = await query.graph({
     entity: "product",
@@ -98,7 +95,7 @@ export default async function ensureCommercePrerequisites({ container }: ExecArg
     inventoryLevelReady = true
     const stockedQuantity = Number(stockLevel.stocked_quantity ?? 0)
     stockReady = stockedQuantity > 0
-    existing.push("inventory_level")
+    pushUnique(existing, "inventory_level")
   }
   const supplierMetadataReady = products.every((p) => {
     if (!isRecord(p)) return false
@@ -112,11 +109,11 @@ export default async function ensureCommercePrerequisites({ container }: ExecArg
     return pSupplier || vSupplier
   })
 
-  if (productCount === 0) blockers.push("products_missing")
-  if (variantCount === 0) blockers.push("variants_missing")
-  if (!priceReady) blockers.push("price_pending")
-  if (!stockReady) blockers.push("out_of_stock")
-  if (!supplierMetadataReady) blockers.push("supplier_na")
+  if (productCount === 0) pushUnique(blockers, "products_missing")
+  if (variantCount === 0) pushUnique(blockers, "variants_missing")
+  if (!priceReady) pushUnique(blockers, "price_pending")
+  if (!stockReady) pushUnique(blockers, "out_of_stock")
+  if (!supplierMetadataReady) pushUnique(blockers, "supplier_na")
 
   const salesChannelRes = await query.graph({
     entity: "sales_channel",
@@ -126,14 +123,14 @@ export default async function ensureCommercePrerequisites({ container }: ExecArg
   })
   const salesChannel = asArray(salesChannelRes.data)[0]
   const salesChannelId = isRecord(salesChannel) && typeof salesChannel.id === "string" ? salesChannel.id : null
-  if (!salesChannelId) blockers.push("sales_channel_missing")
+  if (!salesChannelId) pushUnique(blockers, "sales_channel_missing")
 
   const variantLink = await ensureVariantInventoryLink(container, TARGET_VARIANT_ID)
   const variantId = variantLink.variantId
   const inventoryItemId = variantLink.inventoryItemId
-  created.push(...variantLink.created)
-  existing.push(...variantLink.existing)
-  blockers.push(...variantLink.blockers)
+  for (const item of variantLink.created) pushUnique(created, item)
+  for (const item of variantLink.existing) pushUnique(existing, item)
+  for (const blocker of variantLink.blockers) pushUnique(blockers, blocker)
 
   let salesChannelStockLocationLinked = false
   if (salesChannelId && stockLocationId) {
@@ -141,19 +138,19 @@ export default async function ensureCommercePrerequisites({ container }: ExecArg
       (loc) => isRecord(loc) && loc.id === stockLocationId
     )
     if (linked) {
-      existing.push("sales_channel_stock_location_link")
+      pushUnique(existing, "sales_channel_stock_location_link")
       salesChannelStockLocationLinked = true
     } else {
       await linkSalesChannelsToStockLocationWorkflow(container).run({
         input: { id: salesChannelId, add: [stockLocationId] },
       })
-      created.push("sales_channel_stock_location_link")
+      pushUnique(created, "sales_channel_stock_location_link")
       salesChannelStockLocationLinked = true
     }
   }
 
-  if (!salesChannelStockLocationLinked) blockers.push("sales_channel_stock_location_link_missing")
-  if (!inventoryLevelReady) blockers.push("inventory_level_missing")
+  if (!salesChannelStockLocationLinked) pushUnique(blockers, "sales_channel_stock_location_link_missing")
+  if (!inventoryLevelReady) pushUnique(blockers, "inventory_level_missing")
 
   console.log(
     JSON.stringify(
@@ -170,6 +167,9 @@ export default async function ensureCommercePrerequisites({ container }: ExecArg
         salesChannelStockLocationLinked,
         regionId,
         shippingOptionId,
+        shippingOptionReady,
+        serviceZoneId,
+        serviceZoneReady,
         productCount,
         variantCount,
         priceReady,
