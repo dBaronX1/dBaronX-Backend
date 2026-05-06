@@ -2,6 +2,7 @@
 
 const baseUrl = (process.env.MEDUSA_BACKEND_URL || process.env.MEDUSA_URL || "http://localhost:9000").replace(/\/$/, "");
 const publishableKey = process.env.MEDUSA_PUBLISHABLE_KEY || process.env.NEXT_PUBLIC_MEDUSA_PUBLISHABLE_KEY;
+const checkShipping = String(process.env.CHECK_SHIPPING_OPTIONS || "true").toLowerCase() !== "false";
 
 const headers = publishableKey ? { "x-publishable-api-key": publishableKey } : {};
 const blockers = [];
@@ -23,7 +24,7 @@ function appendCheckoutBlockers(errorPayload) {
   if (raw.includes("sales channel") && raw.includes("stock location")) blockers.push("sales_channel_stock_location_link_missing");
 }
 
-const result = { success: false, baseUrl, blockers, productId: null, variantId: null, regionId: null, cartId: null, lineItemAdded: false };
+const result = { success: false, baseUrl, blockers, productId: null, variantId: null, regionId: null, cartId: null, lineItemAdded: false, shippingOptionAvailable: null };
 
 try {
   const productsRes = await getJson("/store/products?limit=20", { headers });
@@ -70,7 +71,16 @@ try {
         blockers.push(`line_item_add_http_${lineItemRes.status}`);
         appendCheckoutBlockers(lineItemRes.json);
         result.lineItemAddError = lineItemRes.json;
-      } else result.lineItemAdded = true;
+      } else {
+        result.lineItemAdded = true;
+        if (checkShipping) {
+          const shippingRes = await getJson(`/store/shipping-options?cart_id=${encodeURIComponent(result.cartId)}`, { headers });
+          const options = Array.isArray(shippingRes.json?.shipping_options) ? shippingRes.json.shipping_options : [];
+          result.shippingOptionAvailable = options.length > 0;
+          if (!shippingRes.ok) blockers.push(`shipping_options_http_${shippingRes.status}`);
+          if (shippingRes.ok && options.length === 0) blockers.push("shipping_option_missing_or_not_configured");
+        }
+      }
     }
   }
 
