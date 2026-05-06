@@ -21,6 +21,15 @@ export default async function ensureShipping({ container }: ExecArgs) {
         serviceZoneId: readiness.serviceZoneId,
         providerEnabledForServiceLocation:
           readiness.providerEnabledForServiceLocation,
+        stockLocationProviderIds: readiness.stockLocationProviderIds,
+        serviceZoneProviderIds: readiness.serviceZoneProviderIds,
+        attemptedProviderLink: readiness.attemptedProviderLink,
+        providerLinkCreated: readiness.providerLinkCreated,
+        providerLinkVerifiedAfterRefetch:
+          readiness.providerLinkVerifiedAfterRefetch,
+        ...(readiness.providerLinkRepairError
+          ? { providerLinkRepairError: readiness.providerLinkRepairError }
+          : {}),
       },
       null,
       2,

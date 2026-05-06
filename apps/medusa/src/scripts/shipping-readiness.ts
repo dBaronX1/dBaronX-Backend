@@ -38,6 +38,12 @@ export type EnsureShippingReadinessResult = {
   serviceZoneId: string | null;
   shippingOptionReady: boolean;
   providerEnabledForServiceLocation: boolean;
+  stockLocationProviderIds: string[];
+  serviceZoneProviderIds: string[];
+  attemptedProviderLink: boolean;
+  providerLinkCreated: boolean;
+  providerLinkVerifiedAfterRefetch: boolean;
+  providerLinkRepairError?: string;
   createShippingOptionsWorkflowInput: Record<string, unknown>[] | null;
 };
 
@@ -249,6 +255,96 @@ async function findServiceZone(
   )[0];
 }
 
+const getServiceZoneFulfillmentSetId = (serviceZone: unknown): string | null =>
+  getId(isRecord(serviceZone) ? serviceZone.fulfillment_set : undefined);
+
+const getServiceZoneTargetLocation = (
+  serviceZone: unknown,
+  stockLocationId: string | null,
+): Record<string, unknown> | undefined =>
+  asArray<Record<string, unknown>>(
+    isRecord(serviceZone) && isRecord(serviceZone.fulfillment_set)
+      ? serviceZone.fulfillment_set.locations
+      : undefined,
+  )
+    .filter(isRecord)
+    .find((location) => !stockLocationId || getId(location) === stockLocationId);
+
+const getProviderIdsFromLocation = (location: unknown): string[] =>
+  Array.from(
+    new Set(
+      asArray<Record<string, unknown>>(
+        isRecord(location) ? location.fulfillment_providers : undefined,
+      )
+        .map(getId)
+        .filter((id): id is string => Boolean(id)),
+    ),
+  );
+
+const errorMessage = (error: unknown): string =>
+  error instanceof Error ? error.message : String(error);
+
+async function diagnoseServiceZoneProviderMismatch(
+  query: any,
+  serviceZoneId: string | null,
+  stockLocationId: string | null,
+  fulfillmentSetId: string | null,
+  serviceZone: Record<string, unknown> | undefined,
+): Promise<string[]> {
+  const diagnoses: string[] = [];
+  if (serviceZoneId && serviceZoneId !== TARGET_SERVICE_ZONE_ID) {
+    pushUnique(diagnoses, "wrong_service_zone_selected");
+  }
+
+  const refetchedServiceZone =
+    (await findServiceZone(query, serviceZoneId)) || serviceZone;
+  const serviceZoneFulfillmentSetId = getServiceZoneFulfillmentSetId(
+    refetchedServiceZone,
+  );
+
+  if (
+    fulfillmentSetId &&
+    serviceZoneFulfillmentSetId &&
+    fulfillmentSetId !== serviceZoneFulfillmentSetId
+  ) {
+    pushUnique(diagnoses, "wrong_fulfillment_set_selected");
+    pushUnique(diagnoses, "service_zone_attached_to_different_fulfillment_set");
+  }
+
+  const stockLocation = (
+    await safeGraph(
+      query,
+      "stock_location",
+      ["id", "fulfillment_sets.id"],
+      stockLocationId ? { id: stockLocationId } : undefined,
+      1,
+    )
+  )[0];
+  const stockLocationFulfillmentSetIds = asArray<Record<string, unknown>>(
+    stockLocation?.fulfillment_sets,
+  )
+    .map(getId)
+    .filter((id): id is string => Boolean(id));
+
+  if (
+    serviceZoneFulfillmentSetId &&
+    stockLocationFulfillmentSetIds.length > 0 &&
+    !stockLocationFulfillmentSetIds.includes(serviceZoneFulfillmentSetId)
+  ) {
+    pushUnique(diagnoses, "stock_location_attached_to_different_fulfillment_set");
+  }
+
+  if (
+    stockLocationId &&
+    refetchedServiceZone &&
+    !getServiceZoneTargetLocation(refetchedServiceZone, stockLocationId)
+  ) {
+    pushUnique(diagnoses, "service_zone_target_stock_location_missing");
+  }
+
+  return diagnoses;
+}
+
 async function linkProviderToStockLocation(
   container: any,
   stockLocationId: string,
@@ -323,6 +419,12 @@ export async function ensureShippingReadiness(
   const created: string[] = [];
   const existing: string[] = [];
   const blockers: string[] = [];
+  let stockLocationProviderIds: string[] = [];
+  let serviceZoneProviderIds: string[] = [];
+  let attemptedProviderLink = false;
+  let providerLinkCreated = false;
+  let providerLinkVerifiedAfterRefetch = false;
+  let providerLinkRepairError: string | undefined;
 
   const region = (
     await safeGraph(
@@ -368,10 +470,11 @@ export async function ensureShippingReadiness(
   if (!fulfillmentProviderId)
     pushUnique(blockers, "fulfillment_provider_missing");
 
-  const enabledProviderIds = await findEnabledProviderIdsForStockLocation(
+  let enabledProviderIds = await findEnabledProviderIdsForStockLocation(
     query,
     stockLocationId,
   );
+  stockLocationProviderIds = enabledProviderIds;
   let providerEnabledForServiceLocation = false;
   let fulfillmentProviderReady = false;
 
@@ -464,6 +567,9 @@ export async function ensureShippingReadiness(
   }
 
   serviceZoneId = getId(serviceZone);
+  if (serviceZoneId && serviceZoneId !== TARGET_SERVICE_ZONE_ID) {
+    pushUnique(blockers, "wrong_service_zone_selected");
+  }
   if (serviceZoneReady)
     pushUnique(
       created.includes("service_zone") ? created : existing,
@@ -478,9 +584,11 @@ export async function ensureShippingReadiness(
         stockLocationId,
       )
     : [];
+  serviceZoneProviderIds = serviceZoneEnabledProviderIds;
 
   providerEnabledForServiceLocation = Boolean(
     fulfillmentProviderId &&
+      enabledProviderIds.includes(fulfillmentProviderId) &&
       serviceZoneEnabledProviderIds.includes(fulfillmentProviderId),
   );
 
@@ -491,17 +599,25 @@ export async function ensureShippingReadiness(
     stockLocationId &&
     serviceZoneId
   ) {
+    attemptedProviderLink = true;
+    const providerWasLinkedBeforeRepair = serviceZoneProviderIds.includes(
+      fulfillmentProviderId,
+    );
     try {
       await linkProviderToStockLocation(
         container,
         stockLocationId,
         fulfillmentProviderId,
       );
-    } catch {
-      // Duplicate links can surface as workflow errors; readiness is decided only
-      // by the authoritative service-zone refetch below, not by this call.
+    } catch (error) {
+      providerLinkRepairError = errorMessage(error);
     }
 
+    enabledProviderIds = await findEnabledProviderIdsForStockLocation(
+      query,
+      stockLocationId,
+    );
+    stockLocationProviderIds = enabledProviderIds;
     serviceZone = (await findServiceZone(query, serviceZoneId)) || serviceZone;
     serviceZoneReady = Boolean(
       getId(serviceZone) && hasCountryGeoZone(serviceZone),
@@ -511,13 +627,47 @@ export async function ensureShippingReadiness(
       serviceZoneId,
       stockLocationId,
     );
-    providerEnabledForServiceLocation = Boolean(
-      serviceZoneEnabledProviderIds.includes(fulfillmentProviderId),
+    serviceZoneProviderIds = serviceZoneEnabledProviderIds;
+
+    const stockLocationProviderVerified = enabledProviderIds.includes(
+      fulfillmentProviderId,
+    );
+    const serviceZoneLocation = getServiceZoneTargetLocation(
+      serviceZone,
+      stockLocationId,
+    );
+    const serviceZoneProviderVerified = getProviderIdsFromLocation(
+      serviceZoneLocation,
+    ).includes(fulfillmentProviderId);
+
+    providerLinkVerifiedAfterRefetch = Boolean(
+      stockLocationProviderVerified && serviceZoneProviderVerified,
+    );
+    providerEnabledForServiceLocation = providerLinkVerifiedAfterRefetch;
+    providerLinkCreated = Boolean(
+      providerEnabledForServiceLocation && !providerWasLinkedBeforeRepair,
     );
 
     if (providerEnabledForServiceLocation) {
       pushUnique(created, "stock_location_fulfillment_provider_link");
+    } else if (stockLocationProviderVerified && !serviceZoneProviderVerified) {
+      for (const diagnosis of await diagnoseServiceZoneProviderMismatch(
+        query,
+        serviceZoneId,
+        stockLocationId,
+        fulfillmentSetId,
+        serviceZone,
+      )) {
+        pushUnique(blockers, diagnosis);
+      }
     }
+  }
+
+  if (!attemptedProviderLink && fulfillmentProviderId) {
+    providerLinkVerifiedAfterRefetch = Boolean(
+      stockLocationProviderIds.includes(fulfillmentProviderId) &&
+        serviceZoneProviderIds.includes(fulfillmentProviderId),
+    );
   }
 
   fulfillmentProviderReady = Boolean(
@@ -594,8 +744,12 @@ export async function ensureShippingReadiness(
       );
       shippingOptionId = getId(shippingOption);
       if (shippingOptionId) pushUnique(created, "shipping_option");
-    } catch {
+    } catch (error) {
       shippingOptionId = null;
+      pushUnique(
+        blockers,
+        `shipping_option_create_failed:${errorMessage(error)}`,
+      );
     }
   }
 
@@ -623,6 +777,12 @@ export async function ensureShippingReadiness(
     serviceZoneId,
     shippingOptionReady,
     providerEnabledForServiceLocation,
+    stockLocationProviderIds,
+    serviceZoneProviderIds,
+    attemptedProviderLink,
+    providerLinkCreated,
+    providerLinkVerifiedAfterRefetch,
+    ...(providerLinkRepairError ? { providerLinkRepairError } : {}),
     createShippingOptionsWorkflowInput,
   };
 }
