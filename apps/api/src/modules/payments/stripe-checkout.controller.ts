@@ -14,6 +14,6 @@ export class StripeCheckoutController {
   async webhook(@Req() req: Request, @Headers("stripe-signature") sig?: string) {
     const raw = JSON.stringify(req.body ?? {});
     const verified = this.stripe.verifyWebhook(raw, sig);
-    return { received: true, verified, paymentMarkedPaid: verified };
+    return { received: true, verified, paymentMarkedPaid: false };
   }
 }

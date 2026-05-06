@@ -60,6 +60,7 @@ The script:
 - fetches `/store/regions`, uses first/default region, and prints `regionId`
 - attempts cart create
 - attempts add line item
+- optionally checks shipping options for the created cart (`CHECK_SHIPPING_OPTIONS=false` to skip)
 - prints exact blockers (including payment/shipping/provider setup blockers when detected)
 - never reports fake success
 
@@ -104,6 +105,11 @@ node scripts/e2e-commerce-flow-smoke.mjs
 ### Payment preflight usage
 - `NESTJS_API_URL=http://localhost:4000 node scripts/e2e-payment-preflight-smoke.mjs`
 - This is sandbox/test preflight only and never marks a payment as paid.
+
+### Stripe checkout readiness smoke
+- `MEDUSA_URL=http://localhost:9000 API_URL=http://localhost:4000 MEDUSA_PUBLISHABLE_KEY=<pk> node scripts/e2e-checkout-stripe-readiness-smoke.mjs`
+- Verifies Medusa product/cart/line-item/shipping-option path plus NestJS Stripe session endpoint and webhook route reachability.
+- Requires Stripe test keys for `configured: true`; it never fakes payment success and never marks paid from redirect.
 
 ### Manual steps still needed for real first sale
 - Configure live shipping provider zones/options in Medusa Admin if default/manual provider is unavailable.
