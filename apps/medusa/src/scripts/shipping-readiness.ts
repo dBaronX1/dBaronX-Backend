@@ -259,7 +259,7 @@ export async function ensureShippingReadiness(container: any, options: EnsureShi
     })
     shippingOption = asArray<Record<string, unknown>>(createdOption.result)[0]
     shippingOptionId = getId(shippingOption)
-    pushUnique(created, "shipping_option")
+    if (shippingOptionId) pushUnique(created, "shipping_option")
   }
 
   const shippingOptionReady = Boolean(shippingOptionId)
