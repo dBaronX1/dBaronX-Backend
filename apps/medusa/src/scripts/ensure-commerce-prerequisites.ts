@@ -9,6 +9,9 @@ import { getQueryFromContainer } from "./inventory-lookup";
 import { ensureVariantInventoryLink } from "./ensure-variant-inventory-link";
 import {
   ensureShippingReadiness,
+  isRedisUnavailableOrQuotaError,
+  REDIS_UNAVAILABLE_BLOCKER,
+  serializeProviderLinkRepairError,
   TARGET_STOCK_LOCATION_ID,
 } from "./shipping-readiness";
 
@@ -26,7 +29,7 @@ const pushUnique = (values: string[], value: string) => {
   if (!values.includes(value)) values.push(value);
 };
 
-export default async function ensureCommercePrerequisites({
+async function runEnsureCommercePrerequisites({
   container,
 }: ExecArgs) {
   const query = getQueryFromContainer(container);
@@ -259,4 +262,34 @@ export default async function ensureCommercePrerequisites({
       2,
     ),
   );
+}
+
+export default async function ensureCommercePrerequisites(args: ExecArgs) {
+  try {
+    await runEnsureCommercePrerequisites(args);
+  } catch (error) {
+    const blockers = isRedisUnavailableOrQuotaError(error)
+      ? [REDIS_UNAVAILABLE_BLOCKER]
+      : [
+          `commerce_ensure_failed:${String(
+            serializeProviderLinkRepairError(error).message,
+          )}`,
+        ];
+
+    console.log(
+      JSON.stringify(
+        {
+          success: false,
+          created: [],
+          existing: [],
+          blockers,
+          error: serializeProviderLinkRepairError(error),
+          note:
+            "If Medusa boot fails before this script runs, Redis must be fixed at the environment/infrastructure level.",
+        },
+        null,
+        2,
+      ),
+    );
+  }
 }
