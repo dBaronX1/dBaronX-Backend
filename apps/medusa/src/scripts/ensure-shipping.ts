@@ -1,43 +1,95 @@
 import { ExecArgs } from "@medusajs/framework/types";
 
-import { ensureShippingReadiness } from "./shipping-readiness";
+import {
+  ensureShippingReadiness,
+  isRedisUnavailableOrQuotaError,
+  REDIS_UNAVAILABLE_BLOCKER,
+  serializeProviderLinkRepairError,
+} from "./shipping-readiness";
 
 export default async function ensureShipping({ container }: ExecArgs) {
-  const readiness = await ensureShippingReadiness(container, { repair: true });
+  try {
+    const readiness = await ensureShippingReadiness(container, { repair: true });
 
-  console.log(
-    JSON.stringify(
-      {
-        success: readiness.blockers.length === 0,
-        created: readiness.created,
-        existing: readiness.existing,
-        blockers: readiness.blockers,
-        regionId: readiness.regionId,
-        shippingProfileId: readiness.shippingProfileId,
-        shippingOptionId: readiness.shippingOptionId,
-        fulfillmentProviderReady: readiness.fulfillmentProviderReady,
-        fulfillmentProviderId: readiness.fulfillmentProviderId,
-        selectedFulfillmentProviderId: readiness.selectedFulfillmentProviderId,
-        selectedFulfillmentProviderSource:
-          readiness.selectedFulfillmentProviderSource,
-        serviceZoneReady: readiness.serviceZoneReady,
-        serviceZoneId: readiness.serviceZoneId,
-        providerEnabledForServiceLocation:
-          readiness.providerEnabledForServiceLocation,
-        stockLocationProviderIds: readiness.stockLocationProviderIds,
-        serviceZoneProviderIds: readiness.serviceZoneProviderIds,
-        attemptedProviderLink: readiness.attemptedProviderLink,
-        providerLinkCreated: readiness.providerLinkCreated,
-        providerLinkVerifiedAfterRefetch:
-          readiness.providerLinkVerifiedAfterRefetch,
-        ...(readiness.providerLinkRepairError
-          ? { providerLinkRepairError: readiness.providerLinkRepairError }
-          : {}),
-        allFulfillmentProviderIds: readiness.allFulfillmentProviderIds,
-        allFulfillmentProviderRecords: readiness.allFulfillmentProviderRecords,
-      },
-      null,
-      2,
-    ),
-  );
+    console.log(
+      JSON.stringify(
+        {
+          success: readiness.blockers.length === 0,
+          created: readiness.created,
+          existing: readiness.existing,
+          blockers: readiness.blockers,
+          regionId: readiness.regionId,
+          shippingProfileId: readiness.shippingProfileId,
+          shippingOptionId: readiness.shippingOptionId,
+          fulfillmentProviderReady: readiness.fulfillmentProviderReady,
+          fulfillmentProviderId: readiness.fulfillmentProviderId,
+          selectedFulfillmentProviderId: readiness.selectedFulfillmentProviderId,
+          selectedFulfillmentProviderSource:
+            readiness.selectedFulfillmentProviderSource,
+          serviceZoneReady: readiness.serviceZoneReady,
+          serviceZoneId: readiness.serviceZoneId,
+          providerEnabledForServiceLocation:
+            readiness.providerEnabledForServiceLocation,
+          stockLocationProviderIds: readiness.stockLocationProviderIds,
+          serviceZoneProviderIds: readiness.serviceZoneProviderIds,
+          attemptedProviderLink: readiness.attemptedProviderLink,
+          providerLinkCreated: readiness.providerLinkCreated,
+          providerLinkVerifiedAfterRefetch:
+            readiness.providerLinkVerifiedAfterRefetch,
+          providerLinkWorkflowUsed: readiness.providerLinkWorkflowUsed,
+          providerLinkInputPreview: readiness.providerLinkInputPreview,
+          ...(readiness.providerLinkRepairError
+            ? { providerLinkRepairError: readiness.providerLinkRepairError }
+            : {}),
+          allFulfillmentProviderIds: readiness.allFulfillmentProviderIds,
+          allFulfillmentProviderRecords: readiness.allFulfillmentProviderRecords,
+        },
+        null,
+        2,
+      ),
+    );
+  } catch (error) {
+    const blockers = isRedisUnavailableOrQuotaError(error)
+      ? [REDIS_UNAVAILABLE_BLOCKER]
+      : [
+          `shipping_ensure_failed:${String(
+            serializeProviderLinkRepairError(error).message,
+          )}`,
+        ];
+
+    console.log(
+      JSON.stringify(
+        {
+          success: false,
+          created: [],
+          existing: [],
+          blockers,
+          regionId: null,
+          shippingProfileId: null,
+          shippingOptionId: null,
+          fulfillmentProviderReady: false,
+          fulfillmentProviderId: null,
+          selectedFulfillmentProviderId: null,
+          selectedFulfillmentProviderSource: null,
+          serviceZoneReady: false,
+          serviceZoneId: null,
+          providerEnabledForServiceLocation: false,
+          stockLocationProviderIds: [],
+          serviceZoneProviderIds: [],
+          attemptedProviderLink: false,
+          providerLinkCreated: false,
+          providerLinkVerifiedAfterRefetch: false,
+          providerLinkWorkflowUsed: null,
+          providerLinkInputPreview: null,
+          providerLinkRepairError: serializeProviderLinkRepairError(error),
+          allFulfillmentProviderIds: [],
+          allFulfillmentProviderRecords: [],
+          note:
+            "If Medusa boot fails before this script runs, Redis must be fixed at the environment/infrastructure level.",
+        },
+        null,
+        2,
+      ),
+    );
+  }
 }

@@ -1,6 +1,5 @@
 import { ContainerRegistrationKeys, Modules } from "@medusajs/framework/utils";
 import {
-  batchLinksWorkflow,
   createLocationFulfillmentSetWorkflow,
   createServiceZonesWorkflow,
   createShippingOptionsWorkflow,
@@ -11,7 +10,7 @@ export const TARGET_REGION_ID = "reg_01KQSEKK6A9T86NJ0AG05XPK3H";
 export const TARGET_SHIPPING_PROFILE_ID = "sp_01KQNHSN2N8DDF782WRRDGJJF0";
 export const TARGET_STOCK_LOCATION_ID = "sloc_01KQR5J1PYD7FZ1AF516W1VQWJ";
 export const TARGET_SERVICE_ZONE_ID = "serzo_01KQY400PQPH3KZ6NMGQ5DYBY2";
-export const PREFERRED_MANUAL_FULFILLMENT_PROVIDER_ID = "fp_manual_manual";
+export const PREFERRED_MANUAL_FULFILLMENT_PROVIDER_ID = "manual_manual";
 
 const DEFAULT_SHIPPING_OPTION_NAME = "dBaronX Standard Delivery";
 const DEFAULT_SERVICE_ZONE_NAME = "dBaronX United States Delivery Zone";
@@ -48,6 +47,8 @@ export type EnsureShippingReadinessResult = {
   providerLinkCreated: boolean;
   providerLinkVerifiedAfterRefetch: boolean;
   providerLinkRepairError?: Record<string, unknown>;
+  providerLinkWorkflowUsed: string | null;
+  providerLinkInputPreview: Record<string, unknown> | null;
   createShippingOptionsWorkflowInput: Record<string, unknown>[] | null;
 };
 
@@ -195,7 +196,7 @@ function selectFulfillmentProviderId(
   if (preferredProvider) {
     return {
       selectedFulfillmentProviderId: getId(preferredProvider),
-      selectedFulfillmentProviderSource: "preferred_fp_manual_manual",
+      selectedFulfillmentProviderSource: "preferred_manual_manual",
     };
   }
 
@@ -413,6 +414,43 @@ const errorMessage = (error: unknown): string => {
     : JSON.stringify(serialized);
 };
 
+export const REDIS_UNAVAILABLE_BLOCKER = "redis_unavailable_or_quota_exceeded";
+
+const REDIS_ERROR_PATTERNS = [
+  "err max requests limit exceeded",
+  "max requests limit exceeded",
+  "quota",
+  "upstash",
+  "redis",
+  "econnrefused",
+  "connection is closed",
+  "connection timeout",
+  "connect etimedout",
+  "read econnreset",
+  "ioredis",
+];
+
+export const isRedisUnavailableOrQuotaError = (error: unknown): boolean => {
+  const serialized = JSON.stringify(toJsonSafe(error)).toLowerCase();
+  const message = errorMessage(error).toLowerCase();
+  return REDIS_ERROR_PATTERNS.some(
+    (pattern) => message.includes(pattern) || serialized.includes(pattern),
+  );
+};
+
+const addWorkflowErrorBlocker = (
+  blockers: string[],
+  operation: string,
+  error: unknown,
+) => {
+  if (isRedisUnavailableOrQuotaError(error)) {
+    pushUnique(blockers, REDIS_UNAVAILABLE_BLOCKER);
+    return;
+  }
+
+  pushUnique(blockers, `${operation}_failed:${errorMessage(error)}`);
+};
+
 async function diagnoseServiceZoneProviderMismatch(
   query: any,
   serviceZoneId: string | null,
@@ -476,27 +514,34 @@ async function diagnoseServiceZoneProviderMismatch(
   return diagnoses;
 }
 
-async function linkProviderToStockLocation(
-  container: any,
+type ProviderLinkRepairInput = {
+  [Modules.STOCK_LOCATION]: { stock_location_id: string };
+  [Modules.FULFILLMENT]: { fulfillment_provider_id: string };
+};
+
+const buildProviderLinkInput = (
   stockLocationId: string,
   fulfillmentProviderId: string,
-): Promise<boolean> {
-  // Matches Medusa v2.13.6 admin POST
-  // /admin/stock-locations/:id/fulfillment-providers, which calls
-  // batchLinksWorkflow with this STOCK_LOCATION <-> FULFILLMENT link shape.
-  await batchLinksWorkflow(container).run({
-    input: {
-      create: [
-        {
-          [Modules.STOCK_LOCATION]: { stock_location_id: stockLocationId },
-          [Modules.FULFILLMENT]: {
-            fulfillment_provider_id: fulfillmentProviderId,
-          },
-        },
-      ],
-    },
-  });
+): ProviderLinkRepairInput => ({
+  [Modules.STOCK_LOCATION]: { stock_location_id: stockLocationId },
+  [Modules.FULFILLMENT]: { fulfillment_provider_id: fulfillmentProviderId },
+});
 
+async function linkProviderToStockLocation(
+  container: any,
+  linkInput: ProviderLinkRepairInput,
+): Promise<boolean> {
+  // Medusa v2.13.6 admin POST /admin/stock-locations/:id/fulfillment-providers
+  // builds this STOCK_LOCATION <-> FULFILLMENT link definition and passes it to
+  // batchLinksWorkflow({ create: [definition], delete: [...] }). The direct
+  // Link.create API accepts the same link definition array without invoking the
+  // Redis-backed workflow engine, which keeps this ensure script safe when Redis
+  // quota is exhausted.
+  const link = container.resolve(ContainerRegistrationKeys.LINK);
+  const existingLinks = await link.list([linkInput], { asLinkDefinition: true });
+  if (asArray(existingLinks).length > 0) return false;
+
+  await link.create([linkInput]);
   return true;
 }
 
@@ -556,6 +601,8 @@ export async function ensureShippingReadiness(
   let providerLinkCreated = false;
   let providerLinkVerifiedAfterRefetch = false;
   let providerLinkRepairError: Record<string, unknown> | undefined;
+  let providerLinkWorkflowUsed: string | null = null;
+  let providerLinkInputPreview: Record<string, unknown> | null = null;
 
   const region = (
     await safeGraph(
@@ -619,21 +666,25 @@ export async function ensureShippingReadiness(
   let fulfillmentSetId = getId(fulfillmentSet);
 
   if (!fulfillmentSetId && repair && stockLocationId) {
-    await createLocationFulfillmentSetWorkflow(container).run({
-      input: {
-        location_id: stockLocationId,
-        fulfillment_set_data: {
-          name: DEFAULT_FULFILLMENT_SET_NAME,
-          type: "shipping",
+    try {
+      await createLocationFulfillmentSetWorkflow(container).run({
+        input: {
+          location_id: stockLocationId,
+          fulfillment_set_data: {
+            name: DEFAULT_FULFILLMENT_SET_NAME,
+            type: "shipping",
+          },
         },
-      },
-    });
-    pushUnique(created, "fulfillment_set");
-    fulfillmentSet = await findStockLocationFulfillmentSet(
-      query,
-      stockLocationId,
-    );
-    fulfillmentSetId = getId(fulfillmentSet);
+      });
+      pushUnique(created, "fulfillment_set");
+      fulfillmentSet = await findStockLocationFulfillmentSet(
+        query,
+        stockLocationId,
+      );
+      fulfillmentSetId = getId(fulfillmentSet);
+    } catch (error) {
+      addWorkflowErrorBlocker(blockers, "fulfillment_set_create", error);
+    }
   }
 
   if (fulfillmentSetId)
@@ -652,53 +703,61 @@ export async function ensureShippingReadiness(
   );
 
   if (serviceZoneId && !serviceZoneReady && repair) {
-    const updated = await updateServiceZonesWorkflow(container).run({
-      input: {
-        selector: { id: serviceZoneId },
-        update: {
-          name: DEFAULT_SERVICE_ZONE_NAME,
-          geo_zones: [{ type: "country", country_code: DEFAULT_COUNTRY_CODE }],
-        },
-      } as any,
-    });
-    serviceZone =
-      asArray<Record<string, unknown>>(updated.result).find(
-        (zone) => getId(zone) === serviceZoneId,
-      ) || serviceZone;
-    pushUnique(created, "service_zone_geo_zone");
-    fulfillmentSet = stockLocationId
-      ? await findStockLocationFulfillmentSet(query, stockLocationId)
-      : fulfillmentSet;
-    serviceZone = findUsServiceZone(fulfillmentSet) || serviceZone;
-    serviceZoneReady = Boolean(
-      getId(serviceZone) && hasCountryGeoZone(serviceZone),
-    );
+    try {
+      const updated = await updateServiceZonesWorkflow(container).run({
+        input: {
+          selector: { id: serviceZoneId },
+          update: {
+            name: DEFAULT_SERVICE_ZONE_NAME,
+            geo_zones: [{ type: "country", country_code: DEFAULT_COUNTRY_CODE }],
+          },
+        } as any,
+      });
+      serviceZone =
+        asArray<Record<string, unknown>>(updated.result).find(
+          (zone) => getId(zone) === serviceZoneId,
+        ) || serviceZone;
+      pushUnique(created, "service_zone_geo_zone");
+      fulfillmentSet = stockLocationId
+        ? await findStockLocationFulfillmentSet(query, stockLocationId)
+        : fulfillmentSet;
+      serviceZone = findUsServiceZone(fulfillmentSet) || serviceZone;
+      serviceZoneReady = Boolean(
+        getId(serviceZone) && hasCountryGeoZone(serviceZone),
+      );
+    } catch (error) {
+      addWorkflowErrorBlocker(blockers, "service_zone_update", error);
+    }
   }
 
   if (!serviceZoneId && repair && fulfillmentSetId) {
-    const createdZone = await createServiceZonesWorkflow(container).run({
-      input: {
-        data: [
-          {
-            name: DEFAULT_SERVICE_ZONE_NAME,
-            fulfillment_set_id: fulfillmentSetId,
-            geo_zones: [
-              { type: "country", country_code: DEFAULT_COUNTRY_CODE },
-            ],
-          },
-        ],
-      },
-    });
-    serviceZone = asArray<Record<string, unknown>>(createdZone.result)[0];
-    serviceZoneId = getId(serviceZone);
-    pushUnique(created, "service_zone");
-    fulfillmentSet = stockLocationId
-      ? await findStockLocationFulfillmentSet(query, stockLocationId)
-      : fulfillmentSet;
-    serviceZone = findUsServiceZone(fulfillmentSet) || serviceZone;
-    serviceZoneReady = Boolean(
-      getId(serviceZone) && hasCountryGeoZone(serviceZone),
-    );
+    try {
+      const createdZone = await createServiceZonesWorkflow(container).run({
+        input: {
+          data: [
+            {
+              name: DEFAULT_SERVICE_ZONE_NAME,
+              fulfillment_set_id: fulfillmentSetId,
+              geo_zones: [
+                { type: "country", country_code: DEFAULT_COUNTRY_CODE },
+              ],
+            },
+          ],
+        },
+      });
+      serviceZone = asArray<Record<string, unknown>>(createdZone.result)[0];
+      serviceZoneId = getId(serviceZone);
+      pushUnique(created, "service_zone");
+      fulfillmentSet = stockLocationId
+        ? await findStockLocationFulfillmentSet(query, stockLocationId)
+        : fulfillmentSet;
+      serviceZone = findUsServiceZone(fulfillmentSet) || serviceZone;
+      serviceZoneReady = Boolean(
+        getId(serviceZone) && hasCountryGeoZone(serviceZone),
+      );
+    } catch (error) {
+      addWorkflowErrorBlocker(blockers, "service_zone_create", error);
+    }
   }
 
   serviceZoneId = getId(serviceZone);
@@ -753,14 +812,26 @@ export async function ensureShippingReadiness(
     const providerWasLinkedBeforeRepair = serviceZoneProviderIds.includes(
       fulfillmentProviderId,
     );
+    const providerLinkInput = buildProviderLinkInput(
+      stockLocationId,
+      fulfillmentProviderId,
+    );
+    providerLinkWorkflowUsed = "Link.create";
+    providerLinkInputPreview = {
+      api: "ContainerRegistrationKeys.LINK.create",
+      input: [providerLinkInput],
+    };
+
     try {
-      await linkProviderToStockLocation(
+      providerLinkCreated = await linkProviderToStockLocation(
         container,
-        stockLocationId,
-        fulfillmentProviderId,
+        providerLinkInput,
       );
     } catch (error) {
       providerLinkRepairError = serializeProviderLinkRepairError(error);
+      if (isRedisUnavailableOrQuotaError(error)) {
+        pushUnique(blockers, REDIS_UNAVAILABLE_BLOCKER);
+      }
     }
 
     enabledProviderIds = await findEnabledProviderIdsForStockLocation(
@@ -795,7 +866,8 @@ export async function ensureShippingReadiness(
     );
     providerEnabledForServiceLocation = providerLinkVerifiedAfterRefetch;
     providerLinkCreated = Boolean(
-      providerEnabledForServiceLocation && !providerWasLinkedBeforeRepair,
+      providerEnabledForServiceLocation &&
+        (providerLinkCreated || !providerWasLinkedBeforeRepair),
     );
 
     if (providerEnabledForServiceLocation) {
@@ -818,6 +890,7 @@ export async function ensureShippingReadiness(
       stockLocationProviderIds.includes(fulfillmentProviderId) &&
       serviceZoneProviderIds.includes(fulfillmentProviderId),
     );
+    providerEnabledForServiceLocation = providerLinkVerifiedAfterRefetch;
   }
 
   fulfillmentProviderReady = Boolean(
@@ -896,10 +969,7 @@ export async function ensureShippingReadiness(
       if (shippingOptionId) pushUnique(created, "shipping_option");
     } catch (error) {
       shippingOptionId = null;
-      pushUnique(
-        blockers,
-        `shipping_option_create_failed:${errorMessage(error)}`,
-      );
+      addWorkflowErrorBlocker(blockers, "shipping_option_create", error);
     }
   }
 
@@ -936,6 +1006,8 @@ export async function ensureShippingReadiness(
     attemptedProviderLink,
     providerLinkCreated,
     providerLinkVerifiedAfterRefetch,
+    providerLinkWorkflowUsed,
+    providerLinkInputPreview,
     ...(providerLinkRepairError ? { providerLinkRepairError } : {}),
     createShippingOptionsWorkflowInput,
   };
