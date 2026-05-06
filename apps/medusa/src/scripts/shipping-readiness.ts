@@ -11,7 +11,7 @@ export const TARGET_REGION_ID = "reg_01KQSEKK6A9T86NJ0AG05XPK3H";
 export const TARGET_SHIPPING_PROFILE_ID = "sp_01KQNHSN2N8DDF782WRRDGJJF0";
 export const TARGET_STOCK_LOCATION_ID = "sloc_01KQR5J1PYD7FZ1AF516W1VQWJ";
 export const TARGET_SERVICE_ZONE_ID = "serzo_01KQY400PQPH3KZ6NMGQ5DYBY2";
-export const TARGET_FULFILLMENT_PROVIDER_ID = "manual_manual";
+export const PREFERRED_MANUAL_FULFILLMENT_PROVIDER_ID = "fp_manual_manual";
 
 const DEFAULT_SHIPPING_OPTION_NAME = "dBaronX Standard Delivery";
 const DEFAULT_SERVICE_ZONE_NAME = "dBaronX United States Delivery Zone";
@@ -32,6 +32,10 @@ export type EnsureShippingReadinessResult = {
   shippingOptionId: string | null;
   fulfillmentProviderReady: boolean;
   fulfillmentProviderId: string | null;
+  selectedFulfillmentProviderId: string | null;
+  selectedFulfillmentProviderSource: string | null;
+  allFulfillmentProviderIds: string[];
+  allFulfillmentProviderRecords: Record<string, unknown>[];
   fulfillmentSetReady: boolean;
   fulfillmentSetId: string | null;
   serviceZoneReady: boolean;
@@ -43,7 +47,7 @@ export type EnsureShippingReadinessResult = {
   attemptedProviderLink: boolean;
   providerLinkCreated: boolean;
   providerLinkVerifiedAfterRefetch: boolean;
-  providerLinkRepairError?: string;
+  providerLinkRepairError?: Record<string, unknown>;
   createShippingOptionsWorkflowInput: Record<string, unknown>[] | null;
 };
 
@@ -157,17 +161,80 @@ async function findStockLocationFulfillmentSet(
   );
 }
 
-async function findManualFulfillmentProvider(query: any) {
-  const providers = await safeGraph(
+async function findFulfillmentProviders(
+  query: any,
+): Promise<Record<string, unknown>[]> {
+  return safeGraph(
     query,
     "fulfillment_provider",
-    ["id"],
+    ["id", "is_enabled"],
     undefined,
-    50,
+    100,
   );
-  return providers.find(
-    (provider) => getId(provider) === TARGET_FULFILLMENT_PROVIDER_ID,
+}
+
+type FulfillmentProviderSelection = {
+  selectedFulfillmentProviderId: string | null;
+  selectedFulfillmentProviderSource: string | null;
+};
+
+const isProviderEnabled = (provider: Record<string, unknown>): boolean =>
+  provider.is_enabled !== false;
+
+function selectFulfillmentProviderId(
+  providers: Record<string, unknown>[],
+  stockLocationProviderIds: string[],
+  serviceZoneProviderIds: string[],
+): FulfillmentProviderSelection {
+  const enabledProviders = providers.filter(
+    (provider) => getId(provider) && isProviderEnabled(provider),
   );
+  const preferredProvider = enabledProviders.find(
+    (provider) => getId(provider) === PREFERRED_MANUAL_FULFILLMENT_PROVIDER_ID,
+  );
+  if (preferredProvider) {
+    return {
+      selectedFulfillmentProviderId: getId(preferredProvider),
+      selectedFulfillmentProviderSource: "preferred_fp_manual_manual",
+    };
+  }
+
+  const manualProvider = enabledProviders.find((provider) =>
+    String(getId(provider) || "")
+      .toLowerCase()
+      .includes("manual"),
+  );
+  if (manualProvider) {
+    return {
+      selectedFulfillmentProviderId: getId(manualProvider),
+      selectedFulfillmentProviderSource: "enabled_manual_provider",
+    };
+  }
+
+  const linkedProviderIds = [
+    ...serviceZoneProviderIds.filter((id) =>
+      stockLocationProviderIds.includes(id),
+    ),
+    ...stockLocationProviderIds,
+    ...serviceZoneProviderIds,
+  ];
+  const linkedProvider = linkedProviderIds
+    .map((providerId) =>
+      enabledProviders.find((provider) => getId(provider) === providerId),
+    )
+    .find((provider): provider is Record<string, unknown> => Boolean(provider));
+  if (linkedProvider) {
+    return {
+      selectedFulfillmentProviderId: getId(linkedProvider),
+      selectedFulfillmentProviderSource: "existing_enabled_linked_provider",
+    };
+  }
+
+  return {
+    selectedFulfillmentProviderId: null,
+    selectedFulfillmentProviderSource:
+      "fulfillment_provider_missing_or_disabled",
+  };
 }
 
 async function findEnabledProviderIdsForStockLocation(
@@ -219,7 +286,9 @@ async function findEnabledProviderIdsForServiceZone(
   );
 
   const providerIds = locations
-    .filter((location) => !stockLocationId || getId(location) === stockLocationId)
+    .filter(
+      (location) => !stockLocationId || getId(location) === stockLocationId,
+    )
     .flatMap((location) =>
       asArray<Record<string, unknown>>(location.fulfillment_providers)
         .map(getId)
@@ -268,7 +337,9 @@ const getServiceZoneTargetLocation = (
       : undefined,
   )
     .filter(isRecord)
-    .find((location) => !stockLocationId || getId(location) === stockLocationId);
+    .find(
+      (location) => !stockLocationId || getId(location) === stockLocationId,
+    );
 
 const getProviderIdsFromLocation = (location: unknown): string[] =>
   Array.from(
@@ -281,8 +352,66 @@ const getProviderIdsFromLocation = (location: unknown): string[] =>
     ),
   );
 
-const errorMessage = (error: unknown): string =>
-  error instanceof Error ? error.message : String(error);
+const toJsonSafe = (value: unknown, seen = new WeakSet<object>()): unknown => {
+  if (
+    value === null ||
+    typeof value === "string" ||
+    typeof value === "number" ||
+    typeof value === "boolean"
+  ) {
+    return value;
+  }
+  if (typeof value === "bigint") return value.toString();
+  if (typeof value === "undefined") return undefined;
+  if (typeof value === "function")
+    return `[Function ${value.name || "anonymous"}]`;
+  if (!isRecord(value)) return String(value);
+  if (seen.has(value)) return "[Circular]";
+  seen.add(value);
+  if (Array.isArray(value)) return value.map((item) => toJsonSafe(item, seen));
+
+  return Object.fromEntries(
+    Object.entries(value).map(([key, entry]) => [key, toJsonSafe(entry, seen)]),
+  );
+};
+
+export const serializeProviderLinkRepairError = (
+  error: unknown,
+): Record<string, unknown> => {
+  const errorRecord = isRecord(error) ? error : {};
+  return Object.fromEntries(
+    Object.entries({
+      name:
+        error instanceof Error
+          ? error.name
+          : typeof errorRecord.name === "string"
+            ? errorRecord.name
+            : undefined,
+      message:
+        error instanceof Error
+          ? error.message
+          : typeof errorRecord.message === "string"
+            ? errorRecord.message
+            : String(error),
+      code: errorRecord.code,
+      type: errorRecord.type,
+      stack:
+        typeof errorRecord.stack === "string"
+          ? errorRecord.stack.split("\n").slice(0, 5)
+          : undefined,
+      cause: toJsonSafe(errorRecord.cause),
+      details: toJsonSafe(errorRecord.details),
+      rawKeys: isRecord(error) ? Object.keys(error) : [],
+    }).filter(([, value]) => typeof value !== "undefined"),
+  );
+};
+
+const errorMessage = (error: unknown): string => {
+  const serialized = serializeProviderLinkRepairError(error);
+  return typeof serialized.message === "string"
+    ? serialized.message
+    : JSON.stringify(serialized);
+};
 
 async function diagnoseServiceZoneProviderMismatch(
   query: any,
@@ -298,9 +427,8 @@ async function diagnoseServiceZoneProviderMismatch(
 
   const refetchedServiceZone =
     (await findServiceZone(query, serviceZoneId)) || serviceZone;
-  const serviceZoneFulfillmentSetId = getServiceZoneFulfillmentSetId(
-    refetchedServiceZone,
-  );
+  const serviceZoneFulfillmentSetId =
+    getServiceZoneFulfillmentSetId(refetchedServiceZone);
 
   if (
     fulfillmentSetId &&
@@ -331,7 +459,10 @@ async function diagnoseServiceZoneProviderMismatch(
     stockLocationFulfillmentSetIds.length > 0 &&
     !stockLocationFulfillmentSetIds.includes(serviceZoneFulfillmentSetId)
   ) {
-    pushUnique(diagnoses, "stock_location_attached_to_different_fulfillment_set");
+    pushUnique(
+      diagnoses,
+      "stock_location_attached_to_different_fulfillment_set",
+    );
   }
 
   if (
@@ -424,7 +555,7 @@ export async function ensureShippingReadiness(
   let attemptedProviderLink = false;
   let providerLinkCreated = false;
   let providerLinkVerifiedAfterRefetch = false;
-  let providerLinkRepairError: string | undefined;
+  let providerLinkRepairError: Record<string, unknown> | undefined;
 
   const region = (
     await safeGraph(
@@ -465,10 +596,14 @@ export async function ensureShippingReadiness(
   if (stockLocationId) pushUnique(existing, "stock_location");
   else pushUnique(blockers, "stock_location_missing");
 
-  const fulfillmentProvider = await findManualFulfillmentProvider(query);
-  let fulfillmentProviderId = getId(fulfillmentProvider);
-  if (!fulfillmentProviderId)
-    pushUnique(blockers, "fulfillment_provider_missing");
+  const allFulfillmentProviderRecords = await findFulfillmentProviders(query);
+  const allFulfillmentProviderIds = allFulfillmentProviderRecords
+    .map(getId)
+    .filter((id): id is string => Boolean(id));
+
+  let fulfillmentProviderId: string | null = null;
+  let selectedFulfillmentProviderId: string | null = null;
+  let selectedFulfillmentProviderSource: string | null = null;
 
   let enabledProviderIds = await findEnabledProviderIdsForStockLocation(
     query,
@@ -586,10 +721,25 @@ export async function ensureShippingReadiness(
     : [];
   serviceZoneProviderIds = serviceZoneEnabledProviderIds;
 
+  const selectedFulfillmentProvider = selectFulfillmentProviderId(
+    allFulfillmentProviderRecords,
+    enabledProviderIds,
+    serviceZoneEnabledProviderIds,
+  );
+  selectedFulfillmentProviderId =
+    selectedFulfillmentProvider.selectedFulfillmentProviderId;
+  selectedFulfillmentProviderSource =
+    selectedFulfillmentProvider.selectedFulfillmentProviderSource;
+  fulfillmentProviderId = selectedFulfillmentProviderId;
+
+  if (!selectedFulfillmentProviderId) {
+    pushUnique(blockers, "fulfillment_provider_missing_or_disabled");
+  }
+
   providerEnabledForServiceLocation = Boolean(
-    fulfillmentProviderId &&
-      enabledProviderIds.includes(fulfillmentProviderId) &&
-      serviceZoneEnabledProviderIds.includes(fulfillmentProviderId),
+    selectedFulfillmentProviderId &&
+    enabledProviderIds.includes(selectedFulfillmentProviderId) &&
+    serviceZoneEnabledProviderIds.includes(selectedFulfillmentProviderId),
   );
 
   if (
@@ -610,7 +760,7 @@ export async function ensureShippingReadiness(
         fulfillmentProviderId,
       );
     } catch (error) {
-      providerLinkRepairError = errorMessage(error);
+      providerLinkRepairError = serializeProviderLinkRepairError(error);
     }
 
     enabledProviderIds = await findEnabledProviderIdsForStockLocation(
@@ -666,12 +816,12 @@ export async function ensureShippingReadiness(
   if (!attemptedProviderLink && fulfillmentProviderId) {
     providerLinkVerifiedAfterRefetch = Boolean(
       stockLocationProviderIds.includes(fulfillmentProviderId) &&
-        serviceZoneProviderIds.includes(fulfillmentProviderId),
+      serviceZoneProviderIds.includes(fulfillmentProviderId),
     );
   }
 
   fulfillmentProviderReady = Boolean(
-    fulfillmentProviderId && providerEnabledForServiceLocation,
+    selectedFulfillmentProviderId && providerEnabledForServiceLocation,
   );
 
   if (fulfillmentProviderReady) {
@@ -682,7 +832,7 @@ export async function ensureShippingReadiness(
         : existing,
       "fulfillment_provider",
     );
-  } else if (fulfillmentProviderId) {
+  } else if (selectedFulfillmentProviderId) {
     pushUnique(
       blockers,
       "fulfillment_provider_not_enabled_for_service_location",
@@ -771,6 +921,10 @@ export async function ensureShippingReadiness(
     shippingOptionId,
     fulfillmentProviderReady,
     fulfillmentProviderId,
+    selectedFulfillmentProviderId,
+    selectedFulfillmentProviderSource,
+    allFulfillmentProviderIds,
+    allFulfillmentProviderRecords,
     fulfillmentSetReady: Boolean(fulfillmentSetId),
     fulfillmentSetId,
     serviceZoneReady,
