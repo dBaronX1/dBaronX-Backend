@@ -17,6 +17,9 @@ export default async function ensureShipping({ container }: ExecArgs) {
         shippingOptionId: readiness.shippingOptionId,
         fulfillmentProviderReady: readiness.fulfillmentProviderReady,
         fulfillmentProviderId: readiness.fulfillmentProviderId,
+        selectedFulfillmentProviderId: readiness.selectedFulfillmentProviderId,
+        selectedFulfillmentProviderSource:
+          readiness.selectedFulfillmentProviderSource,
         serviceZoneReady: readiness.serviceZoneReady,
         serviceZoneId: readiness.serviceZoneId,
         providerEnabledForServiceLocation:
@@ -30,6 +33,8 @@ export default async function ensureShipping({ container }: ExecArgs) {
         ...(readiness.providerLinkRepairError
           ? { providerLinkRepairError: readiness.providerLinkRepairError }
           : {}),
+        allFulfillmentProviderIds: readiness.allFulfillmentProviderIds,
+        allFulfillmentProviderRecords: readiness.allFulfillmentProviderRecords,
       },
       null,
       2,
