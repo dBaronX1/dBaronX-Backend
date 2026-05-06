@@ -84,6 +84,7 @@ async function bootstrap() {
   const app = await NestFactory.create(AppModule, {
     bufferLogs: true,
     bodyParser: true,
+    rawBody: true,
   });
 
   const logger = new Logger("dBaronXBootstrap");
@@ -122,6 +123,7 @@ async function bootstrap() {
       "x-idempotency-key",
       "x-telegram-init-data",
       "x-client-version",
+      "stripe-signature",
     ],
     exposedHeaders: ["x-request-id"],
   });
