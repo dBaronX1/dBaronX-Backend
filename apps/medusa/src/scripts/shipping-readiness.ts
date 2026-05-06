@@ -10,6 +10,8 @@ import {
 export const TARGET_REGION_ID = "reg_01KQSEKK6A9T86NJ0AG05XPK3H";
 export const TARGET_SHIPPING_PROFILE_ID = "sp_01KQNHSN2N8DDF782WRRDGJJF0";
 export const TARGET_STOCK_LOCATION_ID = "sloc_01KQR5J1PYD7FZ1AF516W1VQWJ";
+export const TARGET_SERVICE_ZONE_ID = "serzo_01KQY400PQPH3KZ6NMGQ5DYBY2";
+export const TARGET_FULFILLMENT_PROVIDER_ID = "manual_manual";
 
 const DEFAULT_SHIPPING_OPTION_NAME = "dBaronX Standard Delivery";
 const DEFAULT_SERVICE_ZONE_NAME = "dBaronX United States Delivery Zone";
@@ -87,6 +89,7 @@ const findUsServiceZone = (
     isRecord(fulfillmentSet) ? fulfillmentSet.service_zones : undefined,
   ).filter(isRecord);
   return (
+    serviceZones.find((zone) => getId(zone) === TARGET_SERVICE_ZONE_ID) ||
     serviceZones.find(hasCountryGeoZone) ||
     serviceZones.find((zone) => getId(zone))
   );
@@ -156,9 +159,8 @@ async function findManualFulfillmentProvider(query: any) {
     undefined,
     50,
   );
-  return (
-    providers.find((provider) => getId(provider) === "manual_manual") ||
-    providers[0]
+  return providers.find(
+    (provider) => getId(provider) === TARGET_FULFILLMENT_PROVIDER_ID,
   );
 }
 
@@ -186,6 +188,7 @@ async function findEnabledProviderIdsForStockLocation(
 async function findEnabledProviderIdsForServiceZone(
   query: any,
   serviceZoneId: string | null,
+  stockLocationId: string | null,
 ): Promise<string[]> {
   if (!serviceZoneId) return [];
 
@@ -209,13 +212,41 @@ async function findEnabledProviderIdsForServiceZone(
       : undefined,
   );
 
-  const providerIds = locations.flatMap((location) =>
-    asArray<Record<string, unknown>>(location.fulfillment_providers)
-      .map(getId)
-      .filter((id): id is string => Boolean(id)),
-  );
+  const providerIds = locations
+    .filter((location) => !stockLocationId || getId(location) === stockLocationId)
+    .flatMap((location) =>
+      asArray<Record<string, unknown>>(location.fulfillment_providers)
+        .map(getId)
+        .filter((id): id is string => Boolean(id)),
+    );
 
   return Array.from(new Set(providerIds));
+}
+
+async function findServiceZone(
+  query: any,
+  serviceZoneId: string | null,
+): Promise<Record<string, unknown> | undefined> {
+  if (!serviceZoneId) return undefined;
+
+  return (
+    await safeGraph(
+      query,
+      "service_zone",
+      [
+        "id",
+        "name",
+        "geo_zones.id",
+        "geo_zones.type",
+        "geo_zones.country_code",
+        "fulfillment_set.id",
+        "fulfillment_set.locations.id",
+        "fulfillment_set.locations.fulfillment_providers.id",
+      ],
+      { id: serviceZoneId },
+      1,
+    )
+  )[0];
 }
 
 async function linkProviderToStockLocation(
@@ -223,6 +254,9 @@ async function linkProviderToStockLocation(
   stockLocationId: string,
   fulfillmentProviderId: string,
 ): Promise<boolean> {
+  // Matches Medusa v2.13.6 admin POST
+  // /admin/stock-locations/:id/fulfillment-providers, which calls
+  // batchLinksWorkflow with this STOCK_LOCATION <-> FULFILLMENT link shape.
   await batchLinksWorkflow(container).run({
     input: {
       create: [
@@ -243,6 +277,7 @@ async function findShippingOption(
   query: any,
   serviceZoneId: string | null,
   shippingProfileId: string | null,
+  fulfillmentProviderId: string | null,
 ) {
   const shippingOptions = await safeGraph(
     query,
@@ -273,7 +308,8 @@ async function findShippingOption(
     return (
       option.name === DEFAULT_SHIPPING_OPTION_NAME &&
       (!serviceZoneId || optionServiceZoneId === serviceZoneId) &&
-      (!shippingProfileId || optionShippingProfileId === shippingProfileId)
+      (!shippingProfileId || optionShippingProfileId === shippingProfileId) &&
+      (!fulfillmentProviderId || option.provider_id === fulfillmentProviderId)
     );
   });
 }
@@ -332,60 +368,12 @@ export async function ensureShippingReadiness(
   if (!fulfillmentProviderId)
     pushUnique(blockers, "fulfillment_provider_missing");
 
-  let enabledProviderIds = await findEnabledProviderIdsForStockLocation(
+  const enabledProviderIds = await findEnabledProviderIdsForStockLocation(
     query,
     stockLocationId,
   );
-  let providerEnabledForServiceLocation = Boolean(
-    fulfillmentProviderId && enabledProviderIds.includes(fulfillmentProviderId),
-  );
-
-  if (
-    fulfillmentProviderId &&
-    !providerEnabledForServiceLocation &&
-    repair &&
-    stockLocationId
-  ) {
-    try {
-      await linkProviderToStockLocation(
-        container,
-        stockLocationId,
-        fulfillmentProviderId,
-      );
-      enabledProviderIds = await findEnabledProviderIdsForStockLocation(
-        query,
-        stockLocationId,
-      );
-      providerEnabledForServiceLocation = enabledProviderIds.includes(
-        fulfillmentProviderId,
-      );
-      if (providerEnabledForServiceLocation)
-        pushUnique(created, "stock_location_fulfillment_provider_link");
-    } catch {
-      providerEnabledForServiceLocation = false;
-    }
-  }
-
-  if (!providerEnabledForServiceLocation && enabledProviderIds.length > 0) {
-    fulfillmentProviderId = enabledProviderIds[0];
-    providerEnabledForServiceLocation = true;
-  }
-
-  let fulfillmentProviderReady = Boolean(
-    fulfillmentProviderId && providerEnabledForServiceLocation,
-  );
-  if (fulfillmentProviderReady)
-    pushUnique(
-      created.includes("stock_location_fulfillment_provider_link")
-        ? created
-        : existing,
-      "fulfillment_provider",
-    );
-  else if (fulfillmentProviderId)
-    pushUnique(
-      blockers,
-      "fulfillment_provider_not_enabled_for_service_location",
-    );
+  let providerEnabledForServiceLocation = false;
+  let fulfillmentProviderReady = false;
 
   let fulfillmentSet = stockLocationId
     ? await findStockLocationFulfillmentSet(query, stockLocationId)
@@ -483,27 +471,68 @@ export async function ensureShippingReadiness(
     );
   else pushUnique(blockers, "service_zone_missing");
 
-  const serviceZoneEnabledProviderIds = serviceZoneId
-    ? await findEnabledProviderIdsForServiceZone(query, serviceZoneId)
-    : enabledProviderIds;
+  let serviceZoneEnabledProviderIds = serviceZoneId
+    ? await findEnabledProviderIdsForServiceZone(
+        query,
+        serviceZoneId,
+        stockLocationId,
+      )
+    : [];
+
   providerEnabledForServiceLocation = Boolean(
     fulfillmentProviderId &&
-    serviceZoneEnabledProviderIds.includes(fulfillmentProviderId),
+      serviceZoneEnabledProviderIds.includes(fulfillmentProviderId),
   );
 
   if (
+    fulfillmentProviderId &&
     !providerEnabledForServiceLocation &&
-    serviceZoneEnabledProviderIds.length > 0
+    repair &&
+    stockLocationId &&
+    serviceZoneId
   ) {
-    fulfillmentProviderId = serviceZoneEnabledProviderIds[0];
-    providerEnabledForServiceLocation = true;
+    try {
+      await linkProviderToStockLocation(
+        container,
+        stockLocationId,
+        fulfillmentProviderId,
+      );
+    } catch {
+      // Duplicate links can surface as workflow errors; readiness is decided only
+      // by the authoritative service-zone refetch below, not by this call.
+    }
+
+    serviceZone = (await findServiceZone(query, serviceZoneId)) || serviceZone;
+    serviceZoneReady = Boolean(
+      getId(serviceZone) && hasCountryGeoZone(serviceZone),
+    );
+    serviceZoneEnabledProviderIds = await findEnabledProviderIdsForServiceZone(
+      query,
+      serviceZoneId,
+      stockLocationId,
+    );
+    providerEnabledForServiceLocation = Boolean(
+      serviceZoneEnabledProviderIds.includes(fulfillmentProviderId),
+    );
+
+    if (providerEnabledForServiceLocation) {
+      pushUnique(created, "stock_location_fulfillment_provider_link");
+    }
   }
 
   fulfillmentProviderReady = Boolean(
     fulfillmentProviderId && providerEnabledForServiceLocation,
   );
 
-  if (!providerEnabledForServiceLocation && fulfillmentProviderId) {
+  if (fulfillmentProviderReady) {
+    pushUnique(
+      created.includes("stock_location_fulfillment_provider_link") ||
+        !enabledProviderIds.includes(fulfillmentProviderId!)
+        ? created
+        : existing,
+      "fulfillment_provider",
+    );
+  } else if (fulfillmentProviderId) {
     pushUnique(
       blockers,
       "fulfillment_provider_not_enabled_for_service_location",
@@ -512,24 +541,14 @@ export async function ensureShippingReadiness(
 
   let shippingOption =
     serviceZoneId && shippingProfileId
-      ? await findShippingOption(query, serviceZoneId, shippingProfileId)
+      ? await findShippingOption(
+          query,
+          serviceZoneId,
+          shippingProfileId,
+          fulfillmentProviderId,
+        )
       : undefined;
   let shippingOptionId = getId(shippingOption);
-  const existingShippingOptionProviderId =
-    typeof shippingOption?.provider_id === "string"
-      ? shippingOption.provider_id
-      : null;
-  if (
-    shippingOptionId &&
-    existingShippingOptionProviderId &&
-    !serviceZoneEnabledProviderIds.includes(existingShippingOptionProviderId)
-  ) {
-    shippingOptionId = null;
-    pushUnique(
-      blockers,
-      "shipping_option_provider_not_enabled_for_service_location",
-    );
-  }
 
   const createShippingOptionsWorkflowInput =
     regionId && shippingProfileId && fulfillmentProviderId && serviceZoneId
@@ -563,12 +582,21 @@ export async function ensureShippingReadiness(
     createShippingOptionsWorkflowInput,
   );
   if (!shippingOptionId && repair && canCreateShippingOption) {
-    const createdOption = await createShippingOptionsWorkflow(container).run({
-      input: createShippingOptionsWorkflowInput as any,
-    });
-    shippingOption = asArray<Record<string, unknown>>(createdOption.result)[0];
-    shippingOptionId = getId(shippingOption);
-    if (shippingOptionId) pushUnique(created, "shipping_option");
+    try {
+      await createShippingOptionsWorkflow(container).run({
+        input: createShippingOptionsWorkflowInput as any,
+      });
+      shippingOption = await findShippingOption(
+        query,
+        serviceZoneId,
+        shippingProfileId,
+        fulfillmentProviderId,
+      );
+      shippingOptionId = getId(shippingOption);
+      if (shippingOptionId) pushUnique(created, "shipping_option");
+    } catch {
+      shippingOptionId = null;
+    }
   }
 
   const shippingOptionReady = Boolean(shippingOptionId);
