@@ -3,16 +3,27 @@ import { defineConfig, loadEnv } from "@medusajs/framework/utils"
 loadEnv(process.env.NODE_ENV || "development", __dirname)
 
 const requiredEnv = ["DATABASE_URL", "JWT_SECRET", "COOKIE_SECRET"] as const
+const isProduction = process.env.NODE_ENV === "production"
+
+const developmentDefaults: Record<(typeof requiredEnv)[number], string> = {
+  DATABASE_URL: "postgres://postgres:postgres@localhost:5432/medusa",
+  JWT_SECRET: "development-jwt-secret-change-me",
+  COOKIE_SECRET: "development-cookie-secret-change-me",
+}
 
 const missingEnv = requiredEnv.filter((name) => {
   const value = process.env[name]
   return !value || !value.trim()
 })
 
-if (missingEnv.length > 0) {
+if (isProduction && missingEnv.length > 0) {
   throw new Error(
     `Missing required environment variables: ${missingEnv.join(", ")}`
   )
+}
+
+for (const name of missingEnv) {
+  process.env[name] = developmentDefaults[name]
 }
 
 const DATABASE_URL = process.env.DATABASE_URL as string
@@ -26,7 +37,7 @@ const AUTH_CORS =
   process.env.AUTH_CORS || "http://localhost:3000,http://localhost:9000"
 const MEDUSA_BACKEND_URL =
   process.env.MEDUSA_BACKEND_URL || "http://localhost:9000"
-const DISABLE_MEDUSA_ADMIN = process.env.DISABLE_MEDUSA_ADMIN === "true"
+const DISABLE_MEDUSA_ADMIN = process.env.DISABLE_MEDUSA_ADMIN !== "false"
 
 export default defineConfig({
   projectConfig: {
