@@ -5,8 +5,9 @@ from typing import Any
 
 class InternalEndpointGuardManifestService:
     """
-    Canonical manifest describing which endpoint families must be protected by
-    internal-access enforcement.
+    Canonical manifest describing endpoint families that require internal-access
+    enforcement. Public compatibility snapshot routes remain intentionally
+    callable by NestJS/Fly smoke probes and are not listed as guarded.
     """
 
     def build(self) -> dict[str, Any]:
@@ -21,32 +22,25 @@ class InternalEndpointGuardManifestService:
                 "/decision-trace",
                 "/request-audit-envelope",
             ],
-            "internal_operational_surfaces": [
-                "/nestjs-handshake",
-                "/runtime-dependency-manifest",
-                "/intelligence-startup-gate",
-                "/startup-sequence-manifest",
-                "/launch-operation-manifest",
-            ],
-            "public_or_optionally_internal_surfaces": [
-                "/system-decision-manifest",
-                "/system-route-registry",
-                "/decision-policy-registry",
-                "/decision-contract-catalog",
-                "/intelligence-capability",
-                "/intelligence-health",
-                "/operational-readiness",
-                "/expected-router-registry",
-                "/api-router-audit",
-                "/economic-surface-coverage",
-                "/subsystem-readiness-matrix",
+            "internal_exports": [
+                "/runtime-export-manifest",
             ],
         }
+
+        public_compatibility_prefixes = [
+            "/health",
+            "/nestjs-handshake",
+            "/launch-control-manifest",
+            "/intelligence-startup-gate",
+            "/runtime-snapshot",
+            "/fastapi-step1-closure",
+        ]
 
         return {
             "success": True,
             "internal_endpoint_guard_manifest": {
                 "version": "1.0.0",
                 "guarded_prefixes": guarded_prefixes,
+                "public_compatibility_prefixes": public_compatibility_prefixes,
             },
         }

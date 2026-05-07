@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from fastapi import APIRouter, Depends
 
+from app.api.dependencies.internal_access import require_internal_access
 from app.schemas.payment_preflight_decision import (
     PaymentPreflightDecisionRequest,
     PaymentPreflightDecisionResponse,
@@ -11,6 +12,7 @@ from app.services.payment_preflight_decision_service import (
 )
 
 router = APIRouter(
+    dependencies=[Depends(require_internal_access)],
     prefix="/payment-preflight-decision",
     tags=["payment-preflight-decision"],
 )

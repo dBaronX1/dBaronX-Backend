@@ -40,8 +40,11 @@ class Settings(BaseSettings):
     jwt_algorithm: str = "HS256"
 
     openai_api_key: str | None = None
+    openai_model: str = "gpt-4o"
     anthropic_api_key: str | None = None
+    anthropic_model: str = "claude-3-5-sonnet-latest"
     gemini_api_key: str | None = None
+    gemini_model: str = "gemini-1.5-pro"
 
     cloudflare_turnstile_secret: str | None = None
 
@@ -92,3 +95,27 @@ class Settings(BaseSettings):
 @lru_cache(maxsize=1)
 def get_settings() -> Settings:
     return Settings()
+
+
+# Backward-compatible lazy settings proxy for legacy provider modules that
+# still import ``settings`` and use upper-case attribute names. New code should
+# use get_settings() and lower-case Settings fields.
+class _SettingsProxy:
+    def __getattr__(self, name: str):
+        return getattr(get_settings(), name)
+
+
+settings = _SettingsProxy()
+
+# Legacy upper-case attribute shims.  These preserve runtime provider capability
+# while the service layer converges on pydantic-settings field names.
+Settings.OPENAI_API_KEY = property(lambda self: self.openai_api_key)
+Settings.OPENAI_MODEL = property(lambda self: self.openai_model)
+Settings.ANTHROPIC_API_KEY = property(lambda self: self.anthropic_api_key)
+Settings.ANTHROPIC_MODEL = property(lambda self: self.anthropic_model)
+Settings.GEMINI_API_KEY = property(lambda self: self.gemini_api_key)
+Settings.GEMINI_MODEL = property(lambda self: self.gemini_model)
+Settings.INTERNAL_SERVICE_TOKEN = property(lambda self: self.internal_service_token)
+Settings.JWT_SECRET = property(lambda self: self.jwt_secret)
+Settings.REDIS_URL = property(lambda self: self.redis_url)
+Settings.ENVIRONMENT = property(lambda self: self.app_env)

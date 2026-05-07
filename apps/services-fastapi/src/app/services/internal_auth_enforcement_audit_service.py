@@ -2,55 +2,53 @@ from __future__ import annotations
 
 from typing import Any
 
-from app.api.router_registry import get_router_registrations
 from app.services.internal_endpoint_guard_manifest_service import (
     InternalEndpointGuardManifestService,
+)
+from app.services.router_registration_manifest_service import (
+    RouterRegistrationManifestService,
 )
 
 
 class InternalAuthEnforcementAuditService:
-    """
-    Canonical internal-auth enforcement audit.
-
-    Compares:
-    - routes marked internal_only in runtime router registry
-    - route families declared as guarded by policy
-
-    This closes the loop between protection intent and mount-time contract.
-    """
+    """Canonical internal-auth enforcement audit."""
 
     def __init__(
         self,
         *,
-        internal_endpoint_guard_manifest_service: InternalEndpointGuardManifestService | None = None,
+        internal_endpoint_guard_manifest_service: (
+            InternalEndpointGuardManifestService | None
+        ) = None,
+        router_registration_manifest_service: RouterRegistrationManifestService | None = None,
     ) -> None:
         self.internal_endpoint_guard_manifest_service = (
             internal_endpoint_guard_manifest_service
             or InternalEndpointGuardManifestService()
         )
+        self.router_registration_manifest_service = (
+            router_registration_manifest_service or RouterRegistrationManifestService()
+        )
 
     def build(self) -> dict[str, Any]:
-        registrations = get_router_registrations()
+        registrations = self.router_registration_manifest_service.build()[
+            "router_registration_manifest"
+        ]["routers"]
         guard_manifest = self.internal_endpoint_guard_manifest_service.build()[
             "internal_endpoint_guard_manifest"
         ]["guarded_prefixes"]
-
         guarded_prefixes = {
-            prefix
-            for group in guard_manifest.values()
-            for prefix in group
+            prefix for group in guard_manifest.values() for prefix in group
         }
         internal_only_prefixes = {
-            item.prefix.strip()
+            str(item["prefix"]).strip()
             for item in registrations
-            if item.prefix.strip() and item.internal_only
+            if str(item["prefix"]).strip() and item["internal_only"] is True
         }
 
         uncovered_guarded_prefixes = sorted(guarded_prefixes - internal_only_prefixes)
         unexpected_internal_only_prefixes = sorted(
             internal_only_prefixes - guarded_prefixes
         )
-
         return {
             "success": True,
             "internal_auth_enforcement_audit": {

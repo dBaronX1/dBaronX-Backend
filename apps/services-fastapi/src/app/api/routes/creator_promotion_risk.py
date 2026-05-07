@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from fastapi import APIRouter, Depends
 
+from app.api.dependencies.internal_access import require_internal_access
 from app.schemas.creator_promotion_risk import (
     CreatorPromotionRiskRequest,
     CreatorPromotionRiskResponse,
@@ -11,6 +12,7 @@ from app.services.creator_promotion_risk_service import (
 )
 
 router = APIRouter(
+    dependencies=[Depends(require_internal_access)],
     prefix="/creator-promotion-risk",
     tags=["creator-promotion-risk"],
 )

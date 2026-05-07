@@ -3,10 +3,10 @@ from __future__ import annotations
 from typing import Any
 
 from app.bootstrap.router_enforcement_service import RouterEnforcementService
+from app.bootstrap.startup_validation_service import StartupValidationService
 from app.services.router_mount_verification_service import (
     RouterMountVerificationService,
 )
-from app.services.startup_validation_service import StartupValidationService
 
 
 class BootstrapRuntimeGuardService:
