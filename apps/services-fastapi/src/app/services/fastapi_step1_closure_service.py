@@ -1,16 +1,13 @@
 from __future__ import annotations
 
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
-from app.services.bootstrap_runtime_guard_service import (
-    BootstrapRuntimeGuardService,
-)
-from app.services.fastapi_operational_closure_status_service import (
-    FastapiOperationalClosureStatusService,
-)
-from app.services.launch_control_manifest_service import (
-    LaunchControlManifestService,
-)
+if TYPE_CHECKING:
+    from app.services.bootstrap_runtime_guard_service import BootstrapRuntimeGuardService
+    from app.services.fastapi_operational_closure_status_service import (
+        FastapiOperationalClosureStatusService,
+    )
+    from app.services.launch_control_manifest_service import LaunchControlManifestService
 
 
 class FastapiStep1ClosureService:
@@ -24,22 +21,40 @@ class FastapiStep1ClosureService:
     def __init__(
         self,
         *,
-        bootstrap_runtime_guard_service: BootstrapRuntimeGuardService | None = None,
-        fastapi_operational_closure_status_service: FastapiOperationalClosureStatusService | None = None,
-        launch_control_manifest_service: LaunchControlManifestService | None = None,
+        bootstrap_runtime_guard_service: "BootstrapRuntimeGuardService" | None = None,
+        fastapi_operational_closure_status_service: "FastapiOperationalClosureStatusService" | None = None,
+        launch_control_manifest_service: "LaunchControlManifestService" | None = None,
     ) -> None:
-        self.bootstrap_runtime_guard_service = (
-            bootstrap_runtime_guard_service or BootstrapRuntimeGuardService()
-        )
+        self.bootstrap_runtime_guard_service = bootstrap_runtime_guard_service
         self.fastapi_operational_closure_status_service = (
             fastapi_operational_closure_status_service
-            or FastapiOperationalClosureStatusService()
         )
-        self.launch_control_manifest_service = (
-            launch_control_manifest_service or LaunchControlManifestService()
-        )
+        self.launch_control_manifest_service = launch_control_manifest_service
 
     def build(self) -> dict[str, Any]:
+        if self.bootstrap_runtime_guard_service is None:
+            from app.services.bootstrap_runtime_guard_service import (
+                BootstrapRuntimeGuardService,
+            )
+
+            self.bootstrap_runtime_guard_service = BootstrapRuntimeGuardService()
+
+        if self.fastapi_operational_closure_status_service is None:
+            from app.services.fastapi_operational_closure_status_service import (
+                FastapiOperationalClosureStatusService,
+            )
+
+            self.fastapi_operational_closure_status_service = (
+                FastapiOperationalClosureStatusService()
+            )
+
+        if self.launch_control_manifest_service is None:
+            from app.services.launch_control_manifest_service import (
+                LaunchControlManifestService,
+            )
+
+            self.launch_control_manifest_service = LaunchControlManifestService()
+
         bootstrap_guard = self.bootstrap_runtime_guard_service.build()[
             "bootstrap_runtime_guard"
         ]

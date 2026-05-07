@@ -36,6 +36,36 @@ ROUTE_MOUNTS: tuple[RouteMount, ...] = (
         required=False,
     ),
     RouteMount(
+        module_path="app.api.routes.nestjs_handshake",
+        prefix="",
+        tags=("nestjs-handshake",),
+        required=True,
+    ),
+    RouteMount(
+        module_path="app.api.routes.launch_control_manifest",
+        prefix="",
+        tags=("launch-control-manifest",),
+        required=True,
+    ),
+    RouteMount(
+        module_path="app.api.routes.intelligence_startup_gate",
+        prefix="",
+        tags=("intelligence-startup-gate",),
+        required=True,
+    ),
+    RouteMount(
+        module_path="app.api.routes.runtime_snapshot",
+        prefix="",
+        tags=("runtime-snapshot",),
+        required=True,
+    ),
+    RouteMount(
+        module_path="app.api.routes.fastapi_step1_closure",
+        prefix="",
+        tags=("fastapi-step1-closure",),
+        required=True,
+    ),
+    RouteMount(
         module_path="app.api.routes.ai_stories",
         prefix="/stories",
         tags=("ai-stories",),

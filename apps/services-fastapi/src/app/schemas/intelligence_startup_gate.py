@@ -1,6 +1,8 @@
 from __future__ import annotations
 
-from pydantic import BaseModel
+from typing import Any
+
+from pydantic import BaseModel, Field
 
 
 class IntelligenceStartupGateResponse(BaseModel):
@@ -9,6 +11,7 @@ class IntelligenceStartupGateResponse(BaseModel):
     status: str
     ready: bool
     timestamp: str | None = None
-    blockers: list[str] = []
-    capabilities: list[str] = []
-    intelligence_startup_gate: dict
+    blockers: list[str] = Field(default_factory=list)
+    capabilities: list[str] = Field(default_factory=list)
+    intelligence_startup_gate: dict[str, Any]
+    intelligenceStartupGate: dict[str, Any] | None = None

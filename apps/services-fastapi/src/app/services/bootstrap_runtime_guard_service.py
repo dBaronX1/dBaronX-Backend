@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from app.services.router_enforcement_service import RouterEnforcementService
+from app.bootstrap.router_enforcement_service import RouterEnforcementService
 from app.services.router_mount_verification_service import (
     RouterMountVerificationService,
 )
