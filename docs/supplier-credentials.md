@@ -1,124 +1,86 @@
-# Supplier Credentials and CJ Live Probe
+# Supplier Credentials and First Product Import Readiness
 
-## Server-only CJ environment
+Supplier integrations are server-only. NestJS is the supplier and business orchestration brain, while Medusa remains the commerce engine that receives already-vetted product metadata.
 
-Configure these values only on the NestJS/API Render service. Never expose them to the web app, Medusa, logs, Swagger examples, screenshots, or smoke output.
+## Server-only Render environment variables
+
+Set these on the **Render API/NestJS service** only. Never set supplier secrets on the web service and never prefix them with `NEXT_PUBLIC_`.
 
 ```dotenv
-CJ_API_BASE_URL=https://developers.cjdropshipping.com/api2.0
 CJ_ACCESS_TOKEN=
+CJ_API_BASE_URL=
+ALIEXPRESS_APP_KEY=
+ALIEXPRESS_APP_SECRET=
+ALIEXPRESS_API_BASE_URL=
 INTERNAL_SERVICE_TOKEN=
-CJ_TEST_PRODUCT_ID=
-CJ_TEST_SKU=
 ```
 
-`CJ_ACCESS_TOKEN` is sent to CJ only from the NestJS supplier adapter using the official `CJ-Access-Token` request header. It is never returned by `/api/suppliers/readiness`, never returned by `/api/v1/suppliers/cj/import-readiness`, and must not be used in frontend code.
+Use `CJ_API_BASE_URL` for the approved CJ API base URL and keep the access token in the API service env only. Use `ALIEXPRESS_API_BASE_URL` only after the approved AliExpress Open Platform app confirms the official endpoint for the approved product/API scope.
 
-## Official CJ docs referenced
+## CJ credential steps
 
-- CJ API 2.0 overview: `https://developers.cjdropshipping.com/en/api/api2/`
-- CJ Product API: `https://developers.cjdropshipping.com/en/api/api2/api/product.html`
-- CJ Authentication API: `https://developers.cjdropshipping.com/en/api/api2/api/auth.html`
+1. Sign in to CJ Dropshipping.
+2. Open **My CJ → Authorization → API → API Key**.
+3. Copy the API key/access token into the Render API service as `CJ_ACCESS_TOKEN`.
+4. Set `CJ_API_BASE_URL` on the same Render API service.
+5. Redeploy the API service so NestJS reads the new server-only environment.
+6. Run the supplier readiness smoke from a secure shell that can reach the API.
 
-## Harmless CJ live-probe endpoint
+## AliExpress approved API steps
 
-The supplier readiness boundary uses the official CJ Product **Category List** endpoint:
+1. Sign in to the AliExpress Open Platform.
+2. Open **Open Platform → App Management → Create App**.
+3. Complete app details and submit the app for approval.
+4. Wait for approval before enabling AliExpress operations.
+5. After approval, open the app **Overview** and copy the **App Key** and **App Secret**.
+6. Store `ALIEXPRESS_APP_KEY`, `ALIEXPRESS_APP_SECRET`, and the approved official `ALIEXPRESS_API_BASE_URL` on the Render API service only.
+
+AliExpress remains disabled until approved platform credentials exist. The repository must not scrape AliExpress and must not use unofficial scraping endpoints.
+
+## Readiness endpoint
+
+The internal readiness endpoint is:
 
 ```text
-GET /api2.0/v1/product/getCategory
+GET /api/suppliers/readiness
 ```
 
-CJ documents this endpoint as “Get product categories from CJ” and shows it as a `GET` request with the `CJ-Access-Token` header. It is read-only, requires no product mutation, creates no orders, and does not add anything to My Products.
+It reports `success`, `blockers`, supplier configuration booleans, `safeMode`, and a timestamp. It never returns access tokens, app secrets, private keys, or raw supplier credentials.
 
-## CJ token expiry and rotation
+Expected blockers before credentials are configured include:
 
-CJ documents access tokens as 15-day credentials and refresh tokens as 180-day credentials. Treat token expiry as a production blocker because a stale token prevents live supplier lookups and controlled import-readiness.
+- `cj_access_token_missing`
+- `cj_api_base_url_missing`
+- `aliexpress_credentials_missing`
 
-Rotation guidance:
+When CJ credentials are present but the adapter has no verified harmless official live-probe endpoint, readiness returns `cj_config_present_without_live_probe` instead of pretending the live credential has been validated.
 
-1. Refresh/obtain a new CJ access token through the official CJ authentication flow outside the browser.
-2. Update the API service `CJ_ACCESS_TOKEN` in Render.
-3. Restart/redeploy the API service so the value is loaded.
-4. Run the CJ live-probe smoke before attempting product import-readiness.
-5. If readiness returns `cj_token_invalid_or_expired`, rotate the token before continuing.
+## CJ product import boundary
 
-## Supplier readiness behavior
+CJ import preparation requires an explicit product payload. The system must not auto-import a massive catalog and must not import demo/fallback products as real supplier products.
 
-`GET /api/suppliers/readiness` returns sanitized status only:
-
-- `cjConfigured`
-- `cjLiveProbeAttempted`
-- `cjLiveProbeOk`
-- `cjLiveProbeStatusCode`
-- `cjLiveProbeErrorCode`
-- `cjLiveProbeErrorMessageSanitized`
-- `blockers`
-
-Blocker mapping:
-
-- Missing token/base URL: `cj_credentials_missing`
-- Invalid or expired token: `cj_token_invalid_or_expired`
-- Rate limited: `cj_rate_limited`
-- Timeout/network/upstream 5xx: `cj_live_probe_unreachable`
-- Other non-success CJ response: `cj_live_probe_failed`
-
-## First explicit CJ product import-readiness
-
-The import-readiness endpoint is intentionally controlled and auditable:
-
-```text
-POST /api/v1/suppliers/cj/import-readiness
-```
-
-Request body must include exactly the product identity being evaluated:
+The internal boundary prepares normalized supplier metadata only:
 
 ```json
-{ "productId": "CJ_PRODUCT_ID" }
+{
+  "supplier": "cj",
+  "supplierProductId": "explicit-cj-product-id",
+  "supplierSku": "explicit-cj-sku",
+  "costPrice": 12.34,
+  "shippingCountries": ["US"],
+  "deliveryEstimate": "7-14 business days",
+  "sourceUrl": "https://example.invalid/product"
+}
 ```
 
-or:
+The payload can later seed Medusa product metadata. Pricing, supplier vetting, margin policy, fulfillment decisions, and other business/economic logic stay in NestJS.
 
-```json
-{ "sku": "CJ_SKU" }
-```
-
-The endpoint does not seed Medusa, does not auto-import a catalog, and does not mark `supplierImportReady` true unless CJ data was safely retrieved and minimum normalized fields are present: supplier product ID, title, cost price, currency, and at least one image.
-
-Normalized response shape includes:
-
-- `supplier: "cj"`
-- `supplierProductId`
-- `supplierSku`
-- `title`
-- `costPrice`
-- `currency`
-- `shippingCountries`
-- `deliveryEstimate`
-- `images`
-- `sourceUrl`
-- `rawAvailable`
-- `supplierImportReady`
-- `medusaSeeded: false`
-
-## Smoke commands
-
-Readiness only:
-
-```bash
-API_URL=https://api.dbaronx.com node scripts/e2e-supplier-readiness-smoke.mjs
-```
-
-CJ live probe and optional product import-readiness:
+## Smoke command
 
 ```bash
 API_URL=https://api.dbaronx.com \
-INTERNAL_SERVICE_TOKEN=... \
-CJ_TEST_PRODUCT_ID=... \
-node scripts/e2e-cj-live-probe-smoke.mjs
+INTERNAL_SERVICE_TOKEN= \
+node scripts/e2e-supplier-readiness-smoke.mjs
 ```
 
-Use `CJ_TEST_SKU` instead of `CJ_TEST_PRODUCT_ID` when validating by SKU.
-
-## AliExpress status
-
-AliExpress remains disabled until official API approval is granted and reviewed. Do not configure `ALIEXPRESS_APP_KEY`, `ALIEXPRESS_APP_SECRET`, or `ALIEXPRESS_API_BASE_URL` unless approval exists and the integration plan is explicitly authorized. Scraping AliExpress is not allowed.
+If `CJ_ACCESS_TOKEN` exists in the smoke environment, the script also calls the CJ preflight endpoint. The script prints `secretLeakDetected: false` when the API responses do not contain configured secret values.

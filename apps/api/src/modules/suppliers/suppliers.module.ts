@@ -6,6 +6,8 @@ import { SupplierOrchestrationService } from "./supplier-orchestration.service";
 import { SupplierReadinessController } from "./supplier-readiness.controller";
 import { SupplierReadinessService } from "./supplier-readiness.service";
 import { SuppliersController } from "./suppliers.controller";
+import { SupplierReadinessController } from "./supplier-readiness.controller";
+import { SupplierReadinessService } from "./supplier-readiness.service";
 import { CommerceModule } from "../commerce/commerce.module";
 import { WalletModule } from "../wallet/wallet.module";
 import { SupabaseService } from "../../shared/services/supabase.service";
@@ -34,7 +36,14 @@ import { CjSupplierAdapterService } from "./adapters/cj/cj-supplier-adapter.serv
     SupplierOrchestrationService,
     SupplierLifecycleService,
     CjSupplierAdapterService,
+    SupplierReadinessService,
   ],
-  exports: [SupplierAdminService, SupplierReadinessService, SupplierOrchestrationService, SupplierLifecycleService, CjSupplierAdapterService],
+  exports: [
+    SupplierAdminService,
+    SupplierOrchestrationService,
+    SupplierLifecycleService,
+    CjSupplierAdapterService,
+    SupplierReadinessService,
+  ],
 })
 export class SuppliersModule {}
