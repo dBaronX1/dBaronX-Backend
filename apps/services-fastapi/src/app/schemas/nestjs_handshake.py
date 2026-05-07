@@ -1,6 +1,8 @@
 from __future__ import annotations
 
-from pydantic import BaseModel
+from typing import Any
+
+from pydantic import BaseModel, Field
 
 
 class NestJsHandshakeResponse(BaseModel):
@@ -9,6 +11,7 @@ class NestJsHandshakeResponse(BaseModel):
     status: str
     ready: bool
     timestamp: str | None = None
-    blockers: list[str] = []
-    capabilities: list[str] = []
-    nestjs_handshake: dict
+    blockers: list[str] = Field(default_factory=list)
+    capabilities: list[str] = Field(default_factory=list)
+    nestjs_handshake: dict[str, Any]
+    nestjsHandshake: dict[str, Any] | None = None
