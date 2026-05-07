@@ -8,6 +8,11 @@ export interface SupplierReadinessSnapshot {
   cjConfigured: boolean;
   cjTokenPresent: boolean;
   cjBaseUrlPresent: boolean;
+  cjLiveProbeAttempted: boolean;
+  cjLiveProbeOk: boolean;
+  cjLiveProbeStatusCode?: number;
+  cjLiveProbeErrorCode?: string;
+  cjLiveProbeErrorMessageSanitized?: string;
   aliexpressConfigured: boolean;
   aliexpressAppKeyPresent: boolean;
   aliexpressAppSecretPresent: boolean;
@@ -35,7 +40,7 @@ export class SupplierReadinessService {
     }
 
     if (!cjBaseUrlPresent) {
-      blockers.push("cj_api_base_url_missing");
+      blockers.push("cj_base_url_missing");
     }
 
     const cjPreflight = await this.cj.preflightCredentials();
@@ -50,9 +55,16 @@ export class SupplierReadinessService {
     return {
       success: uniqueBlockers.length === 0,
       blockers: uniqueBlockers,
-      cjConfigured: cjTokenPresent && cjBaseUrlPresent,
+      cjConfigured: cjPreflight.cjConfigured,
       cjTokenPresent,
       cjBaseUrlPresent,
+      cjLiveProbeAttempted: cjPreflight.cjLiveProbeAttempted,
+      cjLiveProbeOk: cjPreflight.cjLiveProbeOk,
+      ...(cjPreflight.cjLiveProbeStatusCode ? { cjLiveProbeStatusCode: cjPreflight.cjLiveProbeStatusCode } : {}),
+      ...(cjPreflight.cjLiveProbeErrorCode ? { cjLiveProbeErrorCode: cjPreflight.cjLiveProbeErrorCode } : {}),
+      ...(cjPreflight.cjLiveProbeErrorMessageSanitized
+        ? { cjLiveProbeErrorMessageSanitized: cjPreflight.cjLiveProbeErrorMessageSanitized }
+        : {}),
       aliexpressConfigured: aliexpressAppKeyPresent && aliexpressAppSecretPresent,
       aliexpressAppKeyPresent,
       aliexpressAppSecretPresent,
