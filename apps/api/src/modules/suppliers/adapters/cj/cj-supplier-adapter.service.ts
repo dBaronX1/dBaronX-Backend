@@ -1,11 +1,35 @@
-import { Injectable } from "@nestjs/common";
+import { BadRequestException, Injectable } from "@nestjs/common";
 import { ConfigService } from "@nestjs/config";
 import {
-  CjImportPreparedPayload,
+  CjNormalizedSupplierMetadata,
   CjProductImportDto,
   CjProductImportReadinessDto,
-  NormalizedCjSupplierMetadata,
 } from "./dto/cj-supplier.dto";
+
+export interface CjCredentialPreflightResult {
+  success: boolean;
+  blockers: string[];
+  cjConfigured: boolean;
+  cjTokenPresent: boolean;
+  cjBaseUrlPresent: boolean;
+  liveProbeAttempted: boolean;
+  liveProbeVerified: boolean;
+  timestamp: string;
+}
+
+export interface CjProductImportReadinessResult {
+  success: boolean;
+  blockers: string[];
+  supplierImportReady: boolean;
+  normalizedSupplierMetadata?: CjNormalizedSupplierMetadata;
+  medusaMetadataSeed?: {
+    supplier: "cj";
+    supplierProductId: string;
+    supplierSku: string;
+    supplierMetadata: CjNormalizedSupplierMetadata;
+  };
+  timestamp: string;
+}
 
 @Injectable()
 export class CjSupplierAdapterService {
@@ -20,7 +44,83 @@ export class CjSupplierAdapterService {
       sku: input.targetSku,
       supplierCost,
       retailPrice,
-      metadata: { mapper: "price-margin-v1" },
+      metadata: {
+        mapper: "price-margin-v1",
+        supplierDataMode: "DEMO_PLACEHOLDER",
+        demo: true,
+      },
+    };
+  }
+
+  preflightCredentials(): CjCredentialPreflightResult {
+    const cjTokenPresent = this.hasConfig("CJ_ACCESS_TOKEN");
+    const cjBaseUrlPresent = this.hasConfig("CJ_API_BASE_URL");
+    const blockers: string[] = [];
+
+    if (!cjTokenPresent) {
+      blockers.push("cj_access_token_missing");
+    }
+
+    if (!cjBaseUrlPresent) {
+      blockers.push("cj_api_base_url_missing");
+    }
+
+    if (cjTokenPresent && cjBaseUrlPresent) {
+      blockers.push("cj_config_present_without_live_probe");
+    }
+
+    const uniqueBlockers = [...new Set(blockers)];
+
+    return {
+      success: uniqueBlockers.length === 0,
+      blockers: uniqueBlockers,
+      cjConfigured: cjTokenPresent && cjBaseUrlPresent,
+      cjTokenPresent,
+      cjBaseUrlPresent,
+      liveProbeAttempted: false,
+      liveProbeVerified: false,
+      timestamp: new Date().toISOString(),
+    };
+  }
+
+  prepareProductImport(input: CjProductImportReadinessDto): CjProductImportReadinessResult {
+    const blockers = this.validateExplicitProductInput(input);
+    const credentialPreflight = this.preflightCredentials();
+    blockers.push(...credentialPreflight.blockers);
+
+    const uniqueBlockers = [...new Set(blockers)];
+
+    if (uniqueBlockers.length > 0) {
+      return {
+        success: false,
+        blockers: uniqueBlockers,
+        supplierImportReady: false,
+        timestamp: new Date().toISOString(),
+      };
+    }
+
+    const normalizedSupplierMetadata: CjNormalizedSupplierMetadata = {
+      supplier: "cj",
+      supplierProductId: input.supplierProductId.trim(),
+      supplierSku: input.supplierSku.trim(),
+      costPrice: input.costPrice,
+      shippingCountries: input.shippingCountries.map((country) => country.trim().toUpperCase()),
+      ...(input.deliveryEstimate?.trim() ? { deliveryEstimate: input.deliveryEstimate.trim() } : {}),
+      ...(input.sourceUrl?.trim() ? { sourceUrl: input.sourceUrl.trim() } : {}),
+    };
+
+    return {
+      success: true,
+      blockers: [],
+      supplierImportReady: true,
+      normalizedSupplierMetadata,
+      medusaMetadataSeed: {
+        supplier: "cj",
+        supplierProductId: normalizedSupplierMetadata.supplierProductId,
+        supplierSku: normalizedSupplierMetadata.supplierSku,
+        supplierMetadata: normalizedSupplierMetadata,
+      },
+      timestamp: new Date().toISOString(),
     };
   }
 
@@ -28,67 +128,33 @@ export class CjSupplierAdapterService {
     return this.config.get<string>("SUPPLIER_LIVE_MODE") === "true";
   }
 
-  prepareImportReadiness(
-    input: CjProductImportReadinessDto,
-  ): CjImportPreparedPayload {
-    const supplierProductId = input.cjProductId?.trim() ?? "";
-    const supplierSku = input.cjSku?.trim() ?? "";
+  private validateExplicitProductInput(input: CjProductImportReadinessDto): string[] {
     const blockers: string[] = [];
 
-    if (!supplierProductId) {
-      blockers.push("cj_product_id_required");
+    if (!input || typeof input !== "object") {
+      throw new BadRequestException("CJ import readiness requires an explicit product payload");
     }
 
-    if (!supplierSku) {
-      blockers.push("cj_sku_required");
+    if (!input.supplierProductId?.trim()) {
+      blockers.push("cj_supplier_product_id_required");
     }
 
-    if (!this.hasCredential("CJ_ACCESS_TOKEN")) {
-      blockers.push("cj_access_token_missing");
+    if (!input.supplierSku?.trim()) {
+      blockers.push("cj_supplier_sku_required");
     }
 
-    if (!this.hasCredential("CJ_API_BASE_URL")) {
-      blockers.push("cj_base_url_missing");
+    if (!Number.isFinite(input.costPrice) || input.costPrice <= 0) {
+      blockers.push("cj_cost_price_required");
     }
 
-    const metadata =
-      blockers.length === 0
-        ? this.normalizeSupplierMetadata({
-            ...input,
-            cjProductId: supplierProductId,
-            cjSku: supplierSku,
-          })
-        : null;
+    if (!Array.isArray(input.shippingCountries) || input.shippingCountries.length === 0) {
+      blockers.push("cj_shipping_countries_required");
+    }
 
-    return {
-      supplierImportReady: blockers.length === 0,
-      blockers,
-      metadata,
-      medusaProductMetadataPreview: metadata ? { ...metadata } : null,
-    };
+    return blockers;
   }
 
-  private normalizeSupplierMetadata(
-    input: Required<
-      Pick<CjProductImportReadinessDto, "cjProductId" | "cjSku">
-    > &
-      CjProductImportReadinessDto,
-  ): NormalizedCjSupplierMetadata {
-    return {
-      supplier: "cj",
-      supplierProductId: input.cjProductId,
-      supplierSku: input.cjSku,
-      costPrice: typeof input.costPrice === "number" ? input.costPrice : null,
-      shippingCountries: Array.isArray(input.shippingCountries)
-        ? input.shippingCountries.map((country) => country.trim()).filter(Boolean)
-        : [],
-      deliveryEstimate: input.deliveryEstimate?.trim() || null,
-      sourceUrl: input.sourceUrl?.trim() || null,
-    };
-  }
-
-  private hasCredential(key: string): boolean {
-    const value = this.config.get<string>(key) ?? process.env[key];
-    return typeof value === "string" && value.trim().length > 0;
+  private hasConfig(key: string): boolean {
+    return Boolean(this.config.get<string>(key)?.trim());
   }
 }

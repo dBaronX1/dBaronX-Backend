@@ -1,15 +1,10 @@
 import { Injectable } from "@nestjs/common";
 import { ConfigService } from "@nestjs/config";
-
-export type SupplierReadinessBlocker =
-  | "cj_access_token_missing"
-  | "cj_base_url_missing"
-  | "cj_config_present_without_live_probe"
-  | "aliexpress_credentials_missing";
+import { CjSupplierAdapterService } from "./adapters/cj/cj-supplier-adapter.service";
 
 export interface SupplierReadinessSnapshot {
   success: boolean;
-  blockers: SupplierReadinessBlocker[];
+  blockers: string[];
   cjConfigured: boolean;
   cjTokenPresent: boolean;
   cjBaseUrlPresent: boolean;
@@ -22,51 +17,51 @@ export interface SupplierReadinessSnapshot {
 
 @Injectable()
 export class SupplierReadinessService {
-  constructor(private readonly config: ConfigService) {}
+  constructor(
+    private readonly config: ConfigService,
+    private readonly cj: CjSupplierAdapterService,
+  ) {}
 
-  getReadiness(): SupplierReadinessSnapshot {
-    const cjTokenPresent = this.hasValue("CJ_ACCESS_TOKEN");
-    const cjBaseUrlPresent = this.hasValue("CJ_API_BASE_URL");
-    const aliexpressAppKeyPresent = this.hasValue("ALIEXPRESS_APP_KEY");
-    const aliexpressAppSecretPresent = this.hasValue("ALIEXPRESS_APP_SECRET");
+  async snapshot(): Promise<SupplierReadinessSnapshot> {
+    const cjTokenPresent = this.hasConfig("CJ_ACCESS_TOKEN");
+    const cjBaseUrlPresent = this.hasConfig("CJ_API_BASE_URL");
+    const aliexpressAppKeyPresent = this.hasConfig("ALIEXPRESS_APP_KEY");
+    const aliexpressAppSecretPresent = this.hasConfig("ALIEXPRESS_APP_SECRET");
 
-    const blockers: SupplierReadinessBlocker[] = [];
+    const blockers: string[] = [];
 
     if (!cjTokenPresent) {
       blockers.push("cj_access_token_missing");
     }
 
     if (!cjBaseUrlPresent) {
-      blockers.push("cj_base_url_missing");
+      blockers.push("cj_api_base_url_missing");
     }
 
-    if (cjTokenPresent && cjBaseUrlPresent) {
-      blockers.push("cj_config_present_without_live_probe");
-    }
+    const cjPreflight = await this.cj.preflightCredentials();
+    blockers.push(...cjPreflight.blockers);
 
     if (!aliexpressAppKeyPresent || !aliexpressAppSecretPresent) {
       blockers.push("aliexpress_credentials_missing");
     }
 
-    const cjConfigured = cjTokenPresent && cjBaseUrlPresent;
-    const aliexpressConfigured = aliexpressAppKeyPresent && aliexpressAppSecretPresent;
+    const uniqueBlockers = [...new Set(blockers)];
 
     return {
-      success: blockers.length === 0,
-      blockers,
-      cjConfigured,
+      success: uniqueBlockers.length === 0,
+      blockers: uniqueBlockers,
+      cjConfigured: cjTokenPresent && cjBaseUrlPresent,
       cjTokenPresent,
       cjBaseUrlPresent,
-      aliexpressConfigured,
+      aliexpressConfigured: aliexpressAppKeyPresent && aliexpressAppSecretPresent,
       aliexpressAppKeyPresent,
       aliexpressAppSecretPresent,
-      safeMode: true,
+      safeMode: this.config.get<string>("SUPPLIER_LIVE_MODE") !== "true",
       timestamp: new Date().toISOString(),
     };
   }
 
-  private hasValue(key: string): boolean {
-    const value = this.config.get<string>(key) ?? process.env[key];
-    return typeof value === "string" && value.trim().length > 0;
+  private hasConfig(key: string): boolean {
+    return Boolean(this.config.get<string>(key)?.trim());
   }
 }

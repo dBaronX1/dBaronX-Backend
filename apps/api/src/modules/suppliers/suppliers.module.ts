@@ -4,6 +4,8 @@ import { SupplierLifecycleController } from "./supplier-lifecycle.controller";
 import { SupplierLifecycleService } from "./supplier-lifecycle.service";
 import { SupplierOrchestrationService } from "./supplier-orchestration.service";
 import { SuppliersController } from "./suppliers.controller";
+import { SupplierReadinessController } from "./supplier-readiness.controller";
+import { SupplierReadinessService } from "./supplier-readiness.service";
 import { CommerceModule } from "../commerce/commerce.module";
 import { WalletModule } from "../wallet/wallet.module";
 import { SupabaseService } from "../../shared/services/supabase.service";
@@ -20,11 +22,7 @@ import { SupplierReadinessService } from "./supplier-readiness.service";
 
 @Module({
   imports: [ConfigModule, CommerceModule, WalletModule],
-  controllers: [
-    SuppliersController,
-    SupplierLifecycleController,
-    SupplierReadinessController,
-  ],
+  controllers: [SuppliersController, SupplierLifecycleController, SupplierReadinessController],
   providers: [
     SupabaseService,
     InternalRequestHeadersService,
@@ -45,6 +43,14 @@ import { SupplierReadinessService } from "./supplier-readiness.service";
     SupplierLifecycleService,
     SupplierReadinessService,
     CjSupplierAdapterService,
+    SupplierReadinessService,
+  ],
+  exports: [
+    SupplierAdminService,
+    SupplierOrchestrationService,
+    SupplierLifecycleService,
+    CjSupplierAdapterService,
+    SupplierReadinessService,
   ],
 })
 export class SuppliersModule {}

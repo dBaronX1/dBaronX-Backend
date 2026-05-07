@@ -1,102 +1,108 @@
 #!/usr/bin/env node
 
-const apiUrl = (
-  process.env.API_URL || process.env.API_BASE_URL || "http://localhost:3001"
-).replace(/\/$/, "");
-const timeoutMs = Number(process.env.SUPPLIER_SMOKE_TIMEOUT_MS || 10000);
+const API_URL = (process.env.API_URL || process.env.NEXT_PUBLIC_API_BASE_URL || "http://localhost:3001").replace(/\/$/, "");
+const INTERNAL_SERVICE_TOKEN = (process.env.INTERNAL_SERVICE_TOKEN || "").trim();
+const CJ_ACCESS_TOKEN = (process.env.CJ_ACCESS_TOKEN || "").trim();
+const ALIEXPRESS_APP_SECRET = (process.env.ALIEXPRESS_APP_SECRET || "").trim();
 
-function withTimeout(promise, label) {
-  const controller = new AbortController();
-  const timer = setTimeout(
-    () => controller.abort(new Error(`${label}_timeout`)),
-    timeoutMs,
-  );
-  return promise(controller.signal).finally(() => clearTimeout(timer));
+const result = {
+  success: false,
+  blockers: [],
+  apiReady: false,
+  cjConfigured: false,
+  aliexpressConfigured: false,
+  supplierImportReady: false,
+  secretLeakDetected: false,
+};
+
+function endpoint(path) {
+  return `${API_URL}${path.startsWith("/") ? path : `/${path}`}`;
 }
 
-async function getJson(path) {
-  const url = `${apiUrl}${path}`;
-  const response = await withTimeout(
-    (signal) =>
-      fetch(url, {
-        method: "GET",
-        headers: { accept: "application/json" },
-        signal,
-      }),
-    path,
-  );
+function authHeaders() {
+  return INTERNAL_SERVICE_TOKEN
+    ? { "x-internal-token": INTERNAL_SERVICE_TOKEN, "x-request-id": `supplier-smoke-${Date.now()}` }
+    : { "x-request-id": `supplier-smoke-${Date.now()}` };
+}
+
+function detectSecretLeak(payload) {
+  const serialized = JSON.stringify(payload);
+  const secrets = [CJ_ACCESS_TOKEN, ALIEXPRESS_APP_SECRET].filter((secret) => secret.length > 0);
+  return secrets.some((secret) => serialized.includes(secret));
+}
+
+async function readJson(response) {
   const text = await response.text();
-  let json = null;
-  try {
-    json = text ? JSON.parse(text) : null;
-  } catch {
-    json = { raw: text };
+  if (!text) {
+    return {};
   }
-  return { ok: response.ok, status: response.status, json, text };
+
+  try {
+    return JSON.parse(text);
+  } catch (_error) {
+    return { raw: text };
+  }
 }
 
-function responseContainsKnownSecret(payloadText) {
-  const secretValues = [
-    process.env.CJ_ACCESS_TOKEN,
-    process.env.ALIEXPRESS_APP_SECRET,
-    process.env.STRIPE_SECRET_KEY,
-    process.env.INTERNAL_SERVICE_TOKEN,
-  ].filter((value) => typeof value === "string" && value.trim().length >= 8);
+async function getJson(path, options = {}) {
+  const response = await fetch(endpoint(path), {
+    method: "GET",
+    headers: options.headers || {},
+  });
 
-  return secretValues.some((secret) => payloadText.includes(secret));
+  return {
+    ok: response.ok,
+    status: response.status,
+    body: await readJson(response),
+  };
 }
-
-const blockers = [];
-let apiReady = false;
-let readiness = null;
-let secretLeakDetected = false;
 
 try {
   const health = await getJson("/api/health");
-  apiReady = health.ok && health.json?.success === true;
-  secretLeakDetected = secretLeakDetected || responseContainsKnownSecret(health.text);
-  if (!apiReady) {
-    blockers.push(`api_health_unavailable_${health.status}`);
-  }
-} catch (error) {
-  blockers.push(`api_health_error:${error instanceof Error ? error.message : String(error)}`);
-}
+  result.apiReady = health.ok && health.body?.success === true;
 
-try {
-  const readinessPath = process.env.CJ_ACCESS_TOKEN
-    ? "/api/suppliers/readiness?cjPreflight=1"
-    : "/api/suppliers/readiness";
-  const response = await getJson(readinessPath);
-  readiness = response.json;
-  secretLeakDetected = secretLeakDetected || responseContainsKnownSecret(response.text);
-
-  if (!response.ok) {
-    blockers.push(`supplier_readiness_http_${response.status}`);
+  if (!result.apiReady) {
+    result.blockers.push(`api_health_failed_${health.status}`);
   }
 
-  if (Array.isArray(readiness?.blockers)) {
-    blockers.push(...readiness.blockers);
+  const readiness = await getJson("/api/suppliers/readiness", { headers: authHeaders() });
+
+  if (!readiness.ok) {
+    result.blockers.push(`supplier_readiness_failed_${readiness.status}`);
   } else {
-    blockers.push("supplier_readiness_payload_invalid");
+    result.blockers.push(...(Array.isArray(readiness.body?.blockers) ? readiness.body.blockers : []));
+    result.cjConfigured = readiness.body?.cjConfigured === true;
+    result.aliexpressConfigured = readiness.body?.aliexpressConfigured === true;
+    result.supplierImportReady = readiness.body?.success === true;
   }
+
+  result.secretLeakDetected = detectSecretLeak({ health: health.body, readiness: readiness.body });
+
+  if (result.secretLeakDetected) {
+    result.blockers.push("secret_leak_detected");
+  }
+
+  if (CJ_ACCESS_TOKEN) {
+    const preflight = await getJson("/api/suppliers/cj/preflight", { headers: authHeaders() });
+
+    if (!preflight.ok) {
+      result.blockers.push(`cj_preflight_failed_${preflight.status}`);
+    } else {
+      result.blockers.push(...(Array.isArray(preflight.body?.blockers) ? preflight.body.blockers : []));
+      result.cjConfigured = preflight.body?.cjConfigured === true;
+      result.secretLeakDetected = result.secretLeakDetected || detectSecretLeak(preflight.body);
+    }
+  }
+
+  result.blockers = [...new Set(result.blockers)];
+  result.success = result.apiReady && result.blockers.length === 0 && result.secretLeakDetected === false;
+
+  console.log(JSON.stringify(result, null, 2));
+  process.exit(result.success ? 0 : 1);
 } catch (error) {
-  blockers.push(`supplier_readiness_error:${error instanceof Error ? error.message : String(error)}`);
+  result.blockers.push("supplier_readiness_smoke_exception");
+  result.error = error instanceof Error ? error.message : String(error);
+  result.secretLeakDetected = detectSecretLeak(result);
+  console.log(JSON.stringify(result, null, 2));
+  process.exit(1);
 }
-
-if (secretLeakDetected) {
-  blockers.push("secret_leak_detected");
-}
-
-const uniqueBlockers = [...new Set(blockers)];
-const output = {
-  success: apiReady && uniqueBlockers.length === 0,
-  blockers: uniqueBlockers,
-  apiReady,
-  cjConfigured: readiness?.cjConfigured === true,
-  aliexpressConfigured: readiness?.aliexpressConfigured === true,
-  supplierImportReady: readiness?.success === true,
-  secretLeakDetected,
-};
-
-console.log(JSON.stringify(output, null, 2));
-process.exit(output.success ? 0 : 1);

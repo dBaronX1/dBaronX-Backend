@@ -10,41 +10,23 @@ export interface CjProductImportDto {
   marginPct: number;
 }
 
-export interface CjExplicitProductLookupDto {
-  cjProductId?: string;
-  cjSku?: string;
-}
-
-export interface CjProductImportReadinessDto extends CjExplicitProductLookupDto {
-  costPrice?: number;
-  shippingCountries?: string[];
+export interface CjProductImportReadinessDto {
+  supplierProductId: string;
+  supplierSku: string;
+  costPrice: number;
+  shippingCountries: string[];
   deliveryEstimate?: string;
   sourceUrl?: string;
 }
 
-export interface NormalizedCjSupplierMetadata {
+export interface CjNormalizedSupplierMetadata {
   supplier: "cj";
   supplierProductId: string;
   supplierSku: string;
-  costPrice: number | null;
+  costPrice: number;
   shippingCountries: string[];
-  deliveryEstimate: string | null;
-  sourceUrl: string | null;
-}
-
-export interface CjImportPreparedPayload {
-  supplierImportReady: boolean;
-  blockers: string[];
-  metadata: NormalizedCjSupplierMetadata | null;
-  medusaProductMetadataPreview: {
-    supplier: "cj";
-    supplierProductId: string;
-    supplierSku: string;
-    costPrice: number | null;
-    shippingCountries: string[];
-    deliveryEstimate: string | null;
-    sourceUrl: string | null;
-  } | null;
+  deliveryEstimate?: string;
+  sourceUrl?: string;
 }
 
 export interface CjFulfillmentRequestDto {
