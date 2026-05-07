@@ -11,6 +11,8 @@ import { ApiOperation, ApiTags } from "@nestjs/swagger";
 import { InternalAuthGuard } from "../../shared/guards/internal-auth.guard";
 import { CreateSupplierOrderDto } from "./dto/create-supplier-order.dto";
 import { SupplierOrchestrationService } from "./supplier-orchestration.service";
+import { CjSupplierAdapterService } from "./adapters/cj/cj-supplier-adapter.service";
+import { CjProductImportReadinessDto } from "./adapters/cj/dto/cj-supplier.dto";
 
 @ApiTags("suppliers")
 @Controller({
@@ -21,6 +23,7 @@ import { SupplierOrchestrationService } from "./supplier-orchestration.service";
 export class SuppliersController {
   constructor(
     private readonly suppliers: SupplierOrchestrationService,
+    private readonly cjSupplierAdapter: CjSupplierAdapterService,
   ) {}
 
   @Post("orders")
@@ -33,5 +36,15 @@ export class SuppliersController {
     @Headers("x-request-id") requestId?: string,
   ) {
     return this.suppliers.createOrder(body, requestId);
+  }
+
+  @Post("cj/import-readiness")
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({
+    summary:
+      "Prepare an explicit CJ product import metadata payload without importing catalog data",
+  })
+  prepareCjImportReadiness(@Body() body: CjProductImportReadinessDto) {
+    return this.cjSupplierAdapter.prepareImportReadiness(body);
   }
 }

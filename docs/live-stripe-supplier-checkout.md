@@ -153,3 +153,54 @@ This requires API `STRIPE_SECRET_KEY` to be configured with a Stripe test secret
 - Implement idempotent order/payment settlement from verified webhooks only.
 - Add refund/cancel/replay operational procedures and monitoring.
 - Switch to live Stripe keys only after the controlled test order, supplier dry run, refund path, monitoring, and live webhook endpoint are approved.
+
+## Supplier credential readiness addendum
+
+Supplier credentials remain server-only and belong on the NestJS/API Render service, not the web service and not Medusa. The browser must never receive `CJ_ACCESS_TOKEN`, `ALIEXPRESS_APP_SECRET`, `STRIPE_SECRET_KEY`, `INTERNAL_SERVICE_TOKEN`, or any private key.
+
+### API supplier readiness endpoint
+
+```text
+GET https://api.dbaronx.com/api/suppliers/readiness
+```
+
+This endpoint reports only booleans and blockers for supplier readiness. It does not expose secret values.
+
+### CJ Dropshipping credentials
+
+1. Sign in to CJ Dropshipping.
+2. Open **My CJ → Authorization → API → API Key**.
+3. Store the API key/token only in **Render Dashboard → API service → Environment**.
+4. Set `CJ_ACCESS_TOKEN` and `CJ_API_BASE_URL` on the API service.
+5. Redeploy/restart the API service and run the supplier readiness smoke.
+
+```dotenv
+CJ_ACCESS_TOKEN=
+CJ_API_BASE_URL=https://developers.cjdropshipping.com/api2.0
+```
+
+If both CJ values are configured, readiness reports `cj_config_present_without_live_probe` until an official harmless CJ endpoint is wired for live probing. This is a blocker by design, not fake success.
+
+### AliExpress official API credentials
+
+1. Open the AliExpress/Open Platform.
+2. Go to **App Management → Create App**.
+3. Complete the approval workflow.
+4. Open **Overview** and copy the **App Key** and **App Secret**.
+5. Store approved credentials only in **Render Dashboard → API service → Environment**.
+
+```dotenv
+ALIEXPRESS_APP_KEY=
+ALIEXPRESS_APP_SECRET=
+ALIEXPRESS_API_BASE_URL=
+```
+
+AliExpress remains disabled until approved credentials exist. The system must not scrape AliExpress and must not use unofficial scraping.
+
+### Supplier readiness smoke
+
+```bash
+API_URL=https://api.dbaronx.com node scripts/e2e-supplier-readiness-smoke.mjs
+```
+
+The smoke calls API health and `/api/suppliers/readiness`, optionally exercising CJ preflight mode when `CJ_ACCESS_TOKEN` exists in the environment. It prints `secretLeakDetected=false` when no known server secret value appears in API responses.

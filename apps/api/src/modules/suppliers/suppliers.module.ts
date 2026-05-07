@@ -15,10 +15,16 @@ import { FastapiIntelligenceHttpService } from "../../shared/services/fastapi-in
 import { InternalRequestHeadersService } from "../../shared/services/internal-request-headers.service";
 import { SupplierAdminService } from "./supplier-admin.service";
 import { CjSupplierAdapterService } from "./adapters/cj/cj-supplier-adapter.service";
+import { SupplierReadinessController } from "./supplier-readiness.controller";
+import { SupplierReadinessService } from "./supplier-readiness.service";
 
 @Module({
   imports: [ConfigModule, CommerceModule, WalletModule],
-  controllers: [SuppliersController, SupplierLifecycleController],
+  controllers: [
+    SuppliersController,
+    SupplierLifecycleController,
+    SupplierReadinessController,
+  ],
   providers: [
     SupabaseService,
     InternalRequestHeadersService,
@@ -30,8 +36,15 @@ import { CjSupplierAdapterService } from "./adapters/cj/cj-supplier-adapter.serv
     SupplierAdminService,
     SupplierOrchestrationService,
     SupplierLifecycleService,
+    SupplierReadinessService,
     CjSupplierAdapterService,
   ],
-  exports: [SupplierAdminService, SupplierOrchestrationService, SupplierLifecycleService, CjSupplierAdapterService],
+  exports: [
+    SupplierAdminService,
+    SupplierOrchestrationService,
+    SupplierLifecycleService,
+    SupplierReadinessService,
+    CjSupplierAdapterService,
+  ],
 })
 export class SuppliersModule {}
