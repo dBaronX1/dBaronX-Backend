@@ -47,9 +47,11 @@ interface CjLiveProbeResult {
 
 @Injectable()
 export class CjSupplierAdapterService {
-  private readonly liveProbePath = "/v1/product/getCategory";
+  private readonly liveProbeTimeoutMs: number;
 
-  constructor(private readonly config: ConfigService) {}
+  constructor(private readonly config: ConfigService) {
+    this.liveProbeTimeoutMs = this.resolveLiveProbeTimeoutMs();
+  }
 
   mapImport(input: CjProductImportDto) {
     const supplierCost = 1000;
@@ -68,7 +70,7 @@ export class CjSupplierAdapterService {
     };
   }
 
-  async preflightCredentials(): Promise<CjCredentialPreflightResult> {
+  async readiness(): Promise<CjCredentialPreflightResult> {
     const cjTokenPresent = this.hasConfig("CJ_ACCESS_TOKEN");
     const cjBaseUrlPresent = this.hasConfig("CJ_API_BASE_URL");
     const blockers: string[] = [];
@@ -82,7 +84,7 @@ export class CjSupplierAdapterService {
     }
 
     const liveProbe = cjTokenPresent && cjBaseUrlPresent
-      ? await this.runLiveProbe()
+      ? await this.liveProbe()
       : {
           cjLiveProbeAttempted: false,
           cjLiveProbeOk: false,
@@ -108,9 +110,9 @@ export class CjSupplierAdapterService {
     };
   }
 
-  async prepareProductImport(input: CjProductImportReadinessDto): Promise<CjProductImportReadinessResult> {
+  async prepareImportReadiness(input: CjProductImportReadinessDto): Promise<CjProductImportReadinessResult> {
     const blockers = this.validateExplicitProductInput(input);
-    const credentialPreflight = await this.preflightCredentials();
+    const credentialPreflight = await this.readiness();
     blockers.push(...credentialPreflight.blockers);
 
     const normalizedSupplierMetadata = this.normalizeProductInput(input);
@@ -147,7 +149,15 @@ export class CjSupplierAdapterService {
     return this.config.get<string>("SUPPLIER_LIVE_MODE") === "true";
   }
 
-  private async runLiveProbe(): Promise<CjLiveProbeResult> {
+  async preflightCredentials(): Promise<CjCredentialPreflightResult> {
+    return this.readiness();
+  }
+
+  async prepareProductImport(input: CjProductImportReadinessDto): Promise<CjProductImportReadinessResult> {
+    return this.prepareImportReadiness(input);
+  }
+
+  async liveProbe(): Promise<CjLiveProbeResult> {
     const baseUrl = this.config.get<string>("CJ_API_BASE_URL")?.trim();
     const accessToken = this.config.get<string>("CJ_ACCESS_TOKEN")?.trim();
 
@@ -356,6 +366,13 @@ export class CjSupplierAdapterService {
     sanitized = sanitized.replace(/access[_-]?token\s*[:=]\s*[^\s,}]+/gi, "access_token:[redacted]");
 
     return sanitized.slice(0, 240) || "CJ live probe failed";
+  }
+
+  private resolveLiveProbeTimeoutMs(): number {
+    const rawTimeout = this.config.get<string>("CJ_LIVE_PROBE_TIMEOUT_MS")?.trim();
+    const parsedTimeout = rawTimeout ? Number.parseInt(rawTimeout, 10) : 5000;
+
+    return Number.isSafeInteger(parsedTimeout) && parsedTimeout > 0 ? parsedTimeout : 5000;
   }
 
   private cjEndpoint(baseUrl: string, path: string): string {
