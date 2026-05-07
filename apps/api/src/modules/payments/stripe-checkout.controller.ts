@@ -19,6 +19,12 @@ export class StripeCheckoutController {
     return this.stripe.createSession(body);
   }
 
+  @Post("order-sync-preview")
+  @HttpCode(HttpStatus.OK)
+  async orderSyncPreview(@Body() body: CreateStripeCheckoutSessionDto & { sessionId?: string; paymentIntentId?: string }) {
+    return this.stripe.previewOrderSync(body);
+  }
+
   @Post("webhook")
   @HttpCode(HttpStatus.OK)
   async webhook(

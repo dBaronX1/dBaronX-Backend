@@ -5,6 +5,16 @@ import { CreateStripeCheckoutSessionDto } from "./dto/create-stripe-checkout-ses
 
 type StripeCheckoutMode = "test" | "live" | "unknown";
 
+type StripeOrderSyncPreviewResult = {
+  success: boolean;
+  orderSyncReady: boolean;
+  medusaCartReady: boolean;
+  paymentRecordReady: boolean;
+  canMapVerifiedStripeSession: boolean;
+  mapping: Record<string, string | null>;
+  blockers: string[];
+};
+
 type StripeWebhookResult = {
   received: boolean;
   verified: boolean;
@@ -157,6 +167,37 @@ export class StripeCheckoutService {
     }
   }
 
+  previewOrderSync(input: CreateStripeCheckoutSessionDto & { sessionId?: string; paymentIntentId?: string }): StripeOrderSyncPreviewResult {
+    const mapping = {
+      cartId: input.cartId || null,
+      orderRef: input.orderRef || input.orderIntentId || null,
+      checkoutRef: input.checkoutRef || input.orderRef || input.orderIntentId || null,
+      customerRef: input.customerRef || input.customerEmail || input.userId || null,
+      userId: input.userId || null,
+      productId: input.productId || null,
+      variantId: input.variantId || null,
+      sessionId: input.sessionId || null,
+      paymentIntentId: input.paymentIntentId || null,
+    };
+    const blockers = [
+      ...(mapping.cartId ? [] : ["cart_id_missing"]),
+      ...(mapping.checkoutRef || mapping.orderRef ? [] : ["checkout_ref_missing"]),
+      ...(mapping.sessionId ? [] : ["stripe_session_id_missing_until_checkout_created"]),
+      "payment_record_lookup_pending",
+      "medusa_order_completion_pending_verified_webhook",
+    ];
+
+    return {
+      success: true,
+      orderSyncReady: blockers.length === 0,
+      medusaCartReady: Boolean(mapping.cartId),
+      paymentRecordReady: false,
+      canMapVerifiedStripeSession: Boolean(mapping.cartId && (mapping.checkoutRef || mapping.orderRef)),
+      mapping,
+      blockers,
+    };
+  }
+
   async handleWebhook(payload: Buffer | string, sigHeader: string | undefined): Promise<StripeWebhookResult> {
     const secret = this.config.get<string>("STRIPE_WEBHOOK_SECRET") || "";
     const blockers: string[] = [];
@@ -252,21 +293,30 @@ export class StripeCheckoutService {
   private buildMetadata(input: CreateStripeCheckoutSessionDto): Record<string, string> {
     return this.cleanMetadata({
       cartId: input.cartId,
-      userId: input.userId || "anon",
-      orderRef: input.orderRef || input.orderIntentId || "",
-      customerRef: input.customerRef || input.customerEmail || "",
+      userId: input.userId || "",
+      orderRef: input.orderRef || input.checkoutRef || input.orderIntentId || "",
+      checkoutRef: input.checkoutRef || input.orderRef || input.orderIntentId || input.cartId,
+      customerRef: input.customerRef || input.customerEmail || input.userId || "",
+      productId: input.productId || "",
+      variantId: input.variantId || "",
       supplierRefs: (input.supplierRefs || []).join(","),
       orderIntentId: input.orderIntentId || "",
-      source: "dbaronx_nestjs_checkout",
+      source: "dbaronx",
+      mode: input.checkoutMode || "test",
     });
   }
 
   private buildProductMetadata(input: CreateStripeCheckoutSessionDto): Record<string, string> {
     return this.cleanMetadata({
       cartId: input.cartId,
-      orderRef: input.orderRef || input.orderIntentId || "",
-      customerRef: input.customerRef || "",
+      orderRef: input.orderRef || input.checkoutRef || input.orderIntentId || "",
+      checkoutRef: input.checkoutRef || input.orderRef || input.orderIntentId || input.cartId,
+      customerRef: input.customerRef || input.customerEmail || input.userId || "",
+      productId: input.productId || "",
+      variantId: input.variantId || "",
       orderIntentId: input.orderIntentId || "",
+      source: "dbaronx",
+      mode: input.checkoutMode || "test",
     });
   }
 
