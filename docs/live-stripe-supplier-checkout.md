@@ -144,6 +144,40 @@ This requires API `STRIPE_SECRET_KEY` to be configured with a Stripe test secret
 }
 ```
 
+
+## CJ supplier live probe and first product import-readiness
+
+API-service-only Render env vars for this phase:
+
+```dotenv
+CJ_API_BASE_URL=https://developers.cjdropshipping.com/api2.0
+CJ_ACCESS_TOKEN=
+INTERNAL_SERVICE_TOKEN=
+CJ_TEST_PRODUCT_ID=
+CJ_TEST_SKU=
+```
+
+CJ secrets are never frontend values: do not add `CJ_ACCESS_TOKEN` to the web service, do not prefix it with `NEXT_PUBLIC_`, and do not log or return it from API responses. CJ access tokens expire (CJ documents access tokens as 15-day credentials); rotate/refresh the token through CJ's official authentication flow, update the API Render env var, redeploy, and re-run the smoke when readiness reports `cj_token_invalid_or_expired`.
+
+Supplier readiness now performs a safe CJ read-only live probe against `GET /api2.0/v1/product/getCategory` when both `CJ_ACCESS_TOKEN` and `CJ_API_BASE_URL` are configured. The response reports sanitized probe fields and blockers only.
+
+First product import-readiness remains explicit and non-mutating. Send one approved CJ `productId` or `sku` to `POST /api/v1/suppliers/cj/import-readiness`; the endpoint normalizes supplier fields, keeps `medusaSeeded: false`, and never auto-imports a bulk catalog.
+
+CJ smoke commands:
+
+```bash
+API_URL=https://api.dbaronx.com node scripts/e2e-supplier-readiness-smoke.mjs
+```
+
+```bash
+API_URL=https://api.dbaronx.com \
+INTERNAL_SERVICE_TOKEN=... \
+CJ_TEST_PRODUCT_ID=... \
+node scripts/e2e-cj-live-probe-smoke.mjs
+```
+
+Use `CJ_TEST_SKU` instead of `CJ_TEST_PRODUCT_ID` when validating a SKU. AliExpress remains disabled until official approval is granted; do not configure AliExpress credentials or scrape AliExpress as a substitute for approved API access.
+
 ## Remaining steps before live mode
 - Configure API `STRIPE_SECRET_KEY` and `STRIPE_WEBHOOK_SECRET` with test-mode Stripe values in Render.
 - Run the controlled order smoke and confirm a hosted Stripe Checkout URL is returned.

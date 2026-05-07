@@ -3,6 +3,8 @@ import { ConfigModule } from "@nestjs/config";
 import { SupplierLifecycleController } from "./supplier-lifecycle.controller";
 import { SupplierLifecycleService } from "./supplier-lifecycle.service";
 import { SupplierOrchestrationService } from "./supplier-orchestration.service";
+import { SupplierReadinessController } from "./supplier-readiness.controller";
+import { SupplierReadinessService } from "./supplier-readiness.service";
 import { SuppliersController } from "./suppliers.controller";
 import { CommerceModule } from "../commerce/commerce.module";
 import { WalletModule } from "../wallet/wallet.module";
@@ -18,7 +20,7 @@ import { CjSupplierAdapterService } from "./adapters/cj/cj-supplier-adapter.serv
 
 @Module({
   imports: [ConfigModule, CommerceModule, WalletModule],
-  controllers: [SuppliersController, SupplierLifecycleController],
+  controllers: [SuppliersController, SupplierLifecycleController, SupplierReadinessController],
   providers: [
     SupabaseService,
     InternalRequestHeadersService,
@@ -28,10 +30,11 @@ import { CjSupplierAdapterService } from "./adapters/cj/cj-supplier-adapter.serv
     IntelligenceAuditPipelineService,
     LaunchReadinessPersistenceService,
     SupplierAdminService,
+    SupplierReadinessService,
     SupplierOrchestrationService,
     SupplierLifecycleService,
     CjSupplierAdapterService,
   ],
-  exports: [SupplierAdminService, SupplierOrchestrationService, SupplierLifecycleService, CjSupplierAdapterService],
+  exports: [SupplierAdminService, SupplierReadinessService, SupplierOrchestrationService, SupplierLifecycleService, CjSupplierAdapterService],
 })
 export class SuppliersModule {}
