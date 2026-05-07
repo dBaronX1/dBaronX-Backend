@@ -153,3 +153,46 @@ This requires API `STRIPE_SECRET_KEY` to be configured with a Stripe test secret
 - Implement idempotent order/payment settlement from verified webhooks only.
 - Add refund/cancel/replay operational procedures and monitoring.
 - Switch to live Stripe keys only after the controlled test order, supplier dry run, refund path, monitoring, and live webhook endpoint are approved.
+
+## Supplier credential readiness addendum
+
+Supplier credentials are part of the controlled supplier checkout path but must remain separate from browser checkout configuration. Store supplier credentials on the **Render API/NestJS service** only:
+
+```dotenv
+CJ_ACCESS_TOKEN=
+CJ_API_BASE_URL=
+ALIEXPRESS_APP_KEY=
+ALIEXPRESS_APP_SECRET=
+ALIEXPRESS_API_BASE_URL=
+INTERNAL_SERVICE_TOKEN=
+```
+
+Do not store `CJ_ACCESS_TOKEN`, `ALIEXPRESS_APP_SECRET`, or any supplier private key on the web service, in frontend code, or in `NEXT_PUBLIC_` variables.
+
+### CJ setup
+
+1. Open CJ Dropshipping.
+2. Go to **My CJ → Authorization → API → API Key**.
+3. Save the API key/access token as `CJ_ACCESS_TOKEN` on the Render API service.
+4. Save the official CJ API base URL as `CJ_API_BASE_URL` on the Render API service.
+5. Redeploy the API service and run the supplier readiness smoke.
+
+### AliExpress setup
+
+1. Open the AliExpress Open Platform.
+2. Go to **Open Platform → App Management → Create App**.
+3. Submit the app and wait for approval.
+4. After approval, open the app **Overview** and copy **App Key** and **App Secret**.
+5. Save `ALIEXPRESS_APP_KEY`, `ALIEXPRESS_APP_SECRET`, and the approved official `ALIEXPRESS_API_BASE_URL` on the Render API service only.
+
+AliExpress remains disabled until the approved app key and app secret are present. The system must not scrape AliExpress or use unofficial APIs.
+
+### Supplier readiness smoke
+
+```bash
+API_URL=https://api.dbaronx.com \
+INTERNAL_SERVICE_TOKEN= \
+node scripts/e2e-supplier-readiness-smoke.mjs
+```
+
+The supplier readiness endpoint is `GET /api/suppliers/readiness`. It reports safe booleans and blockers without returning raw supplier secrets. CJ live validation only performs a harmless official live probe after the adapter has a verified harmless endpoint; otherwise it returns `cj_config_present_without_live_probe` rather than fake readiness.
