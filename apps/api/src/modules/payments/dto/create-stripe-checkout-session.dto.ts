@@ -26,6 +26,16 @@ export class CreateStripeCheckoutSessionDto {
   orderIntentId?: string;
 
   @IsOptional()
+  @IsString()
+  @MaxLength(120)
+  orderRef?: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(120)
+  customerRef?: string;
+
+  @IsOptional()
   @IsArray()
   @IsString({ each: true })
   @MaxLength(120, { each: true })

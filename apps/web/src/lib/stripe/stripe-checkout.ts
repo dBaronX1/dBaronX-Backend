@@ -4,6 +4,8 @@ type StripeCheckoutSessionInput = {
   currency?: string;
   userId?: string;
   orderIntentId?: string;
+  orderRef?: string;
+  customerRef?: string;
   supplierRefs?: string[];
   successUrl?: string;
   cancelUrl?: string;
