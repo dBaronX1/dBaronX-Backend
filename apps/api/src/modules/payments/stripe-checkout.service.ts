@@ -3,6 +3,8 @@ import { ConfigService } from "@nestjs/config";
 import Stripe from "stripe";
 import { CreateStripeCheckoutSessionDto } from "./dto/create-stripe-checkout-session.dto";
 
+type StripeCheckoutMode = "test" | "live" | "unknown";
+
 type StripeWebhookResult = {
   received: boolean;
   verified: boolean;
@@ -11,14 +13,43 @@ type StripeWebhookResult = {
   paymentMarkedPaid: boolean;
   settlementHookReady: boolean;
   idempotencyKey: string | null;
+  idempotencyRecorded: boolean;
   blockers: string[];
 };
+
+type StripeWebhookEventRecord = {
+  eventId: string;
+  eventType: string;
+  sessionId: string | null;
+  livemode: boolean;
+  receivedAt: string;
+};
+
+interface StripeWebhookIdempotencyRecorder {
+  record(event: StripeWebhookEventRecord): Promise<{ recorded: boolean; duplicate: boolean }>;
+}
+
+@Injectable()
+class LoggingStripeWebhookIdempotencyRecorder implements StripeWebhookIdempotencyRecorder {
+  private readonly logger = new Logger(LoggingStripeWebhookIdempotencyRecorder.name);
+
+  async record(event: StripeWebhookEventRecord): Promise<{ recorded: boolean; duplicate: boolean }> {
+    this.logger.log(
+      `stripe_webhook_idempotency_placeholder event=${event.eventId} type=${event.eventType} session=${event.sessionId ?? "none"}`,
+    );
+
+    return { recorded: false, duplicate: false };
+  }
+}
 
 @Injectable()
 export class StripeCheckoutService {
   private readonly logger = new Logger(StripeCheckoutService.name);
+  private readonly idempotencyRecorder: StripeWebhookIdempotencyRecorder;
 
-  constructor(private readonly config: ConfigService) {}
+  constructor(private readonly config: ConfigService) {
+    this.idempotencyRecorder = new LoggingStripeWebhookIdempotencyRecorder();
+  }
 
   isConfigured(): boolean {
     return Boolean(this.getStripeSecretKey());
@@ -27,6 +58,7 @@ export class StripeCheckoutService {
   async createSession(input: CreateStripeCheckoutSessionDto) {
     const secretKey = this.getStripeSecretKey();
     const blockers: string[] = [];
+    const mode = this.getStripeMode(secretKey);
 
     if (!secretKey) {
       blockers.push("stripe_secret_key_missing");
@@ -34,7 +66,7 @@ export class StripeCheckoutService {
         success: false,
         configured: false,
         provider: "stripe",
-        mode: "test",
+        mode,
         checkoutSessionPathReady: true,
         checkoutUrl: null,
         sessionId: null,
@@ -46,6 +78,7 @@ export class StripeCheckoutService {
     const stripe = this.createClient(secretKey);
     const currency = (input.currency || "usd").toLowerCase();
     const metadata = this.buildMetadata(input);
+    const productMetadata = this.buildProductMetadata(input);
 
     try {
       const session = await stripe.checkout.sessions.create(
@@ -62,10 +95,7 @@ export class StripeCheckoutService {
                 unit_amount: input.amount,
                 product_data: {
                   name: input.productName || `dBaronX checkout cart ${input.cartId}`,
-                  metadata: {
-                    cartId: input.cartId,
-                    orderIntentId: input.orderIntentId || "",
-                  },
+                  metadata: productMetadata,
                 },
               },
             },
@@ -86,7 +116,8 @@ export class StripeCheckoutService {
           success: false,
           configured: true,
           provider: "stripe",
-          mode: "test",
+          mode,
+          checkoutSessionPathReady: true,
           checkoutUrl: null,
           sessionId: session.id || null,
           blockers,
@@ -95,14 +126,14 @@ export class StripeCheckoutService {
       }
 
       this.logger.log(
-        `stripe_checkout_session_created cart=${input.cartId} session=${session.id}`,
+        `stripe_checkout_session_created mode=${mode} cart=${input.cartId} session=${session.id}`,
       );
 
       return {
         success: true,
         configured: true,
         provider: "stripe",
-        mode: "test",
+        mode,
         checkoutSessionPathReady: true,
         checkoutUrl: session.url,
         sessionId: session.id,
@@ -116,7 +147,8 @@ export class StripeCheckoutService {
         success: false,
         configured: true,
         provider: "stripe",
-        mode: "test",
+        mode,
+        checkoutSessionPathReady: true,
         checkoutUrl: null,
         sessionId: null,
         blockers: ["stripe_checkout_session_create_failed"],
@@ -125,7 +157,7 @@ export class StripeCheckoutService {
     }
   }
 
-  handleWebhook(payload: Buffer | string, sigHeader: string | undefined): StripeWebhookResult {
+  async handleWebhook(payload: Buffer | string, sigHeader: string | undefined): Promise<StripeWebhookResult> {
     const secret = this.config.get<string>("STRIPE_WEBHOOK_SECRET") || "";
     const blockers: string[] = [];
 
@@ -146,6 +178,7 @@ export class StripeCheckoutService {
     }
 
     if (event.type !== "checkout.session.completed") {
+      const recorded = await this.recordVerifiedEvent(event, null);
       return {
         received: true,
         verified: true,
@@ -154,7 +187,8 @@ export class StripeCheckoutService {
         paymentMarkedPaid: false,
         settlementHookReady: true,
         idempotencyKey: event.id,
-        blockers: [],
+        idempotencyRecorded: recorded.recorded,
+        blockers: recorded.recorded ? [] : ["stripe_event_idempotency_storage_pending"],
       };
     }
 
@@ -162,13 +196,15 @@ export class StripeCheckoutService {
     return this.prepareCheckoutSessionCompletedSettlement(event, session);
   }
 
-  private prepareCheckoutSessionCompletedSettlement(
+  private async prepareCheckoutSessionCompletedSettlement(
     event: Stripe.Event,
     session: Stripe.Checkout.Session,
-  ): StripeWebhookResult {
+  ): Promise<StripeWebhookResult> {
     this.logger.log(
       `stripe_checkout_session_completed_verified event=${event.id} session=${session.id}`,
     );
+
+    const recorded = await this.recordVerifiedEvent(event, session.id);
 
     return {
       received: true,
@@ -178,8 +214,25 @@ export class StripeCheckoutService {
       paymentMarkedPaid: false,
       settlementHookReady: true,
       idempotencyKey: event.id,
-      blockers: [],
+      idempotencyRecorded: recorded.recorded,
+      blockers: [
+        ...(recorded.recorded ? [] : ["stripe_event_idempotency_storage_pending"]),
+        "settlement_pending",
+      ],
     };
+  }
+
+  private async recordVerifiedEvent(
+    event: Stripe.Event,
+    sessionId: string | null,
+  ): Promise<{ recorded: boolean; duplicate: boolean }> {
+    return this.idempotencyRecorder.record({
+      eventId: event.id,
+      eventType: event.type,
+      sessionId,
+      livemode: event.livemode,
+      receivedAt: new Date().toISOString(),
+    });
   }
 
   private unverifiedWebhookResult(blockers: string[]): StripeWebhookResult {
@@ -191,23 +244,43 @@ export class StripeCheckoutService {
       paymentMarkedPaid: false,
       settlementHookReady: true,
       idempotencyKey: null,
+      idempotencyRecorded: false,
       blockers,
     };
   }
 
   private buildMetadata(input: CreateStripeCheckoutSessionDto): Record<string, string> {
-    return {
+    return this.cleanMetadata({
       cartId: input.cartId,
       userId: input.userId || "anon",
+      orderRef: input.orderRef || input.orderIntentId || "",
+      customerRef: input.customerRef || input.customerEmail || "",
       supplierRefs: (input.supplierRefs || []).join(","),
       orderIntentId: input.orderIntentId || "",
       source: "dbaronx_nestjs_checkout",
-    };
+    });
+  }
+
+  private buildProductMetadata(input: CreateStripeCheckoutSessionDto): Record<string, string> {
+    return this.cleanMetadata({
+      cartId: input.cartId,
+      orderRef: input.orderRef || input.orderIntentId || "",
+      customerRef: input.customerRef || "",
+      orderIntentId: input.orderIntentId || "",
+    });
+  }
+
+  private cleanMetadata(metadata: Record<string, string>): Record<string, string> {
+    return Object.fromEntries(
+      Object.entries(metadata)
+        .filter(([, value]) => value !== undefined && value !== null)
+        .map(([key, value]) => [key, String(value).slice(0, 500)]),
+    );
   }
 
   private createSessionIdempotencyKey(input: CreateStripeCheckoutSessionDto): string {
-    const stableIntent = input.orderIntentId || input.cartId;
-    return `dbx_checkout_${stableIntent}_${input.amount}_${(input.currency || "usd").toLowerCase()}`;
+    const stableIntent = input.orderIntentId || input.orderRef || input.cartId;
+    return `dbx_checkout_${stableIntent}_${input.amount}_${(input.currency || "usd").toLowerCase()}`.slice(0, 255);
   }
 
   private createClient(secretKey: string): Stripe {
@@ -218,5 +291,11 @@ export class StripeCheckoutService {
 
   private getStripeSecretKey(): string {
     return this.config.get<string>("STRIPE_SECRET_KEY") || "";
+  }
+
+  private getStripeMode(secretKey: string): StripeCheckoutMode {
+    if (secretKey.startsWith("sk_test_")) return "test";
+    if (secretKey.startsWith("sk_live_")) return "live";
+    return secretKey ? "unknown" : "test";
   }
 }
