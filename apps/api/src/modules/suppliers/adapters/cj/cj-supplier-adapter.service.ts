@@ -33,6 +33,8 @@ export interface CjProductImportReadinessResult {
 
 @Injectable()
 export class CjSupplierAdapterService {
+  private readonly liveProbePath = "/v1/product/getCategory";
+
   constructor(private readonly config: ConfigService) {}
 
   mapImport(input: CjProductImportDto) {
