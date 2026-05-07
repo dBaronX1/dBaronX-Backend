@@ -43,7 +43,7 @@ export class SupplierReadinessService {
       blockers.push("cj_base_url_missing");
     }
 
-    const cjPreflight = await this.cj.preflightCredentials();
+    const cjPreflight = await this.cj.readiness();
     blockers.push(...cjPreflight.blockers);
 
     if (!aliexpressAppKeyPresent || !aliexpressAppSecretPresent) {
