@@ -1,6 +1,7 @@
 import {
   IsArray,
   IsEmail,
+  IsIn,
   IsInt,
   IsOptional,
   IsString,
@@ -33,6 +34,11 @@ export class CreateStripeCheckoutSessionDto {
   @IsOptional()
   @IsString()
   @MaxLength(120)
+  checkoutRef?: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(120)
   customerRef?: string;
 
   @IsOptional()
@@ -40,6 +46,20 @@ export class CreateStripeCheckoutSessionDto {
   @IsString({ each: true })
   @MaxLength(120, { each: true })
   supplierRefs?: string[];
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(120)
+  productId?: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(120)
+  variantId?: string;
+
+  @IsOptional()
+  @IsIn(["test", "live"])
+  checkoutMode: "test" | "live" = "test";
 
   @IsInt()
   @Min(1)

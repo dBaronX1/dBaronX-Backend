@@ -2,148 +2,155 @@
 
 ## DNS map
 - web: `https://dbaronx.com`
-- api: `https://api.dbaronx.com`
-- commerce (Medusa): `https://commerce.dbaronx.com`
-- fastapi: `https://fastapi.dbaronx.com`
+- api: `https://dbaronx-api-unified.onrender.com`
+- commerce (Medusa): `https://dbaronx-medusa.onrender.com`
+- fastapi: configured separately as the intelligence/risk layer; it is not part of Stripe settlement.
 
-## Required Render environment variables
+## Render environment checklist
 
 ### NestJS/API Render service only
-Set these on the API service. Do not expose them to the browser and do not commit real values.
+Set these only on the API service. Do not expose them to the browser and do not commit real values.
 
 ```dotenv
 STRIPE_SECRET_KEY=
 STRIPE_WEBHOOK_SECRET=
-PAYSTACK_SECRET_KEY=
 INTERNAL_SERVICE_TOKEN=
+CJ_ACCESS_TOKEN=
+CJ_API_BASE_URL=https://developers.cjdropshipping.com/api2.0
 ```
 
-- `STRIPE_SECRET_KEY` creates real Stripe Checkout Sessions from the NestJS payment/business brain. Use `sk_test_...` for controlled test orders and only switch to `sk_live_...` after live-mode approval.
-- `STRIPE_WEBHOOK_SECRET` verifies Stripe webhook signatures before any payment/order settlement code is allowed to run.
-- `PAYSTACK_SECRET_KEY` remains server-only for Paystack and is unrelated to Stripe Checkout.
-- `INTERNAL_SERVICE_TOKEN` remains server-only for internal service calls.
+- `STRIPE_SECRET_KEY` must be a Stripe **test** secret key for the first controlled checkout. It is the only key used by NestJS to create hosted Checkout Sessions.
+- `STRIPE_WEBHOOK_SECRET` must be the Stripe Dashboard signing secret for `POST /api/v1/checkout/stripe/webhook`.
+- `INTERNAL_SERVICE_TOKEN` is server-only and is used by internal readiness/order preview probes.
+- `CJ_ACCESS_TOKEN` is optional for the Stripe-only smoke but required for CJ supplier live probe readiness.
+- `CJ_API_BASE_URL` should remain `https://developers.cjdropshipping.com/api2.0`.
 
 ### Web Render service / browser-safe values
 Set these on the web service with public/test values only.
 
 ```dotenv
 NEXT_PUBLIC_STRIPE_PUBLIC_KEY=
-NEXT_PUBLIC_API_BASE_URL=
-NEXT_PUBLIC_MEDUSA_BACKEND_URL=
+NEXT_PUBLIC_API_BASE_URL=https://dbaronx-api-unified.onrender.com
+NEXT_PUBLIC_MEDUSA_BACKEND_URL=https://dbaronx-medusa.onrender.com
 NEXT_PUBLIC_MEDUSA_PUBLISHABLE_KEY=
 ```
 
-- `NEXT_PUBLIC_STRIPE_PUBLIC_KEY` must be the Stripe publishable key matching the mode of `STRIPE_SECRET_KEY` during the test/live phase.
-- `NEXT_PUBLIC_API_BASE_URL` should be `https://api.dbaronx.com` on production Render.
-- `NEXT_PUBLIC_MEDUSA_BACKEND_URL` should be `https://commerce.dbaronx.com` on production Render.
-- `NEXT_PUBLIC_MEDUSA_PUBLISHABLE_KEY` is the browser-safe Medusa Store API key.
-
-## Stripe webhook URL
-Configure the Stripe Dashboard webhook endpoint in **test mode** first:
-
-```text
-POST https://api.dbaronx.com/api/v1/checkout/stripe/webhook
-```
-
-Required event for the controlled test milestone:
-
-```text
-checkout.session.completed
-```
-
-The NestJS endpoint reads the raw request body and verifies the `stripe-signature` header with `Stripe.webhooks.constructEvent(payload, sigHeader, STRIPE_WEBHOOK_SECRET)`. Unsigned probes, missing webhook secrets, and invalid signatures must return `verified: false`, `paymentMarkedPaid: false`, and no paid/order settlement.
+The web app must never receive `STRIPE_SECRET_KEY`, `STRIPE_WEBHOOK_SECRET`, `CJ_ACCESS_TOKEN`, `SUPABASE_SERVICE_ROLE_KEY`, or the internal service token.
 
 ## Stripe Dashboard webhook setup
 1. Open Stripe Dashboard with **Test mode** enabled.
 2. Go to **Developers → Webhooks → Add endpoint**.
-3. Enter `https://api.dbaronx.com/api/v1/checkout/stripe/webhook`.
+3. Enter `https://dbaronx-api-unified.onrender.com/api/v1/checkout/stripe/webhook`.
 4. Select `checkout.session.completed`.
-5. Save the endpoint and copy its signing secret into the API service as `STRIPE_WEBHOOK_SECRET`.
+5. Save the endpoint and copy the signing secret into the API service as `STRIPE_WEBHOOK_SECRET`.
 6. Redeploy/restart the API service so the env var is loaded.
-7. Keep the test webhook endpoint separate from any future live-mode endpoint and secret.
+7. Keep test-mode and live-mode webhook endpoints/secrets separate.
+
+The NestJS endpoint verifies the raw body and `stripe-signature` header with `Stripe.webhooks.constructEvent(payload, sigHeader, STRIPE_WEBHOOK_SECRET)`. Unsigned, missing-secret, or invalid-signature calls must return `verified: false`, `paymentMarkedPaid: false`, and no paid/order settlement.
 
 ## Checkout flow contract
-- The web app calls NestJS to create Checkout Sessions; it never uses `STRIPE_SECRET_KEY`.
-- NestJS creates sessions with `stripe.checkout.sessions.create(...)` using `STRIPE_SECRET_KEY` from server env only.
-- NestJS accepts safe cart/order/customer metadata and passes `cartId`, `userId`, `orderRef`, `customerRef`, `supplierRefs`, and `orderIntentId` to Stripe metadata when available.
-- Amounts are sent to Stripe as real minor-unit amounts supplied by the backend smoke/cart flow.
-- NestJS returns `checkoutUrl` and `sessionId` only after the Stripe API succeeds.
+- NestJS remains the payment/economic brain and calls `stripe.checkout.sessions.create(...)`.
+- Medusa remains the commerce engine for products, regions, carts, line items, and shipping options.
+- FastAPI remains the intelligence/risk layer and is not allowed to mark Stripe payments paid.
+- NestJS returns `sessionId` and `checkoutUrl` only after the Stripe API succeeds.
 - If `STRIPE_SECRET_KEY` is missing, NestJS returns `stripe_secret_key_missing` with `checkoutUrl: null` and `sessionId: null`.
 - Browser redirects are not trusted as payment proof.
-- Paid/settled state remains protected until a verified Stripe webhook is received.
-- The current verified `checkout.session.completed` handler records the event through an idempotency placeholder interface and returns `paymentMarkedPaid: false` with `settlement_pending` until durable order/payment sync is attached.
+- Paid/settled state can only be attached after a verified Stripe webhook event.
+- Verified `checkout.session.completed` currently returns `paymentMarkedPaid: false` with `settlement_pending` until durable order/payment settlement is connected.
+
+## Stripe Checkout metadata contract
+The Checkout Session and PaymentIntent metadata include the safe mapping fields below when available:
+
+```json
+{
+  "cartId": "cart_...",
+  "orderRef": "stripe-controlled-...",
+  "checkoutRef": "stripe-controlled-...",
+  "customerRef": "controlled-live-smoke",
+  "userId": "",
+  "productId": "prod_...",
+  "variantId": "variant_...",
+  "supplierRefs": "",
+  "orderIntentId": "",
+  "source": "dbaronx",
+  "mode": "test"
+}
+```
+
+This metadata is for reconciliation only. It is not proof of payment, and it must not mark an order paid without a verified Stripe event.
 
 ## Smoke commands
+
+Controlled Render test smoke:
+
+```bash
+MEDUSA_URL=https://dbaronx-medusa.onrender.com \
+API_URL=https://dbaronx-api-unified.onrender.com \
+NEXT_PUBLIC_MEDUSA_PUBLISHABLE_KEY= \
+INTERNAL_SERVICE_TOKEN= \
+node scripts/e2e-live-stripe-controlled-checkout-smoke.mjs
+```
 
 Local services:
 
 ```bash
 MEDUSA_URL=http://localhost:9000 \
 API_URL=http://localhost:3001 \
-NEXT_PUBLIC_MEDUSA_PUBLISHABLE_KEY=<local-publishable-key> \
-node scripts/e2e-stripe-controlled-order-smoke.mjs
+NEXT_PUBLIC_MEDUSA_PUBLISHABLE_KEY= \
+INTERNAL_SERVICE_TOKEN= \
+node scripts/e2e-live-stripe-controlled-checkout-smoke.mjs
 ```
 
-Render test services:
-
-```bash
-MEDUSA_URL=https://commerce.dbaronx.com \
-API_URL=https://api.dbaronx.com \
-NEXT_PUBLIC_MEDUSA_PUBLISHABLE_KEY=<render-publishable-key> \
-node scripts/e2e-stripe-controlled-order-smoke.mjs
-```
-
-The legacy command remains a wrapper around the controlled smoke:
+Compatibility smoke:
 
 ```bash
 node scripts/e2e-stripe-checkout-session-smoke.mjs
 ```
 
-## Success JSON examples
-
-### API env-blocked but safe
-This is acceptable before `STRIPE_SECRET_KEY` is configured because it proves no fake checkout artifacts or paid state are created.
+## Expected controlled success JSON
 
 ```json
 {
   "success": true,
   "blockers": [],
   "medusaReady": true,
+  "apiReady": true,
+  "productId": "prod_...",
+  "variantId": "variant_...",
+  "regionId": "reg_...",
   "cartId": "cart_...",
   "lineItemAdded": true,
   "shippingOptionReady": true,
-  "stripeEndpointReady": true,
-  "checkoutSessionCreated": false,
-  "sessionIdPresent": false,
-  "checkoutUrlPresent": false,
-  "webhookEndpointReady": true,
-  "unsignedWebhookRejected": true,
-  "paymentMarkedPaid": false,
-  "warnings": ["stripe_secret_key_missing_on_api_server"]
-}
-```
-
-### Controlled Stripe test checkout ready
-This requires API `STRIPE_SECRET_KEY` to be configured with a Stripe test secret key.
-
-```json
-{
-  "success": true,
-  "blockers": [],
-  "medusaReady": true,
-  "cartId": "cart_...",
-  "lineItemAdded": true,
-  "shippingOptionReady": true,
+  "shippingAttachedToCart": true,
   "stripeEndpointReady": true,
   "checkoutSessionCreated": true,
   "sessionIdPresent": true,
   "checkoutUrlPresent": true,
   "webhookEndpointReady": true,
   "unsignedWebhookRejected": true,
-  "paymentMarkedPaid": false
+  "paymentMarkedPaid": false,
+  "orderSyncReady": false,
+  "nextManualStep": "Open https://checkout.stripe.com/... and complete Stripe Checkout with test card 4242 4242 4242 4242; verify checkout.session.completed reaches https://dbaronx-api-unified.onrender.com/api/v1/checkout/stripe/webhook."
 }
 ```
 
+`orderSyncReady` remains `false` until durable DBX payment-record lookup and Medusa order completion settlement are connected. That is intentional: the smoke proves the mapping boundary and prevents fake paid/order-complete state.
+
+## First controlled manual Stripe test checkout
+1. Confirm the smoke returns `checkoutSessionCreated: true`, `checkoutUrlPresent: true`, `unsignedWebhookRejected: true`, and `paymentMarkedPaid: false`.
+2. Open the returned Stripe hosted `checkoutUrl`.
+3. Use Stripe test card `4242 4242 4242 4242`, any future expiry, any CVC, and a valid billing ZIP.
+4. After the hosted checkout succeeds, open Stripe Dashboard → Developers → Webhooks → the configured endpoint.
+5. Confirm a `checkout.session.completed` delivery reached `POST /api/v1/checkout/stripe/webhook`.
+6. Confirm the API response for the verified event is `verified: true`, `paymentMarkedPaid: false`, and includes `settlement_pending` until durable settlement is implemented.
+
+## Remaining steps before live mode
+- Replace webhook idempotency placeholder logging with durable event-id storage before any paid-state mutation.
+- Attach verified Stripe sessions/payment intents to DBX payment records and the corresponding Medusa cart/order intent.
+- Implement idempotent order/payment settlement from verified webhooks only.
+- Add replay/refund/cancel operational procedures and monitoring.
+- Run a controlled refund and supplier dry-run after the first test payment.
+- Switch to Stripe live keys only after controlled test order, supplier dry run, refund path, monitoring, and live webhook endpoint approval.
 
 ## CJ supplier live probe and first product import-readiness
 
