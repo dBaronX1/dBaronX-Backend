@@ -3,6 +3,8 @@ import { ConfigModule } from "@nestjs/config";
 import { SupplierLifecycleController } from "./supplier-lifecycle.controller";
 import { SupplierLifecycleService } from "./supplier-lifecycle.service";
 import { SupplierOrchestrationService } from "./supplier-orchestration.service";
+import { SupplierReadinessController } from "./supplier-readiness.controller";
+import { SupplierReadinessService } from "./supplier-readiness.service";
 import { SuppliersController } from "./suppliers.controller";
 import { SupplierReadinessController } from "./supplier-readiness.controller";
 import { SupplierReadinessService } from "./supplier-readiness.service";
@@ -17,6 +19,8 @@ import { FastapiIntelligenceHttpService } from "../../shared/services/fastapi-in
 import { InternalRequestHeadersService } from "../../shared/services/internal-request-headers.service";
 import { SupplierAdminService } from "./supplier-admin.service";
 import { CjSupplierAdapterService } from "./adapters/cj/cj-supplier-adapter.service";
+import { SupplierReadinessController } from "./supplier-readiness.controller";
+import { SupplierReadinessService } from "./supplier-readiness.service";
 
 @Module({
   imports: [ConfigModule, CommerceModule, WalletModule],
@@ -30,8 +34,17 @@ import { CjSupplierAdapterService } from "./adapters/cj/cj-supplier-adapter.serv
     IntelligenceAuditPipelineService,
     LaunchReadinessPersistenceService,
     SupplierAdminService,
+    SupplierReadinessService,
     SupplierOrchestrationService,
     SupplierLifecycleService,
+    SupplierReadinessService,
+    CjSupplierAdapterService,
+  ],
+  exports: [
+    SupplierAdminService,
+    SupplierOrchestrationService,
+    SupplierLifecycleService,
+    SupplierReadinessService,
     CjSupplierAdapterService,
     SupplierReadinessService,
   ],

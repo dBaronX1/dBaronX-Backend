@@ -47,7 +47,7 @@ interface CjLiveProbeResult {
 
 @Injectable()
 export class CjSupplierAdapterService {
-  private readonly liveProbeTimeoutMs = 8000;
+  private readonly liveProbePath = "/v1/product/getCategory";
 
   constructor(private readonly config: ConfigService) {}
 
