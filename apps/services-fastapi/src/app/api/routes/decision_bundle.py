@@ -2,13 +2,18 @@ from __future__ import annotations
 
 from fastapi import APIRouter, Depends
 
+from app.api.dependencies.internal_access import require_internal_access
 from app.schemas.decision_bundle import (
     DecisionBundleRequest,
     DecisionBundleResponse,
 )
 from app.services.decision_bundle_service import DecisionBundleService
 
-router = APIRouter(prefix="/decision-bundle", tags=["decision-bundle"])
+router = APIRouter(
+    dependencies=[Depends(require_internal_access)],
+    prefix="/decision-bundle",
+    tags=["decision-bundle"],
+)
 
 
 def decision_bundle_service_dep() -> DecisionBundleService:

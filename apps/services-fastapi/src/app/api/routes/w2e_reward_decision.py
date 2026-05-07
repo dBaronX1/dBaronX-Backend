@@ -2,13 +2,18 @@ from __future__ import annotations
 
 from fastapi import APIRouter, Depends
 
+from app.api.dependencies.internal_access import require_internal_access
 from app.schemas.w2e_reward_decision import (
     W2ERewardDecisionRequest,
     W2ERewardDecisionResponse,
 )
 from app.services.w2e_reward_decision_service import W2ERewardDecisionService
 
-router = APIRouter(prefix="/w2e-reward-decision", tags=["w2e-reward-decision"])
+router = APIRouter(
+    dependencies=[Depends(require_internal_access)],
+    prefix="/w2e-reward-decision",
+    tags=["w2e-reward-decision"],
+)
 
 
 def w2e_reward_decision_service_dep() -> W2ERewardDecisionService:

@@ -2,10 +2,15 @@ from __future__ import annotations
 
 from fastapi import APIRouter, Depends
 
+from app.api.dependencies.internal_access import require_internal_access
 from app.schemas.fraud_decision import FraudDecisionRequest, FraudDecisionResponse
 from app.services.fraud_decision_service import FraudDecisionService
 
-router = APIRouter(prefix="/fraud-decision", tags=["fraud-decision"])
+router = APIRouter(
+    dependencies=[Depends(require_internal_access)],
+    prefix="/fraud-decision",
+    tags=["fraud-decision"],
+)
 
 
 def fraud_decision_service_dep() -> FraudDecisionService:

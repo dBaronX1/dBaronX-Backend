@@ -2,13 +2,18 @@ from __future__ import annotations
 
 from fastapi import APIRouter, Depends
 
+from app.api.dependencies.internal_access import require_internal_access
 from app.schemas.decision_trace import (
     DecisionTraceRequest,
     DecisionTraceResponse,
 )
 from app.services.decision_trace_service import DecisionTraceService
 
-router = APIRouter(prefix="/decision-trace", tags=["decision-trace"])
+router = APIRouter(
+    dependencies=[Depends(require_internal_access)],
+    prefix="/decision-trace",
+    tags=["decision-trace"],
+)
 
 
 def decision_trace_service_dep() -> DecisionTraceService:

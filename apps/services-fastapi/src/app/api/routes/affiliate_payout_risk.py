@@ -2,13 +2,18 @@ from __future__ import annotations
 
 from fastapi import APIRouter, Depends
 
+from app.api.dependencies.internal_access import require_internal_access
 from app.schemas.affiliate_payout_risk import (
     AffiliatePayoutRiskRequest,
     AffiliatePayoutRiskResponse,
 )
 from app.services.affiliate_payout_risk_service import AffiliatePayoutRiskService
 
-router = APIRouter(prefix="/affiliate-payout-risk", tags=["affiliate-payout-risk"])
+router = APIRouter(
+    dependencies=[Depends(require_internal_access)],
+    prefix="/affiliate-payout-risk",
+    tags=["affiliate-payout-risk"],
+)
 
 
 def affiliate_payout_risk_service_dep() -> AffiliatePayoutRiskService:

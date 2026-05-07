@@ -2,34 +2,29 @@ from __future__ import annotations
 
 from typing import Any
 
-from app.api.router_registry import get_router_registrations
+from app.services.router_registration_manifest_service import RouterRegistrationManifestService
 
 
 class RouterRegistryRuntimeService:
-    """
-    Canonical runtime view of router registrations.
+    """Canonical runtime view of router registrations."""
 
-    This is the source of truth for mounted router intent and is used for:
-    - router inclusion verification
-    - startup compatibility checks
-    - launch-grade route summaries
-    """
+    def __init__(
+        self,
+        *,
+        manifest_service: RouterRegistrationManifestService | None = None,
+    ) -> None:
+        self.manifest_service = (
+            manifest_service or RouterRegistrationManifestService()
+        )
 
     def build(self) -> dict[str, Any]:
-        registrations = get_router_registrations()
-
+        routers = self.manifest_service.build()["router_registration_manifest"][
+            "routers"
+        ]
         return {
             "success": True,
             "router_registry_runtime": {
-                "count": len(registrations),
-                "routers": [
-                    {
-                        "name": item.name,
-                        "prefix": item.prefix,
-                        "internal_only": item.internal_only,
-                        "critical": item.critical,
-                    }
-                    for item in registrations
-                ],
+                "count": len(routers),
+                "routers": routers,
             },
         }

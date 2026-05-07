@@ -13,9 +13,7 @@ from app.services.internal_route_protection_audit_service import (
 from app.services.launch_operation_manifest_service import (
     LaunchOperationManifestService,
 )
-from app.services.system_route_registry_service import (
-    SystemRouteRegistryService,
-)
+from app.services.router_registry_runtime_service import RouterRegistryRuntimeService
 
 
 class FinalOperationalClosureService:
@@ -33,7 +31,7 @@ class FinalOperationalClosureService:
         *,
         api_router_audit_service: ApiRouterAuditService | None = None,
         expected_router_registry_service: ExpectedRouterRegistryService | None = None,
-        system_route_registry_service: SystemRouteRegistryService | None = None,
+        router_registry_runtime_service: RouterRegistryRuntimeService | None = None,
         internal_route_protection_audit_service: InternalRouteProtectionAuditService | None = None,
         deployment_checklist_service: DeploymentChecklistService | None = None,
         launch_operation_manifest_service: LaunchOperationManifestService | None = None,
@@ -42,8 +40,8 @@ class FinalOperationalClosureService:
         self.expected_router_registry_service = (
             expected_router_registry_service or ExpectedRouterRegistryService()
         )
-        self.system_route_registry_service = (
-            system_route_registry_service or SystemRouteRegistryService()
+        self.router_registry_runtime_service = (
+            router_registry_runtime_service or RouterRegistryRuntimeService()
         )
         self.internal_route_protection_audit_service = (
             internal_route_protection_audit_service
@@ -60,15 +58,14 @@ class FinalOperationalClosureService:
         expected = self.expected_router_registry_service.build()[
             "expected_router_registry"
         ]["expected_router_prefixes"]
-        route_registry = self.system_route_registry_service.build()["route_registry"]
-
-        mounted_prefixes: set[str] = set()
-        for entries in route_registry.get("groups", {}).values():
-            for entry in entries:
-                path = str(entry.get("path") or "").strip()
-                if not path.startswith("/"):
-                    continue
-                mounted_prefixes.add("/" + path.strip("/").split("/")[0])
+        runtime_routers = self.router_registry_runtime_service.build()[
+            "router_registry_runtime"
+        ]["routers"]
+        mounted_prefixes = {
+            str(item["prefix"]).strip()
+            for item in runtime_routers
+            if str(item["prefix"]).strip()
+        }
 
         router_audit = self.api_router_audit_service.build(
             mounted_router_prefixes=sorted(mounted_prefixes),
