@@ -11,22 +11,32 @@ export interface CjProductImportDto {
 }
 
 export interface CjProductImportReadinessDto {
-  supplierProductId: string;
-  supplierSku: string;
-  costPrice: number;
-  shippingCountries: string[];
+  productId?: string;
+  sku?: string;
+  supplierProductId?: string;
+  supplierSku?: string;
+  title?: string;
+  costPrice?: number;
+  currency?: string;
+  shippingCountries?: string[];
   deliveryEstimate?: string;
+  images?: string[];
   sourceUrl?: string;
+  rawAvailable?: boolean;
 }
 
 export interface CjNormalizedSupplierMetadata {
   supplier: "cj";
   supplierProductId: string;
   supplierSku: string;
+  title: string;
   costPrice: number;
+  currency: string;
   shippingCountries: string[];
   deliveryEstimate?: string;
+  images: string[];
   sourceUrl?: string;
+  rawAvailable: boolean;
 }
 
 export interface CjFulfillmentRequestDto {

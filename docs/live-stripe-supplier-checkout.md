@@ -160,22 +160,25 @@ Supplier credentials are part of the controlled supplier checkout path but must 
 
 ```dotenv
 CJ_ACCESS_TOKEN=
-CJ_API_BASE_URL=
+CJ_API_BASE_URL=https://developers.cjdropshipping.com/api2.0
+CJ_TEST_PRODUCT_ID=
+CJ_TEST_SKU=
 ALIEXPRESS_APP_KEY=
 ALIEXPRESS_APP_SECRET=
 ALIEXPRESS_API_BASE_URL=
 INTERNAL_SERVICE_TOKEN=
 ```
 
-Do not store `CJ_ACCESS_TOKEN`, `ALIEXPRESS_APP_SECRET`, or any supplier private key on the web service, in frontend code, or in `NEXT_PUBLIC_` variables.
+Do not store `CJ_ACCESS_TOKEN`, `ALIEXPRESS_APP_SECRET`, or any supplier private key on the web service, in frontend code, or in `NEXT_PUBLIC_` variables. CJ tokens can expire or be rotated by CJ; update the Render API env value and redeploy before expiry or immediately after revocation/suspected exposure. `CJ_TEST_PRODUCT_ID` and `CJ_TEST_SKU` are smoke-test placeholders only and are not secrets.
 
 ### CJ setup
 
 1. Open CJ Dropshipping.
 2. Go to **My CJ → Authorization → API → API Key**.
 3. Save the API key/access token as `CJ_ACCESS_TOKEN` on the Render API service.
-4. Save the official CJ API base URL as `CJ_API_BASE_URL` on the Render API service.
+4. Save `CJ_API_BASE_URL=https://developers.cjdropshipping.com/api2.0` on the Render API service.
 5. Redeploy the API service and run the supplier readiness smoke.
+6. The API live probe uses only the read-only official CJ v2.0 endpoint `GET https://developers.cjdropshipping.com/api2.0/v1/product/list?pageNum=1&pageSize=1` with `CJ-Access-Token: <server-env-token>`. The token is never returned, logged, or sent to the frontend.
 
 ### AliExpress setup
 
@@ -195,4 +198,16 @@ INTERNAL_SERVICE_TOKEN= \
 node scripts/e2e-supplier-readiness-smoke.mjs
 ```
 
-The supplier readiness endpoint is `GET /api/suppliers/readiness`. It reports safe booleans and blockers without returning raw supplier secrets. CJ live validation only performs a harmless official live probe after the adapter has a verified harmless endpoint; otherwise it returns `cj_config_present_without_live_probe` rather than fake readiness.
+CJ live probe and optional first explicit product import-readiness smoke:
+
+```bash
+API_URL=https://api.dbaronx.com \
+INTERNAL_SERVICE_TOKEN= \
+CJ_TEST_PRODUCT_ID= \
+CJ_TEST_SKU= \
+node scripts/e2e-cj-live-probe-smoke.mjs
+```
+
+The supplier readiness endpoint is `GET /api/suppliers/readiness`. It reports safe booleans and blockers without returning raw supplier secrets. Missing CJ env returns `cj_access_token_missing` or `cj_base_url_missing`; invalid/expired tokens return `cj_token_invalid_or_expired`; rate limits return `cj_rate_limited`; network/timeouts return `cj_live_probe_unreachable`. A successful CJ probe sets `cjConfigured: true` and removes the old no-live-probe blocker.
+
+For the first CJ product test, set `CJ_TEST_PRODUCT_ID` or `CJ_TEST_SKU` and call `POST /api/v1/suppliers/cj/import-readiness` with explicit product metadata. The boundary normalizes CJ product metadata, requires minimum economics and shipping fields before `supplierImportReady: true`, does not create a Medusa product automatically, and must not bulk auto-import the CJ catalog.
