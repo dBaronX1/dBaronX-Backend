@@ -12,6 +12,11 @@ const FAKE_DBX_SIGNATURE = `fake-smoke-signature-${Date.now()}`;
 const blockers = [];
 const responseSnippets = {};
 const fetchErrors = [];
+const apiHealthPathsTried = [];
+const apiRoutesUsed = {};
+const stripeRoutesUsed = {};
+const economicRoutesUsed = {};
+const shippingRoutesUsed = {};
 
 const out = {
   success: false,
@@ -36,6 +41,13 @@ const out = {
   nextManualStep: null,
   responseSnippets,
   fetchErrors,
+  apiHealthPathsTried,
+  apiRoutesUsed,
+  stripeRoutesUsed,
+  economicRoutesUsed,
+  shippingRoutesUsed,
+  shippingOptionsCount: 0,
+  shippingOptionIds: [],
   checks: {
     apiUrl: API_URL,
     medusaUrl: MEDUSA_URL,
@@ -148,12 +160,32 @@ function addBlockerOnce(blocker) {
   if (blocker && !blockers.includes(blocker)) blockers.push(blocker);
 }
 
-const health = await getApi("/health", "/api/health", {});
-out.apiReady = health.probe.ok;
-out.checks.apiHealthHttp = health.probe.status;
-if (!out.apiReady) addBlockerOnce(`api_health_http_${health.probe.status}`);
+async function firstReadyHealthPath(paths) {
+  let last = null;
+  for (const path of paths) {
+    const probe = await requestJson(api(path), { headers: apiHeaders }, `GET ${path}`);
+    apiHealthPathsTried.push({ path, status: probe.status, ok: probe.ok });
+    last = { probe, path };
+    if (probe.ok) return last;
+  }
+  return last;
+}
+
+const health = await firstReadyHealthPath([
+  "/api/health",
+  "/health",
+  "/api/payments/readiness",
+  "/api/system/runtime-contract",
+  "/api/system/deployment-readiness",
+]);
+out.apiReady = Boolean(health?.probe?.ok);
+out.checks.apiHealthHttp = health?.probe?.status ?? 0;
+out.checks.apiHealthPath = health?.path || null;
+apiRoutesUsed.healthReady = out.apiReady ? health.path : null;
+if (!out.apiReady) addBlockerOnce(`api_readiness_all_paths_failed_${out.checks.apiHealthHttp}`);
 
 const readiness = await getApi("/api/payments/readiness", "/api/v1/payments/readiness", {});
+apiRoutesUsed.paymentReadiness = readiness.pathUsed;
 const readinessData = readiness.probe.data || {};
 out.checks.paymentReadinessHttp = readiness.probe.status;
 out.checks.paymentReadiness = readinessData;
@@ -216,12 +248,36 @@ if (cart?.id && variantId) {
   cart = cartFrom(line.data) || cart;
   if (!line.ok) addBlockerOnce(`line_item_add_http_${line.status}`);
 
-  const shipping = await requestJson(`${MEDUSA_URL}/store/shipping-options?cart_id=${encodeURIComponent(cart.id)}`, { headers: medusaHeaders }, "/store/shipping-options");
+  const addressBody = {
+    shipping_address: {
+      first_name: "Unified",
+      last_name: "Smoke",
+      address_1: "123 Test St",
+      city: "New York",
+      province: "NY",
+      postal_code: "10001",
+      country_code: "us",
+    },
+  };
+  const address = await requestJson(`${MEDUSA_URL}/store/carts/${cart.id}`, {
+    method: "POST",
+    headers: medusaHeaders,
+    body: JSON.stringify(addressBody),
+  }, "/store/carts/:id address");
+  out.checks.cartAddressHttp = address.status;
+  shippingRoutesUsed.cartAddress = { method: "POST", path: `/store/carts/${cart.id}`, body: addressBody };
+  if (address.ok) cart = cartFrom(address.data) || cart;
+
+  const shippingPath = `/store/shipping-options?cart_id=${encodeURIComponent(cart.id)}`;
+  const shipping = await requestJson(`${MEDUSA_URL}${shippingPath}`, { headers: medusaHeaders }, shippingPath);
   const options = firstArray(shipping.data?.shipping_options);
   out.shippingOptionReady = shipping.ok && options.length > 0;
+  out.shippingOptionsCount = options.length;
+  out.shippingOptionIds = options.map((option) => option?.id).filter(Boolean);
   out.checks.shippingOptionsHttp = shipping.status;
   out.checks.shippingOptionsCount = options.length;
   out.checks.expectedShippingOptionAvailable = SHIPPING_OPTION_ID ? options.some((option) => option?.id === SHIPPING_OPTION_ID) : null;
+  shippingRoutesUsed.shippingOptions = { method: "GET", path: shippingPath, headers: { "x-publishable-api-key": Boolean(MEDUSA_PUBLISHABLE_KEY) } };
   if (!shipping.ok) addBlockerOnce(`shipping_options_http_${shipping.status}`);
   if (shipping.ok && options.length === 0) addBlockerOnce("shipping_option_missing");
 }
@@ -240,6 +296,7 @@ const sessionBody = {
   productName: "dBaronX unified payment rail smoke",
 };
 const stripeSession = await postApi("/api/checkout/stripe/session", "/api/v1/checkout/stripe/session", sessionBody, { "content-type": "application/json" });
+stripeRoutesUsed.checkoutSession = stripeSession.pathUsed;
 const stripeSessionData = stripeSession.probe.data || {};
 out.stripeReady = stripeSession.probe.status !== 404;
 out.stripeSessionCreated = stripeSessionData.success === true && Boolean(stripeSessionData.sessionId) && Boolean(stripeSessionData.checkoutUrl);
@@ -253,6 +310,7 @@ if (stripeSessionData.configured === true && !out.stripeSessionCreated) addBlock
 if (out.stripeCheckoutUrlPresent && !String(stripeSessionData.checkoutUrl).startsWith("https://checkout.stripe.com/")) addBlockerOnce("stripe_checkout_url_not_stripe_hosted");
 
 const webhook = await postApi("/api/checkout/stripe/webhook", "/api/v1/checkout/stripe/webhook", {}, { "content-type": "application/json" });
+stripeRoutesUsed.unsignedWebhook = webhook.pathUsed;
 const webhookData = webhook.probe.data || {};
 out.stripeUnsignedWebhookRejected = webhook.probe.ok && webhookData.verified === false && webhookData.paymentMarkedPaid === false;
 out.checks.stripeWebhookHttp = webhook.probe.status;
