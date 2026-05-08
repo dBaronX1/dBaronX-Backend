@@ -54,6 +54,8 @@ export class DbxPaymentService {
     dto: CreateDbxPaymentIntentDto,
     actorUserId?: string | null,
   ): Promise<DbxPaymentIntentRecord> {
+    this.assertRuntimeConfigured();
+
     const expiresAt = DateUtil.addMinutes(
       new Date(),
       this.config.intentTtlMinutes,
@@ -88,6 +90,8 @@ export class DbxPaymentService {
   }
 
   async submitPayment(dto: SubmitDbxPaymentDto): Promise<DbxPaymentIntentRecord> {
+    this.assertRuntimeConfigured();
+
     const intent = await this.findIntentByReferenceOrThrowCompat(dto.intentReference);
     const checked = await this.expireIfNeeded(intent);
 
@@ -132,6 +136,8 @@ export class DbxPaymentService {
   }
 
   async confirmPayment(dto: ConfirmDbxPaymentDto): Promise<DbxPaymentIntentRecord> {
+    this.assertRuntimeConfigured();
+
     const normalizedLockReference = this.reference.normalizeForLookup(dto.intentReference);
     const lockKey = `dbx-payment-confirm:${normalizedLockReference}`;
     const lock = this.locks.acquire(lockKey, 30_000);
@@ -229,6 +235,17 @@ export class DbxPaymentService {
     }
 
     return this.completeVerifiedPayment(intent);
+  }
+
+  private assertRuntimeConfigured(): void {
+    const blockers = this.config.runtimeBlockers;
+    if (blockers.length === 0) return;
+
+    throw new BadRequestException({
+      code: "DBX_PAYMENT_RUNTIME_NOT_CONFIGURED",
+      message: "DBX payment runtime is not fully configured.",
+      blockers,
+    });
   }
 
   private async findIntentByReferenceOrThrowCompat(

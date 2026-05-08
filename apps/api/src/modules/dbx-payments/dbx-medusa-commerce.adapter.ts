@@ -105,12 +105,12 @@ export class DbxMedusaCommerceAdapter {
   }
 
   private getMedusaBaseUrl(): string {
-    return String(this.config.get<string>("MEDUSA_BASE_URL") || "")
+    return String(this.config.get<string>("MEDUSA_BASE_URL") || this.config.get<string>("MEDUSA_BACKEND_URL") || "")
       .trim()
       .replace(/\/+$/, "");
   }
 
   private getMedusaAdminApiKey(): string {
-    return String(this.config.get<string>("MEDUSA_ADMIN_API_KEY") || "").trim();
+    return String(this.config.get<string>("MEDUSA_ADMIN_API_KEY") || this.config.get<string>("MEDUSA_ADMIN_TOKEN") || "").trim();
   }
 }

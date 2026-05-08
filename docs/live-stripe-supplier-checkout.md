@@ -280,3 +280,44 @@ node scripts/e2e-cj-live-probe-smoke.mjs
 The supplier readiness endpoint is `GET /api/suppliers/readiness`. It reports safe booleans and blockers without returning raw supplier secrets. Missing CJ env returns `cj_access_token_missing` or `cj_base_url_missing`; invalid/expired tokens return `cj_token_invalid_or_expired`; rate limits return `cj_rate_limited`; network/timeouts return `cj_live_probe_unreachable`. A successful CJ probe sets `cjConfigured: true` and removes the old no-live-probe blocker.
 
 For the first CJ product test, set `CJ_TEST_PRODUCT_ID` or `CJ_TEST_SKU` and call `POST /api/suppliers/cj/import-readiness` with explicit product metadata. The boundary normalizes CJ product metadata, requires minimum economics and shipping fields before `supplierImportReady: true`, does not create a Medusa product automatically, and must not bulk auto-import the CJ catalog.
+
+## Live unified payment rail smoke
+
+Canonical Render command:
+
+```bash
+MEDUSA_URL=https://dbaronx-medusa.onrender.com \
+API_URL=https://dbaronx-api-unified.onrender.com \
+NEXT_PUBLIC_MEDUSA_PUBLISHABLE_KEY=<publishable-key> \
+API_BEARER_TOKEN=<authorized-smoke-jwt-if-needed> \
+node scripts/e2e-unified-payment-rail-smoke.mjs
+```
+
+Public/client-safe env used by the smoke:
+
+- `MEDUSA_URL` / `MEDUSA_BACKEND_URL`: Medusa store API base URL.
+- `NEXT_PUBLIC_MEDUSA_PUBLISHABLE_KEY` / `MEDUSA_PUBLISHABLE_KEY`: Medusa publishable key for store products, regions, carts, line items, and shipping options.
+- `API_URL` / `NESTJS_API_URL`: NestJS API base URL.
+- `WEB_BASE_URL` / `NEXT_PUBLIC_WEB_BASE_URL`: redirect base used only for Stripe Checkout success/cancel URLs.
+
+Server-only env required on the API before a controlled Stripe payment:
+
+- `STRIPE_SECRET_KEY`: required for `POST /api/checkout/stripe/session`; missing returns `stripe_secret_key_missing`, `checkoutUrl: null`, and `sessionId: null`.
+- `STRIPE_WEBHOOK_SECRET`: required for verified `POST /api/checkout/stripe/webhook`; missing returns `stripe_webhook_secret_missing` and does not mark paid.
+- `JWT_SECRET`: required by protected payment mutation routes when `API_BEARER_TOKEN` is used.
+- Order sync env such as `MEDUSA_BASE_URL`/`MEDUSA_BACKEND_URL` and `MEDUSA_ADMIN_API_KEY`/`MEDUSA_ADMIN_TOKEN` is required before settlement can complete an order.
+
+Route/auth contract:
+
+- Public safe diagnostics: `GET /api/health`, `GET /api/payments/readiness`, and unsigned/Stripe-signed `POST /api/checkout/stripe/webhook`.
+- Protected mutation routes: `POST /api/checkout/stripe/session`, `POST /api/checkout/stripe/order-sync-preview`, and all `POST /api/dbx-payments/...` mutation routes. The smoke sends `Authorization: Bearer <API_BEARER_TOKEN>` when `API_BEARER_TOKEN` is present and reports `authorized_smoke_jwt_missing` when a protected live smoke cannot run without one.
+
+Acceptable blockers before live mode but not before the first controlled payment/order:
+
+- `stripe_event_idempotency_storage_pending`, `settlement_pending`, or `order_sync_not_configured` can be acceptable only before any paid-state mutation is enabled.
+- `stripe_secret_key_missing`, `stripe_webhook_secret_missing`, `authorized_smoke_jwt_missing`, and any Medusa cart/line-item/shipping blockers must be fixed before the first controlled Stripe payment.
+
+No-fake-paid-state rule:
+
+- Frontend redirects, unsigned webhooks, fake session IDs, and fake transaction signatures must never mark a payment or order paid.
+- Paid state is allowed only after a verified Stripe webhook or verified Solana transaction, with idempotent server-side settlement.
