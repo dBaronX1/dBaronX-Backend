@@ -23,11 +23,10 @@ export class DbxMedusaCommerceAdapter {
     intent: DbxPaymentIntentRecord,
   ): Promise<MedusaSyncResult> {
     if (!intent.medusa_order_id) {
-      return {
-        success: true,
-        medusaOrderId: null,
-        message: "No Medusa order id attached; DBX payment completed without commerce sync.",
-      };
+      throw new BadGatewayException({
+        code: "DBX_ORDER_SYNC_PENDING",
+        message: "No Medusa order id is attached yet; DBX payment can be verified but order sync remains pending.",
+      });
     }
 
     const baseUrl = this.getMedusaBaseUrl();

@@ -280,3 +280,25 @@ node scripts/e2e-cj-live-probe-smoke.mjs
 The supplier readiness endpoint is `GET /api/suppliers/readiness`. It reports safe booleans and blockers without returning raw supplier secrets. Missing CJ env returns `cj_access_token_missing` or `cj_base_url_missing`; invalid/expired tokens return `cj_token_invalid_or_expired`; rate limits return `cj_rate_limited`; network/timeouts return `cj_live_probe_unreachable`. A successful CJ probe sets `cjConfigured: true` and removes the old no-live-probe blocker.
 
 For the first CJ product test, set `CJ_TEST_PRODUCT_ID` or `CJ_TEST_SKU` and call `POST /api/suppliers/cj/import-readiness` with explicit product metadata. The boundary normalizes CJ product metadata, requires minimum economics and shipping fields before `supplierImportReady: true`, does not create a Medusa product automatically, and must not bulk auto-import the CJ catalog.
+
+## DBX token checkout readiness addendum
+
+DBX Solana token checkout now has an explicit route contract alongside the live Stripe and supplier checkout readiness flow:
+
+- `POST /api/dbx-payments/intents` creates a pending DBX payment intent for a `cartId` or `orderRef`, returns the public DBX receiver address, expected base-unit amount, expiry, and idempotency reference, and never marks payment paid.
+- `POST /api/dbx-payments/submit` accepts `transactionSignature`/`txHash`, validates Solana signature shape, attaches it to the DBX intent, and returns verification-pending state only.
+- `POST /api/dbx-payments/confirm` requires server-side Solana/FastAPI verification before any confirmed transition. If `SOLANA_RPC_URL` is missing, the explicit blocker is `solana_rpc_not_configured`.
+- `POST /api/dbx-payments/:reference/retry-order-sync` is reserved for verified payments whose Medusa order sync is pending.
+- `GET /api/dbx-payments/:reference` exposes frontend-safe status for polling.
+
+Stripe remains the card-checkout path and supplier readiness remains independent. DBX does not weaken Stripe/Medusa behavior: Medusa order payment state is not trusted from frontend wallet confirmation, and DBX order completion is only attempted after server-side transaction verification.
+
+Frontend checkout should show Stripe, Paystack, and DBX as separate payment options. The DBX option must render `NEXT_PUBLIC_DBX_SOLANA_PAYMENT_ADDRESS`, a QR/address instruction, transaction signature submission, and pending/confirmed/failed UI states. The UI must not implement a frontend-paid state.
+
+DBX readiness smoke:
+
+```bash
+node scripts/e2e-dbx-token-checkout-readiness-smoke.mjs
+```
+
+The smoke confirms API health, pending intent creation, invalid/fake transaction rejection, no fake paid state, and explicit order-sync/Solana RPC blockers.
