@@ -66,8 +66,25 @@ Use the unversioned Render route contract below unless route discovery proves a 
 - `GET /api/suppliers/readiness`
 - `GET /api/suppliers/cj/preflight`
 - `POST /api/suppliers/cj/import-readiness`
+- `GET /api/payments/readiness`
+- `GET /api/payments/economic-readiness`
 - `POST /api/checkout/stripe/session`
 - `POST /api/checkout/stripe/webhook`
+- `POST /api/checkout/stripe/order-sync-preview`
+- `POST /api/payments/economic-events/dry-run`
+
+The first Stripe smoke must call those canonical `/api` routes first. It may try a legacy `/api/v1` path only after the canonical route returns `404`, and its JSON output records the exact route in `apiRoutesUsed`, `stripeRoutesUsed`, and `economicRoutesUsed`.
+
+API readiness no longer depends on `GET /api/health` alone. The smoke records `apiHealthPathsTried` for `GET /api/health`, `GET /health`, `GET /api/payments/readiness`, `GET /api/system/runtime-contract`, and `GET /api/system/deployment-readiness`, then treats the API as ready when any known readiness endpoint returns `200`.
+
+Medusa shipping visibility uses the Store API with the publishable key present when configured:
+
+1. `POST /store/carts/:cart_id` with a minimal US `shipping_address` (`country_code: "us"`) so region/service-zone rules can be evaluated.
+2. `GET /store/shipping-options?cart_id=:cart_id` with `x-publishable-api-key` when available.
+3. `POST /store/carts/:cart_id/shipping-methods` with `{ "option_id": "so_..." }` only after a real option is returned.
+4. `GET /store/carts/:cart_id` to capture cart shipping totals.
+
+The smoke does not mark `shippingOptionReady` unless Medusa returns a real shipping option ID. If Medusa returns zero options, the result remains the real blocker `shipping_option_missing` rather than a fabricated shipping success.
 
 PowerShell live smoke environment:
 
