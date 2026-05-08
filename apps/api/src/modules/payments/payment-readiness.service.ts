@@ -1,7 +1,6 @@
 import { Injectable } from "@nestjs/common";
 import { ConfigService } from "@nestjs/config";
-
-type StripeSecretKeyMode = "test" | "live" | "unknown" | "missing";
+import { detectStripeSecretKeyMode, type StripeSecretKeyMode } from "./stripe-secret-key-mode";
 
 type PaymentReadinessSnapshot = {
   stripeConfigured: boolean;
@@ -26,7 +25,7 @@ export class PaymentReadinessService {
   snapshot(): PaymentReadinessSnapshot {
     const stripeSecretKey = this.value("STRIPE_SECRET_KEY");
     const stripeConfigured = Boolean(stripeSecretKey);
-    const stripeSecretKeyMode = this.stripeSecretKeyMode(stripeSecretKey);
+    const stripeSecretKeyMode = detectStripeSecretKeyMode(stripeSecretKey);
     const stripeWebhookConfigured = this.present("STRIPE_WEBHOOK_SECRET");
     const liveCheckoutExplicitlyAllowed = this.value("ALLOW_LIVE_STRIPE_CHECKOUT").toLowerCase() === "true";
     const dbxPaymentAddressPresent = this.anyPresent([
@@ -88,10 +87,4 @@ export class PaymentReadinessService {
     return String(this.config.get<string>(key) || process.env[key] || "").trim();
   }
 
-  private stripeSecretKeyMode(secretKey: string): StripeSecretKeyMode {
-    if (!secretKey) return "missing";
-    if (secretKey.startsWith("sk_test_")) return "test";
-    if (secretKey.startsWith("sk_live_")) return "live";
-    return "unknown";
-  }
 }

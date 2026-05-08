@@ -5,6 +5,7 @@ import Stripe from "stripe";
 import { EconomicEventService } from "../../shared/services/economic-event.service";
 import { SupabaseService } from "../../shared/services/supabase.service";
 import { CreateStripeCheckoutSessionDto } from "./dto/create-stripe-checkout-session.dto";
+import { detectStripeSecretKeyMode, type StripeSecretKeyMode } from "./stripe-secret-key-mode";
 
 type StripeCheckoutMode = "test" | "live" | "unknown";
 type RequestedCheckoutMode = "test" | "live";
@@ -200,7 +201,7 @@ export class StripeCheckoutService {
   async createSession(input: CreateStripeCheckoutSessionDto) {
     const secretKey = this.getStripeSecretKey();
     const blockers: string[] = [];
-    const mode = this.getStripeMode(secretKey);
+    const mode = this.getStripeSecretKeyMode(secretKey);
     const checkoutMode = this.getRequestedCheckoutMode(input.checkoutMode);
     const liveSmokeOverrideAllowed = this.isLiveSmokeOverrideAllowed();
 
@@ -235,6 +236,23 @@ export class StripeCheckoutService {
         metadata: { stripeKeyMode: mode, requestedCheckoutMode: checkoutMode },
         message:
           "A live Stripe key is configured for a test checkout request. Configure Stripe test-mode secrets or explicitly allow live smoke checkout.",
+      };
+    }
+
+    if (checkoutMode === "live" && !this.liveCheckoutExplicitlyAllowed()) {
+      blockers.push("stripe_live_checkout_not_explicitly_allowed");
+      return {
+        success: false,
+        configured: true,
+        provider: "stripe",
+        mode,
+        requestedCheckoutMode: checkoutMode,
+        checkoutSessionPathReady: true,
+        checkoutUrl: null,
+        sessionId: null,
+        blockers,
+        metadata: { stripeKeyMode: mode, requestedCheckoutMode: checkoutMode },
+        message: "Live Stripe checkout requires ALLOW_LIVE_STRIPE_CHECKOUT=true before a session can be created.",
       };
     }
 
@@ -723,10 +741,7 @@ export class StripeCheckoutService {
     return String(this.config.get<string>("ALLOW_LIVE_STRIPE_CHECKOUT") || process.env.ALLOW_LIVE_STRIPE_CHECKOUT || "").trim().toLowerCase() === "true";
   }
 
-  private getStripeSecretKeyMode(secretKey: string): StripeSecretKeyMode {
-    if (!secretKey) return "missing";
-    if (secretKey.startsWith("sk_test_")) return "test";
-    if (secretKey.startsWith("sk_live_")) return "live";
-    return "unknown";
+  private getStripeSecretKeyMode(secretKey?: string | null): StripeSecretKeyMode {
+    return detectStripeSecretKeyMode(secretKey);
   }
 }
