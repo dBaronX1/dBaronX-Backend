@@ -1,4 +1,4 @@
-import { Body, Controller, Headers, HttpCode, HttpStatus, Post, Req, VERSION_NEUTRAL } from "@nestjs/common";
+import { Body, Controller, Get, Headers, HttpCode, HttpStatus, Post, Req, VERSION_NEUTRAL } from "@nestjs/common";
 import { ApiTags } from "@nestjs/swagger";
 import { Request } from "express";
 import { Public } from "../../shared/decorators/public.decorator";
@@ -11,6 +11,11 @@ type RawBodyRequest = Request & { rawBody?: Buffer };
 @Controller({ path: "checkout/stripe", version: VERSION_NEUTRAL })
 export class StripeCheckoutController {
   constructor(private readonly stripe: StripeCheckoutService) {}
+
+  @Get("readiness")
+  async readiness() {
+    return this.stripe.readiness();
+  }
 
   @Post("session")
   @HttpCode(HttpStatus.OK)
