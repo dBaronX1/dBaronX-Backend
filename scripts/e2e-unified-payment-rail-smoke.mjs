@@ -183,8 +183,8 @@ function addBlockerOnce(blocker) {
   if (blocker && !blockers.includes(blocker)) blockers.push(blocker);
 }
 
-function detectStripeSessionMode(sessionId) {
-  if (typeof sessionId !== "string") return "unknown";
+function stripeSessionModeFromId(sessionId) {
+  if (typeof sessionId !== "string" || sessionId.trim() === "") return "missing";
   if (sessionId.startsWith("cs_test_")) return "test";
   if (sessionId.startsWith("cs_live_")) return "live";
   return "unknown";
@@ -357,7 +357,7 @@ out.checkoutUrlPresent = out.stripeCheckoutUrlPresent;
 out.sessionId = typeof stripeSessionData.sessionId === "string" ? stripeSessionData.sessionId : null;
 out.checkoutUrl = typeof stripeSessionData.checkoutUrl === "string" ? stripeSessionData.checkoutUrl : null;
 out.stripeHostedCheckoutUrl = Boolean(out.checkoutUrl && /^https:\/\/checkout\.stripe\.com\//.test(out.checkoutUrl));
-out.stripeSessionModeDetected = detectStripeSessionMode(out.sessionId);
+out.stripeSessionModeDetected = stripeSessionModeFromId(out.sessionId);
 out.stripeSessionModeAllowed = sessionBody.checkoutMode !== "test" || out.stripeSessionModeDetected !== "live";
 out.checks.stripeSessionHttp = stripeSession.probe.status;
 out.checks.stripeSessionModeDetected = out.stripeSessionModeDetected;
@@ -365,7 +365,10 @@ out.checks.stripeSessionModeAllowed = out.stripeSessionModeAllowed;
 out.checks.stripeResponseMode = stripeSessionData.mode || stripeSessionData.metadata?.stripeKeyMode || null;
 out.checks.requestedCheckoutMode = stripeSessionData.requestedCheckoutMode || stripeSessionData.metadata?.requestedCheckoutMode || sessionBody.checkoutMode;
 out.checks.stripeConfigured = stripeSessionData.configured ?? readinessData.stripeConfigured ?? null;
-if (sessionBody.checkoutMode === "test" && out.stripeSessionModeDetected === "live" && !ALLOW_LIVE_STRIPE_SMOKE) addBlockerOnce("stripe_live_session_returned_for_test_smoke");
+if (sessionBody.checkoutMode === "test" && out.stripeSessionModeDetected === "live" && !ALLOW_LIVE_STRIPE_SMOKE) {
+  addBlockerOnce("stripe_live_session_returned_for_test_smoke");
+  addBlockerOnce("stripe_live_mode_blocked_for_controlled_smoke");
+}
 if (firstArray(stripeSessionData.blockers).includes("stripe_live_key_used_for_test_checkout")) addBlockerOnce("stripe_live_key_used_for_test_checkout");
 if (!out.stripeReady) addBlockerOnce("stripe_session_route_missing");
 if (stripeSessionData.configured === false) addBlockerOnce("stripe_secret_key_missing");
@@ -373,6 +376,7 @@ if (firstArray(stripeSessionData.blockers).includes("stripe_live_key_used_for_te
 if (out.stripeSessionModeDetected === "live" && !ALLOW_LIVE_STRIPE_SMOKE) {
   out.stripeSessionModeAllowed = false;
   addBlockerOnce("stripe_live_session_returned_for_test_smoke");
+  addBlockerOnce("stripe_live_mode_blocked_for_controlled_smoke");
 }
 if (out.stripeSecretKeyMode === "live" && !ALLOW_LIVE_STRIPE_SMOKE) addBlockerOnce("stripe_live_mode_blocked_for_controlled_test_smoke");
 if (out.stripeSecretKeyMode !== "test" && !(out.stripeSecretKeyMode === "live" && ALLOW_LIVE_STRIPE_SMOKE)) addBlockerOnce(`stripe_test_mode_required_current_${out.stripeSecretKeyMode}`);
