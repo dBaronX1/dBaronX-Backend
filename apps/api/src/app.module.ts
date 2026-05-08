@@ -7,7 +7,6 @@ import { BootstrapModule } from "./shared/bootstrap/bootstrap.module";
 import { PlatformModule } from "./modules/platform/platform.module";
 import { SystemModule } from "./modules/system/system.module";
 import { SystemFinalizationModule } from "./modules/system/system-finalization.module";
-import { DbxPaymentModule } from "./modules/dbx-payments/dbx-payment.module";
 import { DbxPaymentsModule } from "./modules/dbx-payments/dbx-payments.module";
 import { HealthController } from "./health.controller";
 
@@ -24,7 +23,6 @@ import { HealthController } from "./health.controller";
     PlatformModule,
     SystemModule,
     SystemFinalizationModule,
-    DbxPaymentModule,
     DbxPaymentsModule,
   ],
 })
