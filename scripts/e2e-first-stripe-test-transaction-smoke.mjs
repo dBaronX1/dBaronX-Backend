@@ -17,6 +17,7 @@ const CANONICAL_STRIPE_WEBHOOK_URL = "https://dbaronx-api-unified.onrender.com/a
 const STRIPE_WEBHOOK_URL_EXPECTED = `${API_BASE_URL}/api/checkout/stripe/webhook`;
 const ALLOW_LIVE_STRIPE_SMOKE = String(process.env.ALLOW_LIVE_STRIPE_SMOKE || "").trim().toLowerCase() === "true";
 const MEDUSA_COMMERCE_ENSURE_SHIPPING_VISIBLE_EXPECTED = String(process.env.MEDUSA_COMMERCE_ENSURE_SHIPPING_VISIBLE_EXPECTED || "true").trim().toLowerCase() !== "false";
+const TARGET_SALES_CHANNEL_ID = "sc_01KQNM6EQZ19Y1BCSRVF9XV61H";
 
 const blockers = [];
 const checkoutBlockers = [];
@@ -100,6 +101,19 @@ function addBlocker(blocker, category = "checkout") {
 
 function addWarning(warning) {
   addUnique(warnings, warning);
+}
+
+function medusaPublishableKeyLooksLikeStripeKey() {
+  return /^(pk_test_|pk_live_)/.test(MEDUSA_KEY);
+}
+
+function medusaPublishableKeyInvalid(probe) {
+  const text = `${probe?.text || ""} ${JSON.stringify(probe?.body || {})}`.toLowerCase();
+  return probe?.status === 400 && text.includes("a valid publishable key is required");
+}
+
+function guardMedusaPublishableKeyProbe(probe) {
+  if (medusaPublishableKeyInvalid(probe)) addBlocker("medusa_publishable_key_invalid");
 }
 
 function stripeSessionModeFromId(sessionId) {
@@ -263,6 +277,8 @@ const out = {
   cartId: null,
 };
 
+if (MEDUSA_KEY && medusaPublishableKeyLooksLikeStripeKey()) addBlocker("medusa_publishable_key_looks_like_stripe_key");
+
 const health = await firstReadyHealthPath([
   "/api/health",
   "/health",
@@ -313,6 +329,7 @@ if (!medusaHealth.ok) addWarning(`medusa_health_http_${medusaHealth.status}`);
 
 const productsProbe = await requestJson("medusa products GET /store/products", `${MEDUSA_URL}/store/products?limit=20`, { headers: medusaHeaders });
 checks.medusaProductsHttp = productsProbe.status;
+guardMedusaPublishableKeyProbe(productsProbe);
 if (!productsProbe.ok) addBlocker(`store_products_http_${productsProbe.status}`);
 const product = firstProductWithVariant(productsProbe.data?.products);
 out.productId = product?.id || null;
@@ -322,6 +339,7 @@ if (!out.variantId) addBlocker("variant_id_missing");
 
 const regionsProbe = await requestJson("medusa regions GET /store/regions", `${MEDUSA_URL}/store/regions?limit=50`, { headers: medusaHeaders });
 checks.medusaRegionsHttp = regionsProbe.status;
+guardMedusaPublishableKeyProbe(regionsProbe);
 if (!regionsProbe.ok) addBlocker(`store_regions_http_${regionsProbe.status}`);
 const regions = array(regionsProbe.data?.regions);
 out.regionId = regions.find((region) => region?.id === TARGET_REGION_ID)?.id || regions.find((region) => String(region?.currency_code || "").toLowerCase() === "usd")?.id || regions[0]?.id || null;
@@ -330,7 +348,7 @@ out.medusaReady = productsProbe.ok && regionsProbe.ok && Boolean(out.productId &
 
 let cart = null;
 if (out.regionId) {
-  const salesChannelId = salesChannelIdFrom(product);
+  const salesChannelId = salesChannelIdFrom(product) || TARGET_SALES_CHANNEL_ID;
   const cartBodies = salesChannelId
     ? [{ region_id: out.regionId, sales_channel_id: salesChannelId }, { region_id: out.regionId }]
     : [{ region_id: out.regionId }];
@@ -343,6 +361,7 @@ if (out.regionId) {
     });
     checks.cartCreateHttp = lastCartProbe.status;
     checks.cartCreateBody = body;
+    guardMedusaPublishableKeyProbe(lastCartProbe);
     cart = cartFrom(lastCartProbe.data);
     out.cartId = cart?.id || null;
     if (lastCartProbe.ok && out.cartId) break;
@@ -358,6 +377,7 @@ if (out.cartId && out.variantId) {
     body: JSON.stringify({ variant_id: out.variantId, quantity: 1 }),
   });
   checks.lineItemAddHttp = lineProbe.status;
+  guardMedusaPublishableKeyProbe(lineProbe);
   out.lineItemAdded = lineProbe.ok;
   cart = cartFrom(lineProbe.data) || cart;
   if (!out.lineItemAdded) addBlocker(`line_item_add_http_${lineProbe.status}`);
@@ -381,6 +401,7 @@ if (out.cartId) {
     body: JSON.stringify(addressBody),
   });
   checks.cartAddressHttp = addressProbe.status;
+  guardMedusaPublishableKeyProbe(addressProbe);
   shippingRoutesUsed.cartAddress = { method: "POST", path: `/store/carts/${out.cartId}`, body: addressBody };
   if (addressProbe.ok) cart = cartFrom(addressProbe.data) || cart;
   else addWarning(`cart_address_http_${addressProbe.status}`);
@@ -392,6 +413,7 @@ if (out.cartId) {
   const shippingProbe = await requestJson(`medusa shipping options GET ${shippingPath}`, `${MEDUSA_URL}${shippingPath}`, { headers: medusaHeaders });
   const options = array(shippingProbe.data?.shipping_options);
   checks.shippingOptionsHttp = shippingProbe.status;
+  guardMedusaPublishableKeyProbe(shippingProbe);
   checks.shippingOptionsCount = options.length;
   out.shippingOptionsCount = options.length;
   out.shippingOptionIds = options.map((option) => option?.id).filter(Boolean);
@@ -416,6 +438,7 @@ if (out.cartId && shippingOptionId) {
     body: JSON.stringify(body),
   });
   checks.shippingAddHttp = attachProbe.status;
+  guardMedusaPublishableKeyProbe(attachProbe);
   shippingRoutesUsed.shippingMethodAttach = { method: "POST", path: attachPath, body };
   if (attachProbe.ok) {
     cart = cartFrom(attachProbe.data) || cart;
@@ -562,13 +585,19 @@ if (dryRun.paymentMarkedPaid === true || dryRun.orderCompleted === true) addBloc
 
 out.settlementBlockers = blockers.filter((blocker) => /webhook|paid|settlement|order_sync|economic|idempotency/i.test(blocker));
 out.success = blockers.length === 0;
-out.nextManualStep = out.checkoutSessionCreated
-  ? (out.stripeSecretKeyMode === "test" && out.stripeSessionModeDetected === "test" && out.shippingOptionReady && out.unsignedWebhookRejected && blockers.length === 0
-    ? `Open ${out.checkoutUrl}; use Stripe test card 4242 4242 4242 4242 with any future expiry, any CVC, and any postal code; Stripe webhook destination must be ${CANONICAL_STRIPE_WEBHOOK_URL}; then confirm checkout.session.completed in Stripe Dashboard and verify only a signed webhook can move paid/order sync state.`
-    : out.stripeSessionModeDetected === "live"
-      ? liveSessionTestModeWarning()
-      : "Stripe returned a hosted checkout URL with an unknown session mode. Do not use a test card until a cs_test_* session is produced for controlled test validation.")
-  : (out.stripeSessionModeDetected === "live" ? liveSessionTestModeWarning() : "Resolve checkout blockers before opening Stripe Checkout. No checkoutUrl/sessionId should be used unless Stripe returns real hosted artifacts.");
+if (out.stripeSessionModeDetected === "live" && !ALLOW_LIVE_STRIPE_SMOKE) {
+  out.nextManualStep = liveSessionTestModeWarning();
+} else if (out.checkoutSessionCreated && out.stripeHostedCheckoutUrl && out.stripeSessionModeDetected === "test" && !out.shippingOptionReady) {
+  out.nextManualStep = "Stripe test checkout is ready, but do not open it until Medusa Store API returns a real shipping option.";
+} else if (out.checkoutSessionCreated && out.stripeHostedCheckoutUrl && out.stripeSessionModeDetected === "unknown") {
+  out.nextManualStep = "Resolve unknown Stripe session mode before opening Stripe Checkout.";
+} else if (out.checkoutSessionCreated && out.stripeSecretKeyMode === "test" && out.stripeSessionModeDetected === "test" && out.shippingOptionReady && out.unsignedWebhookRejected && checkoutBlockers.length === 0) {
+  out.nextManualStep = `Open ${out.checkoutUrl}; use Stripe test card 4242 4242 4242 4242 with any future expiry, any CVC, and any postal code; Stripe webhook destination must be ${CANONICAL_STRIPE_WEBHOOK_URL}; then confirm checkout.session.completed in Stripe Dashboard and verify only a signed webhook can move paid/order sync state.`;
+} else if (out.checkoutSessionCreated) {
+  out.nextManualStep = "Resolve checkout blockers before opening Stripe Checkout. Current checkout safety checks are incomplete.";
+} else {
+  out.nextManualStep = "Resolve checkout blockers before opening Stripe Checkout. No checkoutUrl/sessionId should be used unless Stripe returns real hosted artifacts.";
+}
 
 console.log(JSON.stringify(out, null, 2));
 process.exit(out.success ? 0 : 1);

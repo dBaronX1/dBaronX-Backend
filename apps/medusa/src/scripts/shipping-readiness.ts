@@ -3,12 +3,14 @@ import {
   createLocationFulfillmentSetWorkflow,
   createServiceZonesWorkflow,
   createShippingOptionsWorkflow,
+  linkSalesChannelsToStockLocationWorkflow,
   updateServiceZonesWorkflow,
 } from "@medusajs/medusa/core-flows";
 
 export const TARGET_REGION_ID = "reg_01KQSEKK6A9T86NJ0AG05XPK3H";
 export const TARGET_SHIPPING_PROFILE_ID = "sp_01KQNHSN2N8DDF782WRRDGJJF0";
 export const TARGET_STOCK_LOCATION_ID = "sloc_01KQR5J1PYD7FZ1AF516W1VQWJ";
+export const TARGET_SALES_CHANNEL_ID = "sc_01KQNM6EQZ19Y1BCSRVF9XV61H";
 export const TARGET_SERVICE_ZONE_ID = "serzo_01KQY400PQPH3KZ6NMGQ5DYBY2";
 export const PREFERRED_MANUAL_FULFILLMENT_PROVIDER_ID = "manual_manual";
 
@@ -43,6 +45,10 @@ export type EnsureShippingReadinessResult = {
   priceReady: boolean;
   rulesReady: boolean;
   visibleToStoreApiExpected: boolean;
+  storeApiVisibilityProofReady: boolean;
+  storeApiVisibilityProofReason: string | null;
+  salesChannelStockLocationLinked: boolean;
+  salesChannelFulfillmentSetIds: string[];
   providerEnabledForServiceLocation: boolean;
   stockLocationProviderIds: string[];
   serviceZoneProviderIds: string[];
@@ -239,6 +245,155 @@ function selectFulfillmentProviderId(
     selectedFulfillmentProviderSource:
       "fulfillment_provider_missing_or_disabled",
   };
+}
+
+async function ensureSalesChannelStockLocationLink(
+  container: any,
+  query: any,
+  stockLocationId: string | null,
+  repair: boolean,
+  created: string[],
+  existing: string[],
+  blockers: string[],
+): Promise<{
+  salesChannelStockLocationLinked: boolean;
+  salesChannelFulfillmentSetIds: string[];
+}> {
+  if (!stockLocationId) {
+    return {
+      salesChannelStockLocationLinked: false,
+      salesChannelFulfillmentSetIds: [],
+    };
+  }
+
+  const readSalesChannel = async () =>
+    (
+      await safeGraph(
+        query,
+        "sales_channel",
+        [
+          "id",
+          "name",
+          "stock_locations.id",
+          "stock_locations.fulfillment_sets.id",
+        ],
+        { id: TARGET_SALES_CHANNEL_ID },
+        1,
+      )
+    )[0];
+
+  let salesChannel = await readSalesChannel();
+  if (!getId(salesChannel)) {
+    pushUnique(blockers, "sales_channel_missing");
+    return {
+      salesChannelStockLocationLinked: false,
+      salesChannelFulfillmentSetIds: [],
+    };
+  }
+
+  let stockLocations = asArray<Record<string, unknown>>(
+    salesChannel.stock_locations,
+  ).filter(isRecord);
+  let linkedLocation = stockLocations.find(
+    (location) => getId(location) === stockLocationId,
+  );
+
+  if (!linkedLocation && repair) {
+    try {
+      await linkSalesChannelsToStockLocationWorkflow(container).run({
+        input: { id: TARGET_SALES_CHANNEL_ID, add: [stockLocationId] },
+      });
+      pushUnique(created, "sales_channel_stock_location_link");
+      salesChannel = await readSalesChannel();
+      stockLocations = asArray<Record<string, unknown>>(
+        salesChannel?.stock_locations,
+      ).filter(isRecord);
+      linkedLocation = stockLocations.find(
+        (location) => getId(location) === stockLocationId,
+      );
+    } catch (error) {
+      addWorkflowErrorBlocker(
+        blockers,
+        "sales_channel_stock_location_link",
+        error,
+      );
+    }
+  }
+
+  const salesChannelStockLocationLinked = Boolean(linkedLocation);
+  if (salesChannelStockLocationLinked) {
+    pushUnique(
+      created.includes("sales_channel_stock_location_link")
+        ? created
+        : existing,
+      "sales_channel_stock_location_link",
+    );
+  } else {
+    pushUnique(blockers, "sales_channel_stock_location_link_missing");
+  }
+
+  const salesChannelFulfillmentSetIds = Array.from(
+    new Set(
+      stockLocations
+        .flatMap((location) =>
+          asArray<Record<string, unknown>>(location.fulfillment_sets),
+        )
+        .map(getId)
+        .filter((id): id is string => Boolean(id)),
+    ),
+  );
+
+  return { salesChannelStockLocationLinked, salesChannelFulfillmentSetIds };
+}
+
+async function proveStoreApiShippingOptionContext(
+  container: any,
+  shippingOptionId: string | null,
+  salesChannelFulfillmentSetIds: string[],
+): Promise<{ ready: boolean; reason: string | null }> {
+  if (!shippingOptionId) {
+    return { ready: false, reason: "shipping_option_missing" };
+  }
+  if (salesChannelFulfillmentSetIds.length === 0) {
+    return {
+      ready: false,
+      reason: "sales_channel_fulfillment_sets_missing_for_store_api_filter",
+    };
+  }
+
+  try {
+    const fulfillmentModule = container.resolve(Modules.FULFILLMENT);
+    const options = await fulfillmentModule.listShippingOptionsForContext({
+      context: {
+        is_return: "false",
+        enabled_in_store: "true",
+      },
+      fulfillment_set_id: salesChannelFulfillmentSetIds,
+      address: {
+        country_code: DEFAULT_COUNTRY_CODE,
+        province_code: "NY",
+        city: "New York",
+        postal_expression: "10001",
+      },
+    });
+    const optionIds = asArray<Record<string, unknown>>(options)
+      .map(getId)
+      .filter((id): id is string => Boolean(id));
+
+    if (optionIds.includes(shippingOptionId)) {
+      return { ready: true, reason: null };
+    }
+
+    return {
+      ready: false,
+      reason: `target_shipping_option_not_returned_for_store_context:${optionIds.join(",") || "none"}`,
+    };
+  } catch (error) {
+    return {
+      ready: false,
+      reason: `store_context_probe_failed:${errorMessage(error)}`,
+    };
+  }
 }
 
 async function findEnabledProviderIdsForStockLocation(
@@ -541,7 +696,9 @@ async function linkProviderToStockLocation(
   // Redis-backed workflow engine, which keeps this ensure script safe when Redis
   // quota is exhausted.
   const link = container.resolve(ContainerRegistrationKeys.LINK);
-  const existingLinks = await link.list([linkInput], { asLinkDefinition: true });
+  const existingLinks = await link.list([linkInput], {
+    asLinkDefinition: true,
+  });
   if (asArray(existingLinks).length > 0) return false;
 
   await link.create([linkInput]);
@@ -554,7 +711,9 @@ async function removeStoreVisibilityBlockingRules(
   blockers: string[],
   created: string[],
 ): Promise<boolean> {
-  const rules = asArray<Record<string, unknown>>(shippingOption?.rules).filter(isRecord);
+  const rules = asArray<Record<string, unknown>>(shippingOption?.rules).filter(
+    isRecord,
+  );
   const blockingRuleIds = rules
     .filter((rule) => String(rule.attribute || "") === "region_id")
     .map(getId)
@@ -660,6 +819,8 @@ export async function ensureShippingReadiness(
   let providerLinkRepairError: Record<string, unknown> | undefined;
   let providerLinkWorkflowUsed: string | null = null;
   let providerLinkInputPreview: Record<string, unknown> | null = null;
+  let salesChannelStockLocationLinked = false;
+  let salesChannelFulfillmentSetIds: string[] = [];
 
   const region = (
     await safeGraph(
@@ -699,6 +860,20 @@ export async function ensureShippingReadiness(
   const stockLocationId = getId(stockLocation);
   if (stockLocationId) pushUnique(existing, "stock_location");
   else pushUnique(blockers, "stock_location_missing");
+
+  const salesChannelLink = await ensureSalesChannelStockLocationLink(
+    container,
+    query,
+    stockLocationId,
+    repair,
+    created,
+    existing,
+    blockers,
+  );
+  salesChannelStockLocationLinked =
+    salesChannelLink.salesChannelStockLocationLinked;
+  salesChannelFulfillmentSetIds =
+    salesChannelLink.salesChannelFulfillmentSetIds;
 
   const allFulfillmentProviderRecords = await findFulfillmentProviders(query);
   const allFulfillmentProviderIds = allFulfillmentProviderRecords
@@ -766,7 +941,9 @@ export async function ensureShippingReadiness(
           selector: { id: serviceZoneId },
           update: {
             name: DEFAULT_SERVICE_ZONE_NAME,
-            geo_zones: [{ type: "country", country_code: DEFAULT_COUNTRY_CODE }],
+            geo_zones: [
+              { type: "country", country_code: DEFAULT_COUNTRY_CODE },
+            ],
           },
         } as any,
       });
@@ -924,7 +1101,7 @@ export async function ensureShippingReadiness(
     providerEnabledForServiceLocation = providerLinkVerifiedAfterRefetch;
     providerLinkCreated = Boolean(
       providerEnabledForServiceLocation &&
-        (providerLinkCreated || !providerWasLinkedBeforeRepair),
+      (providerLinkCreated || !providerWasLinkedBeforeRepair),
     );
 
     if (providerEnabledForServiceLocation) {
@@ -1047,23 +1224,41 @@ export async function ensureShippingReadiness(
 
   const priceReady = hasUsdFlatRatePrice(shippingOption);
   const rulesReady = hasOnlyStoreVisibleRules(shippingOption);
+  const storeApiVisibilityProof = await proveStoreApiShippingOptionContext(
+    container,
+    shippingOptionId,
+    salesChannelFulfillmentSetIds,
+  );
+  const storeApiVisibilityProofReady = storeApiVisibilityProof.ready;
+  const storeApiVisibilityProofReason = storeApiVisibilityProof.reason;
   const visibleToStoreApiExpected = Boolean(
     shippingOptionId &&
-      priceReady &&
-      rulesReady &&
-      serviceZoneReady &&
-      fulfillmentProviderReady &&
-      providerEnabledForServiceLocation,
+    priceReady &&
+    rulesReady &&
+    serviceZoneReady &&
+    fulfillmentProviderReady &&
+    providerEnabledForServiceLocation &&
+    salesChannelStockLocationLinked &&
+    storeApiVisibilityProofReady,
   );
-  const shippingOptionReady = Boolean(shippingOptionId && priceReady && rulesReady);
+  const shippingOptionReady = Boolean(
+    shippingOptionId && priceReady && rulesReady,
+  );
   if (shippingOptionReady)
     pushUnique(
       created.includes("shipping_option") ? created : existing,
       "shipping_option",
     );
   else pushUnique(blockers, "shipping_option_missing");
-  if (shippingOptionId && !priceReady) pushUnique(blockers, "shipping_option_usd_flat_rate_price_missing");
-  if (shippingOptionId && !rulesReady) pushUnique(blockers, "shipping_option_store_visibility_rules_blocking");
+  if (shippingOptionId && !priceReady)
+    pushUnique(blockers, "shipping_option_usd_flat_rate_price_missing");
+  if (shippingOptionId && !rulesReady)
+    pushUnique(blockers, "shipping_option_store_visibility_rules_blocking");
+  if (shippingOptionId && !storeApiVisibilityProofReady)
+    pushUnique(
+      blockers,
+      `shipping_option_store_visibility_unverified:${storeApiVisibilityProofReason || "unknown"}`,
+    );
 
   return {
     created,
@@ -1087,6 +1282,10 @@ export async function ensureShippingReadiness(
     priceReady,
     rulesReady,
     visibleToStoreApiExpected,
+    storeApiVisibilityProofReady,
+    storeApiVisibilityProofReason,
+    salesChannelStockLocationLinked,
+    salesChannelFulfillmentSetIds,
     providerEnabledForServiceLocation,
     stockLocationProviderIds,
     serviceZoneProviderIds,

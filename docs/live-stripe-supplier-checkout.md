@@ -102,6 +102,10 @@ Medusa shipping visibility uses the Store API with the publishable key present w
 
 The smoke does not mark `shippingOptionReady` unless Medusa returns a real shipping option ID. If Medusa returns zero options, the result remains the real blocker `shipping_option_store_visibility_missing` rather than a fabricated shipping success.
 
+The Medusa shipping ensure scripts now prove the same Store API visibility inputs that the Store route uses: target sales channel `sc_01KQNM6EQZ19Y1BCSRVF9XV61H`, its linked stock location/fulfillment set, `enabled_in_store: true`, `is_return: false`, and the US smoke address (`country_code: "us"`). If the target shipping option is not returned by that fulfillment context, the ensure output reports `shipping_option_store_visibility_unverified:<reason>` instead of claiming Store API visibility. The Stripe smoke creates the cart with the target sales channel first so `GET /store/shipping-options?cart_id=:cart_id` evaluates the dBaronX stock location fulfillment set.
+
+If `MEDUSA_PUBLISHABLE_KEY` or `NEXT_PUBLIC_MEDUSA_PUBLISHABLE_KEY` starts with a Stripe publishable-key prefix such as `pk_test_` or `pk_live_`, the smoke reports `medusa_publishable_key_looks_like_stripe_key` without printing the key. If Medusa responds with `A valid publishable key is required`, the smoke reports `medusa_publishable_key_invalid`; output remains secret-safe and only includes `medusaPublishableKeyPresent: true/false`.
+
 PowerShell live smoke environment:
 
 ```powershell
