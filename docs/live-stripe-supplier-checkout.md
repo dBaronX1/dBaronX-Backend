@@ -19,8 +19,8 @@ CJ_ACCESS_TOKEN=
 CJ_API_BASE_URL=https://developers.cjdropshipping.com/api2.0
 ```
 
-- `STRIPE_SECRET_KEY` must be a Stripe **test** secret key for the first controlled checkout. It is the only key used by NestJS to create hosted Checkout Sessions.
-- `STRIPE_WEBHOOK_SECRET` must be the Stripe Dashboard signing secret for `POST /api/checkout/stripe/webhook`.
+- `STRIPE_SECRET_KEY` must be a Stripe **test** secret key (`sk_test_*`) for the first controlled checkout. It is the only key used by NestJS to create hosted Checkout Sessions.
+- `STRIPE_WEBHOOK_SECRET` must be the Stripe Dashboard signing secret (`whsec_*`) for `POST /api/checkout/stripe/webhook`; a webhook destination ID (`we_*`) is not a signing secret.
 - `INTERNAL_SERVICE_TOKEN` is server-only and is used by internal readiness/order preview probes.
 - `CJ_ACCESS_TOKEN` is optional for the Stripe-only smoke but required for CJ supplier live probe readiness.
 - `CJ_API_BASE_URL` should remain `https://developers.cjdropshipping.com/api2.0`.
@@ -37,14 +37,30 @@ NEXT_PUBLIC_MEDUSA_PUBLISHABLE_KEY=
 
 The web app must never receive `STRIPE_SECRET_KEY`, `STRIPE_WEBHOOK_SECRET`, `CJ_ACCESS_TOKEN`, `SUPABASE_SERVICE_ROLE_KEY`, or the internal service token.
 
+## Stripe mode and controlled-test guard
+
+`NODE_ENV=production` does **not** determine whether Stripe creates test-mode or live-mode Checkout Sessions. Stripe mode is determined by the configured key prefixes:
+
+- `sk_test_*` creates test-mode Checkout Sessions such as `cs_test_*`.
+- `sk_live_*` creates live-mode Checkout Sessions such as `cs_live_*`.
+- Any other secret-key prefix is treated as `unknown` and must be corrected before relying on the result.
+
+The first controlled Stripe checkout requires both test-mode Stripe keys: `STRIPE_SECRET_KEY` to an `sk_test_*` value on the API service and `NEXT_PUBLIC_STRIPE_PUBLIC_KEY` to a `pk_test_*` value on the web service. If a controlled test request asks for `checkoutMode: "test"` while the API has an `sk_live_*` secret key, the API must block Checkout Session creation with `stripe_live_key_used_for_test_checkout` and must not return a `checkoutUrl` or `sessionId`.
+
+Live checkout is still supported for future production use, but it must be explicitly requested with `checkoutMode: "live"` and the API environment must set `ALLOW_LIVE_STRIPE_CHECKOUT` to `true`. Without that explicit allowance, readiness reports `stripe_live_key_present_without_live_checkout_allowance` when an `sk_live_*` key is present.
+
+Never use a Stripe test card on a `cs_live_*` session. A smoke output containing `cs_live_*` is a blocker for the controlled test and must be fixed by replacing Render API/Web Stripe keys with `sk_test_*` / `pk_test_*`, redeploying, and rerunning the smoke.
+
 ## Stripe Dashboard webhook setup
-1. Open Stripe Dashboard with **Test mode** enabled.
+1. Open Stripe Dashboard with **Test mode** enabled for the controlled test.
 2. Go to **Developers → Webhooks → Add endpoint**.
-3. Enter `https://dbaronx-api-unified.onrender.com/api/checkout/stripe/webhook`.
+3. Enter the exact dBaronX API endpoint URL: `https://dbaronx-api-unified.onrender.com/api/checkout/stripe/webhook`.
 4. Select `checkout.session.completed`.
-5. Save the endpoint and copy the signing secret into the API service as `STRIPE_WEBHOOK_SECRET`.
-6. Redeploy/restart the API service so the env var is loaded.
-7. Keep test-mode and live-mode webhook endpoints/secrets separate.
+5. Save the endpoint and copy the `whsec_*` signing secret from that same test webhook endpoint into the API service as `STRIPE_WEBHOOK_SECRET`.
+6. Do not use the webhook destination ID (`we_*`) as `STRIPE_WEBHOOK_SECRET`; `we_*` identifies the destination, while `whsec_*` verifies signatures.
+7. Do not use the Supabase project URL as the Stripe webhook URL unless an explicit Supabase Edge Function relay is implemented and documented. The current direct webhook destination is the Render API URL above.
+8. Redeploy/restart the API service so the env var is loaded.
+9. Keep test-mode and live-mode webhook endpoints/secrets separate.
 
 The NestJS endpoint verifies the raw body and `stripe-signature` header with `Stripe.webhooks.constructEvent(payload, sigHeader, STRIPE_WEBHOOK_SECRET)`. Unsigned, missing-secret, or invalid-signature calls must return `verified: false`, `paymentMarkedPaid: false`, and no paid/order settlement.
 
@@ -171,6 +187,9 @@ node scripts/e2e-stripe-checkout-session-smoke.mjs
   "checkoutSessionCreated": true,
   "sessionIdPresent": true,
   "checkoutUrlPresent": true,
+  "stripeSessionModeDetected": "test",
+  "stripeSessionModeAllowed": true,
+  "stripeWebhookUrlExpected": "https://dbaronx-api-unified.onrender.com/api/checkout/stripe/webhook",
   "webhookEndpointReady": true,
   "unsignedWebhookRejected": true,
   "paymentMarkedPaid": false,
@@ -231,7 +250,7 @@ node scripts/e2e-cj-live-probe-smoke.mjs
 Use `CJ_TEST_SKU` instead of `CJ_TEST_PRODUCT_ID` when validating a SKU. AliExpress remains disabled until official approval is granted; do not configure AliExpress credentials or scrape AliExpress as a substitute for approved API access.
 
 ## Remaining steps before live mode
-- Configure API `STRIPE_SECRET_KEY` and `STRIPE_WEBHOOK_SECRET` with test-mode Stripe values in Render.
+- Configure API `STRIPE_SECRET_KEY` to an `sk_test_*` value and `STRIPE_WEBHOOK_SECRET` to the matching `whsec_*` signing secret from the same test webhook endpoint in Render, and configure web `NEXT_PUBLIC_STRIPE_PUBLIC_KEY` to a `pk_test_*` value.
 - Run the controlled order smoke and confirm a hosted Stripe Checkout URL is returned.
 - Complete one Stripe hosted Checkout test payment and verify the Dashboard delivery for `checkout.session.completed`.
 - Replace the idempotency placeholder with durable storage for Stripe event IDs before marking anything paid.

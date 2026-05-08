@@ -13,6 +13,7 @@ const INTERNAL_SERVICE_TOKEN = (process.env.INTERNAL_SERVICE_TOKEN || "").trim()
 const WEB_BASE_URL = (process.env.WEB_BASE_URL || process.env.NEXT_PUBLIC_WEB_BASE_URL || "https://dbaronx.com").replace(/\/+$/, "");
 const TARGET_REGION_ID = "reg_01KQSEKK6A9T86NJ0AG05XPK3H";
 const SNIPPET_LIMIT = 900;
+const STRIPE_WEBHOOK_URL_EXPECTED = `${API_BASE_URL}/api/checkout/stripe/webhook`;
 
 const blockers = [];
 const checkoutBlockers = [];
@@ -202,9 +203,14 @@ const out = {
   lineItemAdded: false,
   shippingOptionReady: false,
   stripeConfigured: false,
+  stripeSecretKeyMode: "missing",
   stripeWebhookConfigured: false,
+  stripeWebhookUrlExpected: STRIPE_WEBHOOK_URL_EXPECTED,
+  liveCheckoutExplicitlyAllowed: false,
   checkoutSessionCreated: false,
   sessionId: null,
+  stripeSessionModeDetected: "missing",
+  stripeSessionModeAllowed: false,
   checkoutUrl: null,
   checkoutUrlPresent: false,
   stripeHostedCheckoutUrl: false,
@@ -254,11 +260,17 @@ checks.paymentReadinessPath = readiness.path;
 apiRoutesUsed.paymentReadiness = readiness.path;
 out.paymentReadinessReady = readiness.probe.ok === true;
 out.stripeConfigured = readinessBody.stripeConfigured === true;
+out.stripeSecretKeyMode = readinessBody.stripeSecretKeyMode || out.stripeSecretKeyMode;
 out.stripeWebhookConfigured = readinessBody.stripeWebhookConfigured === true;
+out.stripeWebhookUrlExpected = readinessBody.stripeWebhookUrlExpected
+  ? `${API_BASE_URL}${String(readinessBody.stripeWebhookUrlExpected).startsWith("/") ? readinessBody.stripeWebhookUrlExpected : `/${readinessBody.stripeWebhookUrlExpected}`}`
+  : STRIPE_WEBHOOK_URL_EXPECTED;
+out.liveCheckoutExplicitlyAllowed = readinessBody.liveCheckoutExplicitlyAllowed === true;
 if (!readiness.probe.ok) addBlocker(readiness.probe.status === 404 ? "payment_readiness_route_missing" : `payment_readiness_http_${readiness.probe.status}`);
 for (const blocker of array(readinessBody.blockers)) {
   if (blocker === "stripe_secret_key_missing") addBlocker("stripe_secret_key_missing");
   if (blocker === "stripe_webhook_secret_missing") addBlocker("stripe_webhook_secret_missing", "settlement");
+  if (blocker === "stripe_live_key_present_without_live_checkout_allowance") addBlocker("stripe_live_key_present_without_live_checkout_allowance");
 }
 
 const economic = await getApiWithFallback("economic readiness", "/api/payments/economic-readiness", "/api/v1/payments/economic-readiness", jsonHeaders);
@@ -424,6 +436,8 @@ checks.stripeSessionBlockers = session.blockers || [];
 out.stripeConfigured = out.stripeConfigured || session.configured === true;
 out.checkoutUrl = typeof session.checkoutUrl === "string" ? session.checkoutUrl : null;
 out.sessionId = typeof session.sessionId === "string" ? session.sessionId : null;
+out.stripeSessionModeDetected = stripeSessionModeFromId(out.sessionId);
+out.stripeSessionModeAllowed = out.stripeSessionModeDetected === "test" || out.stripeSessionModeDetected === "missing";
 out.checkoutUrlPresent = Boolean(out.checkoutUrl);
 out.stripeHostedCheckoutUrl = Boolean(out.checkoutUrl && /^https:\/\/checkout\.stripe\.com\//.test(out.checkoutUrl));
 out.checkoutSessionCreated = session.success === true && Boolean(out.sessionId) && out.stripeHostedCheckoutUrl;
@@ -438,6 +452,11 @@ if (array(session.blockers).includes("stripe_live_key_used_for_test_checkout")) 
 if (sessionProbe.status === 404) addBlocker("stripe_session_route_missing");
 if (!sessionProbe.ok) addBlocker(`stripe_session_http_${sessionProbe.status}`);
 if (array(session.blockers).includes("stripe_secret_key_missing") || session.configured === false) addBlocker("stripe_secret_key_missing");
+if (array(session.blockers).includes("stripe_live_key_used_for_test_checkout")) addBlocker("stripe_live_key_used_for_test_checkout");
+if (out.stripeSessionModeDetected === "live") {
+  out.stripeSessionModeAllowed = false;
+  addBlocker("stripe_live_session_returned_for_test_smoke");
+}
 if (!out.stripeConfigured && !out.checkoutSessionCreated) addBlocker("stripe_secret_key_missing");
 if (!out.checkoutSessionCreated && out.stripeConfigured) addBlocker("stripe_checkout_session_not_created");
 if ((out.checkoutUrlPresent || out.sessionId) && !out.stripeConfigured) addBlocker("stripe_returned_checkout_artifacts_while_unconfigured");

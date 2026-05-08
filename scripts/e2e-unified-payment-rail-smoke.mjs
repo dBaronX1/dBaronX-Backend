@@ -7,6 +7,7 @@ const MEDUSA_PUBLISHABLE_KEY = (process.env.MEDUSA_PUBLISHABLE_KEY || process.en
 const API_BEARER_TOKEN = (process.env.API_BEARER_TOKEN || process.env.SMOKE_API_BEARER_TOKEN || process.env.SMOKE_JWT || "").trim();
 const SHIPPING_OPTION_ID = (process.env.SHIPPING_OPTION_ID || "").trim();
 const SNIPPET_LIMIT = 900;
+const STRIPE_WEBHOOK_URL_EXPECTED = `${API_URL.endsWith("/api") ? API_URL.slice(0, -4) : API_URL}/api/checkout/stripe/webhook`;
 const FAKE_DBX_SIGNATURE = `fake-smoke-signature-${Date.now()}`;
 
 const blockers = [];
@@ -206,6 +207,10 @@ if (readiness.probe.status === 404) addBlockerOnce("payments_readiness_route_mis
 if (readiness.probe.ok) {
   if (readinessData.stripeConfigured === false) addBlockerOnce("stripe_secret_key_missing");
   if (readinessData.stripeWebhookConfigured === false) addBlockerOnce("stripe_webhook_secret_missing");
+  if (readinessData.stripeSecretKeyMode) out.checks.stripeSecretKeyMode = readinessData.stripeSecretKeyMode;
+  if (readinessData.liveCheckoutExplicitlyAllowed !== undefined) out.checks.liveCheckoutExplicitlyAllowed = readinessData.liveCheckoutExplicitlyAllowed;
+  if (readinessData.stripeWebhookUrlExpected) out.stripeWebhookUrlExpected = `${API_URL.endsWith("/api") ? API_URL.slice(0, -4) : API_URL}${String(readinessData.stripeWebhookUrlExpected).startsWith("/") ? readinessData.stripeWebhookUrlExpected : `/${readinessData.stripeWebhookUrlExpected}`}`;
+  if (firstArray(readinessData.blockers).includes("stripe_live_key_present_without_live_checkout_allowance")) addBlockerOnce("stripe_live_key_present_without_live_checkout_allowance");
   if (readinessData.solanaRpcConfigured === false) addBlockerOnce("solana_rpc_not_configured");
   out.orderSyncReady = readinessData.orderSyncConfigured === true;
   if (!out.orderSyncReady) addBlockerOnce("order_sync_not_configured");
@@ -308,6 +313,7 @@ const sessionBody = {
   successUrl: `${WEB_BASE_URL}/checkout/success?session_id={CHECKOUT_SESSION_ID}`,
   cancelUrl: `${WEB_BASE_URL}/checkout/cancel`,
   productName: "dBaronX unified payment rail smoke",
+  checkoutMode: "test",
 };
 const stripeSession = await postApi("/api/checkout/stripe/session", "/api/v1/checkout/stripe/session", sessionBody, { "content-type": "application/json" });
 stripeRoutesUsed.checkoutSession = stripeSession.pathUsed;
@@ -329,6 +335,11 @@ if (sessionBody.checkoutMode === "test" && out.stripeSessionModeDetected === "li
 if (firstArray(stripeSessionData.blockers).includes("stripe_live_key_used_for_test_checkout")) addBlockerOnce("stripe_live_key_used_for_test_checkout");
 if (!out.stripeReady) addBlockerOnce("stripe_session_route_missing");
 if (stripeSessionData.configured === false) addBlockerOnce("stripe_secret_key_missing");
+if (firstArray(stripeSessionData.blockers).includes("stripe_live_key_used_for_test_checkout")) addBlockerOnce("stripe_live_key_used_for_test_checkout");
+if (out.stripeSessionModeDetected === "live") {
+  out.stripeSessionModeAllowed = false;
+  addBlockerOnce("stripe_live_session_returned_for_test_smoke");
+}
 if (stripeSessionData.configured === false && (stripeSessionData.sessionId || stripeSessionData.checkoutUrl)) addBlockerOnce("stripe_returned_checkout_artifacts_while_unconfigured");
 if (stripeSessionData.configured === true && !out.stripeSessionCreated) addBlockerOnce("stripe_configured_session_not_created");
 if (out.stripeCheckoutUrlPresent && !String(stripeSessionData.checkoutUrl).startsWith("https://checkout.stripe.com/")) addBlockerOnce("stripe_checkout_url_not_stripe_hosted");

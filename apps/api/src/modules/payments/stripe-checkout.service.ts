@@ -31,6 +31,10 @@ type StripePaymentReadinessResult = {
   provider: "stripe";
   configured: boolean;
   safeMode: boolean;
+  stripeSecretKeyMode: StripeSecretKeyMode;
+  stripeWebhookConfigured: boolean;
+  stripeWebhookUrlExpected: string;
+  liveCheckoutExplicitlyAllowed: boolean;
   stripeEventIdempotencyReady: boolean;
   economicEventPersistenceReady: boolean;
   verifiedWebhookSettlementReady: boolean;
@@ -155,17 +159,21 @@ export class StripeCheckoutService {
   }
 
   mode(): StripeCheckoutMode {
-    return this.getStripeMode(this.getStripeSecretKey());
+    const mode = this.getStripeSecretKeyMode(this.getStripeSecretKey());
+    return mode === "missing" ? "unknown" : mode;
   }
 
   async readiness(): Promise<StripePaymentReadinessResult> {
     const stripeConfigured = this.isConfigured();
+    const stripeSecretKeyMode = this.getStripeSecretKeyMode(this.getStripeSecretKey());
     const stripeWebhookConfigured = Boolean(String(this.config.get<string>("STRIPE_WEBHOOK_SECRET") || "").trim());
+    const liveCheckoutExplicitlyAllowed = this.liveCheckoutExplicitlyAllowed();
     const stripeEventIdempotency = await this.idempotencyRecorder.readiness();
     const economicEventPersistence = await this.checkEconomicEventPersistence();
     const orderSyncConfigured = this.isOrderSyncConfigured();
     const blockers = [
       ...(stripeConfigured ? [] : ["stripe_secret_key_missing"]),
+      ...(stripeSecretKeyMode === "live" && !liveCheckoutExplicitlyAllowed ? ["stripe_live_key_present_without_live_checkout_allowance"] : []),
       ...(stripeWebhookConfigured ? [] : ["stripe_webhook_secret_missing"]),
       ...stripeEventIdempotency.blockers,
       ...economicEventPersistence.blockers,
@@ -177,6 +185,10 @@ export class StripeCheckoutService {
       provider: "stripe",
       configured: stripeConfigured,
       safeMode: blockers.length > 0,
+      stripeSecretKeyMode,
+      stripeWebhookConfigured,
+      stripeWebhookUrlExpected: "/api/checkout/stripe/webhook",
+      liveCheckoutExplicitlyAllowed,
       stripeEventIdempotencyReady: stripeEventIdempotency.ready,
       economicEventPersistenceReady: economicEventPersistence.ready,
       verifiedWebhookSettlementReady: stripeConfigured && stripeWebhookConfigured && stripeEventIdempotency.ready && economicEventPersistence.ready,
@@ -707,9 +719,14 @@ export class StripeCheckoutService {
     return Boolean(this.config.get<string>("SUPABASE_SERVICE_ROLE_KEY") || process.env.SUPABASE_SERVICE_ROLE_KEY);
   }
 
-  private getStripeMode(secretKey: string): StripeCheckoutMode {
+  private liveCheckoutExplicitlyAllowed(): boolean {
+    return String(this.config.get<string>("ALLOW_LIVE_STRIPE_CHECKOUT") || process.env.ALLOW_LIVE_STRIPE_CHECKOUT || "").trim().toLowerCase() === "true";
+  }
+
+  private getStripeSecretKeyMode(secretKey: string): StripeSecretKeyMode {
+    if (!secretKey) return "missing";
     if (secretKey.startsWith("sk_test_")) return "test";
     if (secretKey.startsWith("sk_live_")) return "live";
-    return secretKey ? "unknown" : "test";
+    return "unknown";
   }
 }
