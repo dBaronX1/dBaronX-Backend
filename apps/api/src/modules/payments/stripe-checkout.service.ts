@@ -65,6 +65,10 @@ export class StripeCheckoutService {
     return Boolean(this.getStripeSecretKey());
   }
 
+  mode(): StripeCheckoutMode {
+    return this.getStripeMode(this.getStripeSecretKey());
+  }
+
   async createSession(input: CreateStripeCheckoutSessionDto) {
     const secretKey = this.getStripeSecretKey();
     const blockers: string[] = [];

@@ -280,3 +280,103 @@ node scripts/e2e-cj-live-probe-smoke.mjs
 The supplier readiness endpoint is `GET /api/suppliers/readiness`. It reports safe booleans and blockers without returning raw supplier secrets. Missing CJ env returns `cj_access_token_missing` or `cj_base_url_missing`; invalid/expired tokens return `cj_token_invalid_or_expired`; rate limits return `cj_rate_limited`; network/timeouts return `cj_live_probe_unreachable`. A successful CJ probe sets `cjConfigured: true` and removes the old no-live-probe blocker.
 
 For the first CJ product test, set `CJ_TEST_PRODUCT_ID` or `CJ_TEST_SKU` and call `POST /api/suppliers/cj/import-readiness` with explicit product metadata. The boundary normalizes CJ product metadata, requires minimum economics and shipping fields before `supplierImportReady: true`, does not create a Medusa product automatically, and must not bulk auto-import the CJ catalog.
+
+## First controlled Stripe test transaction smoke
+
+Run this command only with test-mode/public-safe values in the shell. Keep `STRIPE_SECRET_KEY`, `STRIPE_WEBHOOK_SECRET`, `SUPABASE_SERVICE_ROLE_KEY`, `MEDUSA_ADMIN_TOKEN`, and other server secrets on the API/Render service only; this smoke verifies API behavior and never requires those secret values locally.
+
+```bash
+MEDUSA_URL=https://dbaronx-medusa.onrender.com \
+API_URL=https://dbaronx-api-unified.onrender.com \
+NEXT_PUBLIC_MEDUSA_PUBLISHABLE_KEY=<medusa-publishable-key> \
+node scripts/e2e-first-stripe-test-transaction-smoke.mjs
+```
+
+The smoke performs the complete controlled pre-payment path:
+
+1. API health check.
+2. `GET /api/payments/readiness` payment readiness check.
+3. `GET /api/payments/economic-readiness` economic event safety check.
+4. Medusa product, region, cart, line-item, and shipping option checks.
+5. Real NestJS Stripe Checkout Session creation through `POST /api/v1/checkout/stripe/session`.
+6. Validation that `checkoutUrl` is hosted by `https://checkout.stripe.com/` and that a real `sessionId` is present.
+7. Unsigned webhook probe against `POST /api/v1/checkout/stripe/webhook`.
+8. Order-sync preview and economic dry-run checks that must not mark payment/order state as paid or complete.
+
+### Expected safe-blocked output
+
+When API Stripe secrets are not configured, the smoke must remain safe and must not return fake checkout artifacts:
+
+```json
+{
+  "success": false,
+  "blockers": ["stripe_secret_key_missing"],
+  "stripeConfigured": false,
+  "checkoutSessionCreated": false,
+  "sessionId": null,
+  "checkoutUrl": null,
+  "checkoutUrlPresent": false,
+  "stripeHostedCheckoutUrl": false,
+  "paymentMarkedPaid": false,
+  "nextManualStep": "Resolve blockers before opening Stripe Checkout. No checkoutUrl/sessionId should be used unless Stripe returns real hosted artifacts."
+}
+```
+
+If `STRIPE_SECRET_KEY` exists but `STRIPE_WEBHOOK_SECRET` is missing, session creation may still succeed, but the output must include `stripe_webhook_secret_missing`; do not open the Checkout URL for a controlled payment until the webhook signing secret is configured and the unsigned webhook probe is rejected.
+
+### Expected checkout-ready output
+
+When Medusa, the API, Stripe test secret, Stripe webhook signing secret, and order-sync prerequisites are all ready, the relevant fields should look like this:
+
+```json
+{
+  "success": true,
+  "blockers": [],
+  "apiReady": true,
+  "paymentReadinessReady": true,
+  "economicReadinessReady": true,
+  "medusaReady": true,
+  "cartReady": true,
+  "lineItemAdded": true,
+  "shippingOptionReady": true,
+  "stripeConfigured": true,
+  "stripeWebhookConfigured": true,
+  "checkoutSessionCreated": true,
+  "sessionId": "cs_test_...",
+  "checkoutUrl": "https://checkout.stripe.com/c/pay/cs_test_...",
+  "checkoutUrlPresent": true,
+  "stripeHostedCheckoutUrl": true,
+  "unsignedWebhookRejected": true,
+  "paymentMarkedPaid": false,
+  "orderSyncReady": true
+}
+```
+
+If durable order sync is not fully configured yet, the smoke must report `order_sync_not_configured` or `payment_verified_order_sync_pending`. That is a blocker for end-to-end order completion, not permission to fake completion.
+
+### Manual test-card steps after checkout-ready smoke
+
+1. Open the returned `checkoutUrl` in a browser.
+2. Use Stripe test card `4242 4242 4242 4242`.
+3. Use any future expiry date, any CVC, and any postal code.
+4. Confirm the payment in Stripe-hosted Checkout.
+5. In Stripe Dashboard test mode, confirm a `checkout.session.completed` event exists.
+6. Confirm webhook delivery to `POST /api/checkout/stripe/webhook` (or the deployed versioned equivalent if route discovery requires it).
+7. Confirm the dBaronX API does **not** mark paid from the frontend redirect and does **not** mark paid for unsigned or invalid-signature webhooks.
+8. Confirm any paid/order transition is tied only to a verified Stripe signature and idempotent order-sync logic.
+
+### Required behavior after webhook delivery
+
+- Missing signature, missing webhook secret, or invalid signature returns `verified: false` and `paymentMarkedPaid: false`.
+- Frontend success/cancel redirects are navigation-only and must not mark orders paid.
+- Verified `checkout.session.completed` may be accepted as payment evidence, but order/payment mutation must remain idempotent and durable.
+- Until durable storage maps Stripe event ID, Checkout Session, PaymentIntent, DBX payment record, and Medusa cart/order intent, the API should return `payment_verified_order_sync_pending`, `settlement_pending`, or `order_sync_not_configured` rather than faking order completion.
+
+### Remaining blockers before live money mode
+
+- Durable Stripe webhook event-id idempotency storage.
+- Durable verified-session-to-DBX-payment-record mapping.
+- Durable verified-session-to-Medusa-cart/order-intent mapping.
+- Idempotent order completion/settlement that runs only after verified Stripe webhook evidence.
+- Refund, cancellation, replay, monitoring, and alerting procedures.
+- Separate approved live-mode Stripe secret and webhook endpoint after the controlled test-mode flow is complete.
