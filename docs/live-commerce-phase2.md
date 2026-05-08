@@ -100,7 +100,7 @@ node scripts/e2e-commerce-flow-smoke.mjs
 
 ### Cart smoke usage
 - `MEDUSA_BACKEND_URL=http://localhost:9000 MEDUSA_PUBLISHABLE_KEY=<pk> node scripts/e2e-cart-readiness-smoke.mjs`
-- Output includes `nextBlocker` (`shipping_option_missing`, `payment_session_required`, etc.) without faking checkout success.
+- Output includes `nextBlocker` (`shipping_option_store_visibility_missing`, `payment_session_required`, etc.) without faking checkout success.
 
 ### Payment preflight usage
 - `NESTJS_API_URL=http://localhost:4000 node scripts/e2e-payment-preflight-smoke.mjs`
@@ -119,3 +119,17 @@ node scripts/e2e-commerce-flow-smoke.mjs
 
 ## commerce:ensure prerequisite scope
 `commerce:ensure` must verify region, stock location, sales channel-to-stock-location link, shipping profile, shipping option, product prices, and inventory availability before real checkout.
+
+## Shipping option final Store API visibility repair
+
+Medusa checkout is not ready until a cart with `shipping_address.country_code: "us"` receives at least one real shipping option from `GET /store/shipping-options?cart_id=<cart_id>`. A successful Admin-side shipping option record is insufficient if Store API visibility still returns `shipping_options: []`.
+
+Use the targeted Medusa diagnostic/repair command:
+
+```bash
+pnpm --filter @dbaronx/medusa shipping:visibility:diagnose
+```
+
+The command runs the verified Medusa v2 workflows/modules used by the shipping readiness repair: `createLocationFulfillmentSetWorkflow`, `createServiceZonesWorkflow`, `updateServiceZonesWorkflow`, `createShippingOptionsWorkflow`, `ContainerRegistrationKeys.LINK.create`, and `Modules.FULFILLMENT.deleteShippingOptionRules`. It outputs `priceReady`, `rulesReady`, and `visibleToStoreApiExpected` plus the region, service zone, fulfillment provider, stock location, sales channel, shipping profile, and shipping option IDs.
+
+For Stripe-controlled test checkout, the session must be `cs_test_*`. A `cs_live_*` session is live-money mode; never use Stripe test cards on live sessions. Configure Render with `STRIPE_SECRET_KEY=sk_test_...` and the matching test endpoint `STRIPE_WEBHOOK_SECRET`, redeploy, and rerun the first Stripe smoke.
