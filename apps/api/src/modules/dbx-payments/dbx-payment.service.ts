@@ -160,6 +160,8 @@ export class DbxPaymentService {
   }
 
   async confirmPayment(dto: ConfirmDbxPaymentDto): Promise<DbxPaymentIntentRecord> {
+    this.assertRuntimeConfigured();
+
     const normalizedLockReference = this.reference.normalizeForLookup(dto.intentReference);
     const lockKey = `dbx-payment-confirm:${normalizedLockReference}`;
     const lock = this.locks.acquire(lockKey, 30_000);
