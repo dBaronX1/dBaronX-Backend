@@ -17,6 +17,7 @@ export class StripeCheckoutController {
     return this.stripe.readiness();
   }
 
+  @Public()
   @Post("session")
   @HttpCode(HttpStatus.OK)
   async create(@Body() body: CreateStripeCheckoutSessionDto) {

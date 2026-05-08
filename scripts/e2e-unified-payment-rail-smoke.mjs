@@ -276,6 +276,7 @@ if (cart?.id && variantId) {
   out.shippingOptionIds = options.map((option) => option?.id).filter(Boolean);
   out.checks.shippingOptionsHttp = shipping.status;
   out.checks.shippingOptionsCount = options.length;
+  out.checks.shippingOptionIds = out.shippingOptionIds;
   out.checks.expectedShippingOptionAvailable = SHIPPING_OPTION_ID ? options.some((option) => option?.id === SHIPPING_OPTION_ID) : null;
   shippingRoutesUsed.shippingOptions = { method: "GET", path: shippingPath, headers: { "x-publishable-api-key": Boolean(MEDUSA_PUBLISHABLE_KEY) } };
   if (!shipping.ok) addBlockerOnce(`shipping_options_http_${shipping.status}`);
@@ -385,6 +386,7 @@ if (dbxReference && !out.dbxFakeTxRejected) addBlockerOnce("dbx_fake_tx_not_reje
 out.paymentMarkedPaid = out.paymentMarkedPaid || out.dbxPaymentMarkedPaid;
 if (out.paymentMarkedPaid) addBlockerOnce("fake_payment_marked_paid");
 
+out.settlementBlockers = blockers.filter((blocker) => /webhook|paid|settlement|order_sync|economic|idempotency|solana/i.test(blocker));
 out.nextManualStep = blockers.length === 0
   ? "Run a controlled Stripe test-card checkout and a real DBX token transfer, then verify only signed Stripe webhooks or verified Solana transactions advance paid/order-sync state."
   : "Resolve blockers, then rerun node scripts/e2e-unified-payment-rail-smoke.mjs before attempting controlled payment orders.";

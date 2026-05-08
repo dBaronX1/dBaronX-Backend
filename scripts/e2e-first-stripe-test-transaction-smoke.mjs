@@ -41,6 +41,11 @@ function api(path) {
   return `${API_BASE_URL}${path}`;
 }
 
+function apiAbsolute(path) {
+  const base = API_URL.endsWith("/api") ? API_URL.slice(0, -4) : API_URL;
+  return `${base}${path}`;
+}
+
 function snippet(value) {
   const text = typeof value === "string" ? value : JSON.stringify(value ?? null);
   return text.length > SNIPPET_LIMIT ? `${text.slice(0, SNIPPET_LIMIT)}…` : text;
@@ -156,6 +161,21 @@ async function firstReadyHealthPath(paths) {
     if (probe.ok) return last;
   }
   return last;
+}
+
+async function firstCanonicalApiGet(label, canonicalPath, legacyPath, headers = jsonHeaders) {
+  const canonical = await requestJson(`${label} ${canonicalPath}`, apiAbsolute(canonicalPath), { headers });
+  if (canonical.status !== 404 || !legacyPath) return { probe: canonical, path: canonicalPath, routeUsed: canonicalPath };
+  const legacy = await requestJson(`${label} ${legacyPath}`, apiAbsolute(legacyPath), { headers });
+  return { probe: legacy, path: legacyPath, routeUsed: legacyPath };
+}
+
+async function firstCanonicalApiPost(label, canonicalPath, legacyPath, body, headers = jsonHeaders) {
+  const init = { method: "POST", headers, body: JSON.stringify(body) };
+  const canonical = await requestJson(`${label} ${canonicalPath}`, apiAbsolute(canonicalPath), init);
+  if (canonical.status !== 404 || !legacyPath) return { probe: canonical, path: canonicalPath, routeUsed: canonicalPath };
+  const legacy = await requestJson(`${label} ${legacyPath}`, apiAbsolute(legacyPath), init);
+  return { probe: legacy, path: legacyPath, routeUsed: legacyPath };
 }
 
 const out = {
@@ -464,6 +484,7 @@ if (dryRunProbe.status === 404) addBlocker("economic_event_dry_run_route_missing
 else if (!dryRunProbe.ok) addBlocker(`economic_event_dry_run_http_${dryRunProbe.status}`, "settlement");
 if (dryRun.paymentMarkedPaid === true || dryRun.orderCompleted === true) addBlocker("economic_dry_run_mutated_paid_or_order_state", "settlement");
 
+out.settlementBlockers = blockers.filter((blocker) => /webhook|paid|settlement|order_sync|economic|idempotency/i.test(blocker));
 out.success = blockers.length === 0;
 out.nextManualStep = out.checkoutSessionCreated
   ? `Open ${out.checkoutUrl}; use Stripe test card 4242 4242 4242 4242 with any future expiry, any CVC, and any postal code; then confirm checkout.session.completed in Stripe Dashboard and verify only a signed webhook can move paid/order sync state.`
