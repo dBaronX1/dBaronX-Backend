@@ -1,5 +1,6 @@
 import {
   IsEmail,
+  IsIn,
   IsInt,
   IsNotEmpty,
   IsOptional,
@@ -10,10 +11,15 @@ import {
 } from "class-validator";
 
 export class CreateDbxPaymentIntentDto {
+  @IsOptional()
   @IsString()
-  @IsNotEmpty()
   @MaxLength(128)
-  cartId!: string;
+  cartId?: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(128)
+  orderRef?: string;
 
   @IsOptional()
   @IsString()
@@ -37,9 +43,13 @@ export class CreateDbxPaymentIntentDto {
   @Min(1)
   expectedUsdCents!: number;
 
-  @IsInt()
-  @Min(1)
-  expectedDbxBaseUnits!: number;
+  @IsOptional()
+  @IsString()
+  @IsIn(["USD"])
+  currency?: string = "USD";
+
+  @IsOptional()
+  expectedDbxBaseUnits?: string | number;
 
   @IsOptional()
   @IsString()
@@ -48,7 +58,7 @@ export class CreateDbxPaymentIntentDto {
 
   @IsOptional()
   @IsString()
-  @MaxLength(64)
+  @MaxLength(128)
   idempotencyKey?: string;
 
   @IsOptional()

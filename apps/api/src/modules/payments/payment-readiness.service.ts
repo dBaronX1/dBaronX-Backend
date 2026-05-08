@@ -1,88 +1,72 @@
 import { Injectable } from "@nestjs/common";
 import { ConfigService } from "@nestjs/config";
-import { StripeCheckoutService } from "./stripe-checkout.service";
 
 type PaymentReadinessSnapshot = {
-  success: boolean;
-  ready: boolean;
-  provider: "stripe";
-  mode: "test" | "live" | "unknown";
   stripeConfigured: boolean;
   stripeWebhookConfigured: boolean;
-  checkoutSessionPathReady: boolean;
-  webhookSafetyPathReady: boolean;
-  frontendRedirectCanMarkPaid: false;
-  paidStateAuthority: "verified_stripe_webhook_only";
+  dbxPaymentAddressPresent: boolean;
+  solanaRpcConfigured: boolean;
+  dbxTokenMintPresent: boolean;
+  fastapiVerifierConfigured: boolean;
+  orderSyncConfigured: boolean;
   blockers: string[];
-  warnings: string[];
-  requiredServerEnv: string[];
-  requiredPublicEnv: string[];
-  orderSyncReady: boolean;
-  orderSyncBlockers: string[];
+  safeMode: boolean;
+  timestamp: string;
 };
 
 @Injectable()
 export class PaymentReadinessService {
-  constructor(
-    private readonly config: ConfigService,
-    private readonly stripeCheckout: StripeCheckoutService,
-  ) {}
+  constructor(private readonly config: ConfigService) {}
 
   snapshot(): PaymentReadinessSnapshot {
-    const stripeConfigured = this.hasValue("STRIPE_SECRET_KEY");
-    const stripeWebhookConfigured = this.hasValue("STRIPE_WEBHOOK_SECRET");
-    const orderSyncReady = this.orderSyncConfigured();
-    const orderSyncBlockers = orderSyncReady
-      ? []
-      : ["order_sync_not_configured", ...this.missingOrderSyncEnv()];
+    const stripeConfigured = this.present("STRIPE_SECRET_KEY");
+    const stripeWebhookConfigured = this.present("STRIPE_WEBHOOK_SECRET");
+    const dbxPaymentAddressPresent = this.anyPresent([
+      "NEXT_PUBLIC_DBX_SOLANA_PAYMENT_ADDRESS",
+      "DBX_TREASURY_WALLET",
+    ]);
+    const solanaRpcConfigured = this.anyPresent([
+      "SOLANA_RPC_URL",
+      "DBX_SOLANA_RPC_URL",
+    ]);
+    const dbxTokenMintPresent = this.anyPresent([
+      "DBX_TOKEN_MINT",
+      "DBX_MINT_ADDRESS",
+    ]);
+    const fastapiVerifierConfigured = this.present("FASTAPI_BASE_URL") &&
+      this.present("INTERNAL_SERVICE_TOKEN");
+    const orderSyncConfigured = this.present("SUPABASE_SERVICE_ROLE_KEY") &&
+      this.anyPresent(["SUPABASE_URL", "NEXT_PUBLIC_SUPABASE_URL"]);
+
     const blockers = [
       ...(stripeConfigured ? [] : ["stripe_secret_key_missing"]),
       ...(stripeWebhookConfigured ? [] : ["stripe_webhook_secret_missing"]),
-      ...orderSyncBlockers,
+      ...(dbxPaymentAddressPresent ? [] : ["dbx_payment_address_missing"]),
+      ...(solanaRpcConfigured ? [] : ["solana_rpc_not_configured"]),
+      ...(dbxTokenMintPresent ? [] : ["dbx_token_mint_missing"]),
+      ...(fastapiVerifierConfigured ? [] : ["fastapi_verifier_not_configured"]),
+      ...(orderSyncConfigured ? [] : ["order_sync_not_configured"]),
     ];
 
     return {
-      success: blockers.length === 0,
-      ready: blockers.length === 0,
-      provider: "stripe",
-      mode: this.stripeCheckout.mode(),
       stripeConfigured,
       stripeWebhookConfigured,
-      checkoutSessionPathReady: true,
-      webhookSafetyPathReady: true,
-      frontendRedirectCanMarkPaid: false,
-      paidStateAuthority: "verified_stripe_webhook_only",
+      dbxPaymentAddressPresent,
+      solanaRpcConfigured,
+      dbxTokenMintPresent,
+      fastapiVerifierConfigured,
+      orderSyncConfigured,
       blockers,
-      warnings: orderSyncReady ? [] : ["payment_verified_order_sync_pending"],
-      requiredServerEnv: [
-        "STRIPE_SECRET_KEY",
-        "STRIPE_WEBHOOK_SECRET",
-        "INTERNAL_SERVICE_TOKEN",
-        "MEDUSA_BACKEND_URL",
-        "MEDUSA_ADMIN_TOKEN",
-        "SUPABASE_SERVICE_ROLE_KEY",
-      ],
-      requiredPublicEnv: [
-        "NEXT_PUBLIC_STRIPE_PUBLIC_KEY",
-        "NEXT_PUBLIC_MEDUSA_BACKEND_URL",
-        "NEXT_PUBLIC_MEDUSA_PUBLISHABLE_KEY",
-      ],
-      orderSyncReady,
-      orderSyncBlockers,
+      safeMode: blockers.length > 0,
+      timestamp: new Date().toISOString(),
     };
   }
 
-  private orderSyncConfigured(): boolean {
-    return this.hasValue("MEDUSA_BACKEND_URL") && this.hasValue("MEDUSA_ADMIN_TOKEN") && this.hasValue("SUPABASE_SERVICE_ROLE_KEY");
+  private anyPresent(keys: string[]): boolean {
+    return keys.some((key) => this.present(key));
   }
 
-  private missingOrderSyncEnv(): string[] {
-    return ["MEDUSA_BACKEND_URL", "MEDUSA_ADMIN_TOKEN", "SUPABASE_SERVICE_ROLE_KEY"]
-      .filter((key) => !this.hasValue(key))
-      .map((key) => `${key.toLowerCase()}_missing`);
-  }
-
-  private hasValue(key: string): boolean {
-    return Boolean((this.config.get<string>(key) || "").trim());
+  private present(key: string): boolean {
+    return Boolean(String(this.config.get<string>(key) || process.env[key] || "").trim());
   }
 }

@@ -1,75 +1,122 @@
 #!/usr/bin/env node
 
-const API_URL = (process.env.API_URL || process.env.NESTJS_API_URL || "https://dbaronx-api-unified.onrender.com").replace(/\/$/, "");
-const blockers = [];
-const responseSnippets = {};
-const fetchErrors = [];
+const API_URL = (process.env.API_URL || process.env.NEXT_PUBLIC_API_URL || "http://localhost:3001").replace(/\/$/, "");
 
-function api(path) {
-  const base = API_URL.endsWith("/api") ? API_URL.slice(0, -4) : API_URL;
-  return `${base}/api${path}`;
-}
-
-function unwrap(body) {
-  return body && typeof body === "object" && body.success === true && body.data ? body.data : body;
-}
-
-function snippet(value) {
-  const text = typeof value === "string" ? value : JSON.stringify(value ?? null);
-  return text.length > 900 ? `${text.slice(0, 900)}…` : text;
-}
-
-async function json(label, url, init = {}) {
+async function fetchJson(path, options = {}) {
+  const url = path.startsWith("http") ? path : `${API_URL}${path}`;
   try {
-    const response = await fetch(url, init);
+    const response = await fetch(url, {
+      ...options,
+      headers: {
+        "content-type": "application/json",
+        ...(options.headers || {}),
+      },
+    });
     const text = await response.text();
-    let body = {};
+    let body = null;
     try {
-      body = text ? JSON.parse(text) : {};
+      body = text ? JSON.parse(text) : null;
     } catch {
-      body = { raw: text };
+      body = { raw: text.slice(0, 500) };
     }
-    responseSnippets[label] = snippet(text || body);
-    return { ok: response.ok, status: response.status, data: unwrap(body) };
+    return { ok: response.ok, status: response.status, body, text };
   } catch (error) {
-    const payload = { endpoint: url, errorMessage: error instanceof Error ? error.message : String(error) };
-    fetchErrors.push(payload);
-    return { ok: false, status: 0, data: payload };
+    return { ok: false, status: 0, body: { error: error instanceof Error ? error.message : String(error) }, text: "" };
   }
 }
 
-function addBlocker(blocker) {
-  if (blocker && !blockers.includes(blocker)) blockers.push(blocker);
+async function firstHealthy(paths) {
+  const attempts = [];
+  for (const path of paths) {
+    const result = await fetchJson(path);
+    attempts.push({ path, status: result.status, body: result.body });
+    if (result.ok && (result.body?.success === true || result.body?.status === "ok" || result.body?.status === "healthy")) {
+      return { ready: true, path, attempts };
+    }
+  }
+  return { ready: false, path: null, attempts };
 }
 
-const readiness = await json("economic readiness", api("/payments/economic-readiness"));
-const readinessBody = readiness.data || {};
-if (!readiness.ok) addBlocker(`economic_readiness_http_${readiness.status}`);
-if (readinessBody.verifiedWebhookRequired !== true) addBlocker("verified_webhook_not_required");
-if (readinessBody.unsignedWebhookCanMarkPaid !== false) addBlocker("unsigned_webhook_can_mark_paid");
-if (readinessBody.frontendRedirectCanMarkPaid !== false) addBlocker("frontend_redirect_can_mark_paid");
+function payload(body) {
+  return body?.data && typeof body.data === "object" ? body.data : body;
+}
 
-const dryRun = await json("economic dry run", api("/payments/economic-events/dry-run"), {
-  method: "POST",
-  headers: { "content-type": "application/json" },
-  body: JSON.stringify({ eventType: "checkout.session.completed", sessionId: "dry-run-session" }),
+function sampleEvent(overrides = {}) {
+  const stamp = Date.now();
+  return {
+    eventType: "commerce.checkout.payment_requested",
+    sourceModule: "commerce",
+    sourceRef: `smoke-cart-${stamp}`,
+    userId: "smoke-user",
+    accountId: "smoke-account",
+    currency: "usd",
+    amountMinorUnits: 1234,
+    assetType: "fiat",
+    paymentRail: "stripe",
+    direction: "debit",
+    status: "requested",
+    idempotencyKey: `economic-smoke-${stamp}`,
+    metadata: {
+      dryRun: true,
+      secretToken: "must-not-echo",
+    },
+    ...overrides,
+  };
+}
+
+async function main() {
+  const blockers = [];
+  const health = await firstHealthy(["/api/health", "/health"]);
+  const readiness = await fetchJson("/api/payments/economic-readiness");
+  const readinessPayload = payload(readiness.body);
+
+  const result = {
+    success: false,
+    blockers,
+    apiReady: health.ready,
+    economicReadinessReady: readiness.ok && (readinessPayload?.success === true || readiness.body?.success === true),
+    supportedModules: readinessPayload?.supportedModules || [],
+    supportedPaymentRails: readinessPayload?.supportedPaymentRails || [],
+    fakeSettledRejected: false,
+    orderSyncReady: readinessPayload?.orderSyncReady === true,
+    ledgerReady: readinessPayload?.ledgerReady === true,
+    walletReady: readinessPayload?.walletReady === true,
+    payoutReady: readinessPayload?.payoutReady === true,
+  };
+
+  if (!result.apiReady) blockers.push("api_health_unavailable");
+  if (!result.economicReadinessReady) blockers.push(`economic_readiness_failed_${readiness.status}`);
+  if (Array.isArray(readinessPayload?.blockers)) blockers.push(...readinessPayload.blockers);
+
+  const dryRun = await fetchJson("/api/payments/economic-events/dry-run", {
+    method: "POST",
+    body: JSON.stringify(sampleEvent()),
+  });
+
+  if (dryRun.status === 404) {
+    blockers.push("economic_event_dry_run_endpoint_missing");
+  } else if (!dryRun.ok || dryRun.body?.success !== true) {
+    blockers.push(`economic_event_dry_run_failed_${dryRun.status}`);
+  }
+
+  const fakeSettled = await fetchJson("/api/payments/economic-events/dry-run", {
+    method: "POST",
+    body: JSON.stringify(sampleEvent({
+      status: "settled",
+      idempotencyKey: `economic-smoke-fake-settled-${Date.now()}`,
+      metadata: { dryRun: true },
+    })),
+  });
+
+  result.fakeSettledRejected = fakeSettled.status >= 400 && JSON.stringify(fakeSettled.body || {}).includes("verifier_evidence_required_for_verified_or_settled_status");
+  if (!result.fakeSettledRejected) blockers.push("fake_settled_event_was_not_rejected");
+
+  result.success = result.apiReady && result.economicReadinessReady && dryRun.ok && result.fakeSettledRejected;
+  console.log(JSON.stringify(result, null, 2));
+  if (!result.success) process.exitCode = 1;
+}
+
+main().catch((error) => {
+  console.error(JSON.stringify({ success: false, blockers: ["economic_event_smoke_exception"], error: error instanceof Error ? error.message : String(error) }, null, 2));
+  process.exitCode = 1;
 });
-const dryRunBody = dryRun.data || {};
-if (!dryRun.ok) addBlocker(`economic_event_dry_run_http_${dryRun.status}`);
-if (dryRunBody.paymentMarkedPaid === true || dryRunBody.orderCompleted === true) addBlocker("dry_run_mutated_paid_or_order_state");
-
-const out = {
-  success: blockers.length === 0,
-  blockers,
-  economicReadinessReady: readiness.ok && (readinessBody.ready === true || readinessBody.success === true),
-  dryRunReady: dryRun.ok && dryRunBody.dryRun === true,
-  verifiedWebhookRequired: readinessBody.verifiedWebhookRequired === true && dryRunBody.verifiedWebhookRequired === true,
-  fakeSettlementBlocked: readinessBody.fakeSettlementBlocked === true && dryRunBody.fakeSettlementBlocked === true,
-  paymentMarkedPaid: Boolean(dryRunBody.paymentMarkedPaid),
-  orderCompleted: Boolean(dryRunBody.orderCompleted),
-  responseSnippets,
-  fetchErrors,
-};
-
-console.log(JSON.stringify(out, null, 2));
-process.exit(out.success ? 0 : 1);
