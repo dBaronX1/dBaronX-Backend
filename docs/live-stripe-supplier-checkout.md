@@ -302,3 +302,53 @@ node scripts/e2e-dbx-token-checkout-readiness-smoke.mjs
 ```
 
 The smoke confirms API health, pending intent creation, invalid/fake transaction rejection, no fake paid state, and explicit order-sync/Solana RPC blockers.
+
+## First Stripe checkout URL unblocker smoke
+
+Run this smoke before opening any hosted Checkout URL:
+
+```bash
+API_URL=https://dbaronx-api-unified.onrender.com \
+MEDUSA_URL=https://dbaronx-medusa.onrender.com \
+NEXT_PUBLIC_MEDUSA_PUBLISHABLE_KEY=<publishable-key> \
+node scripts/e2e-first-stripe-test-transaction-smoke.mjs
+```
+
+Route contract used by the smoke:
+
+- API readiness is trusted when any one of these returns HTTP 200: `GET /api/health`, `GET /health`, `GET /api/payments/readiness`, `GET /api/system/runtime-contract`, or `GET /api/system/deployment-readiness`. Missing `/api/health` alone is not a blocker when a trusted readiness endpoint returns 200.
+- Payment readiness uses `GET /api/payments/readiness` first and only falls back to `GET /api/v1/payments/readiness` after a canonical 404.
+- Economic readiness uses `GET /api/payments/economic-readiness` first and only falls back to `GET /api/v1/payments/economic-readiness` after a canonical 404.
+- Stripe session creation uses `POST /api/checkout/stripe/session` first and only falls back to `POST /api/v1/checkout/stripe/session` after a canonical 404.
+- Unsigned webhook safety uses `POST /api/checkout/stripe/webhook` first and only falls back to `POST /api/v1/checkout/stripe/webhook` after a canonical 404.
+- Order sync preview uses `POST /api/checkout/stripe/order-sync-preview` first and only falls back to `POST /api/v1/checkout/stripe/order-sync-preview` after a canonical 404.
+- Economic dry run uses `POST /api/payments/economic-events/dry-run` first and only falls back to `POST /api/v1/payments/economic-events/dry-run` after a canonical 404.
+
+`POST /api/checkout/stripe/session` is a public-safe customer checkout route. It uses the existing NestJS `@Public()` metadata so guest buyers can start hosted Stripe Checkout, while the global DTO validation pipe, request size middleware, and rate limit guard still apply. The route may create a real Stripe Checkout Session through `stripe.checkout.sessions.create(...)`, but it must not expose secrets, mark an order paid, complete an order, or mutate settlement state. Admin, order mutation, settlement, DBX confirmation, and webhook-paid-state routes remain protected by their existing safety rules.
+
+Shipping option visibility is required before the smoke can report checkout readiness. The Medusa Store API sequence is:
+
+1. Create or reuse a cart in region `reg_01KQSEKK6A9T86NJ0AG05XPK3H`.
+2. Add a real line item.
+3. Set a minimal US shipping address with `POST /store/carts/{cart_id}` and body:
+
+```json
+{
+  "email": "first-stripe-smoke@example.com",
+  "shipping_address": {
+    "first_name": "First",
+    "last_name": "StripeSmoke",
+    "address_1": "101 Test Street",
+    "city": "New York",
+    "province": "NY",
+    "postal_code": "10001",
+    "country_code": "us"
+  }
+}
+```
+
+4. Fetch cart-scoped Medusa v2 options with `GET /store/shipping-options?cart_id={cart_id}` and include `x-publishable-api-key` when the store requires a publishable key.
+
+The smoke must keep `shippingOptionReady: false` when the Store API returns no real `shipping_options` and must report `shipping_option_missing`; it must never fake `dBaronX Standard Delivery` readiness.
+
+Only open `checkoutUrl` when the smoke reports all of the following: no checkout blockers, `checkoutSessionCreated: true`, `checkoutUrl` begins with `https://checkout.stripe.com/`, `unsignedWebhookRejected: true`, and `paymentMarkedPaid: false`. Use Stripe test card `4242 4242 4242 4242`, any future expiry, any CVC, and any postal code. Frontend redirect success is only a browser navigation result; it is not proof of payment and must not mark an order paid. Paid/order settlement may move only from a signed, verified Stripe webhook and the durable settlement path.
