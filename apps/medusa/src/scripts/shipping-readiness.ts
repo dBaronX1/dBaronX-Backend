@@ -40,6 +40,9 @@ export type EnsureShippingReadinessResult = {
   serviceZoneReady: boolean;
   serviceZoneId: string | null;
   shippingOptionReady: boolean;
+  priceReady: boolean;
+  rulesReady: boolean;
+  visibleToStoreApiExpected: boolean;
   providerEnabledForServiceLocation: boolean;
   stockLocationProviderIds: string[];
   serviceZoneProviderIds: string[];
@@ -545,6 +548,52 @@ async function linkProviderToStockLocation(
   return true;
 }
 
+async function removeStoreVisibilityBlockingRules(
+  container: any,
+  shippingOption: Record<string, unknown> | undefined,
+  blockers: string[],
+  created: string[],
+): Promise<boolean> {
+  const rules = asArray<Record<string, unknown>>(shippingOption?.rules).filter(isRecord);
+  const blockingRuleIds = rules
+    .filter((rule) => String(rule.attribute || "") === "region_id")
+    .map(getId)
+    .filter((id): id is string => Boolean(id));
+
+  if (blockingRuleIds.length === 0) return false;
+
+  try {
+    const fulfillmentModule = container.resolve(Modules.FULFILLMENT);
+    await fulfillmentModule.deleteShippingOptionRules(blockingRuleIds);
+    pushUnique(created, "shipping_option_store_visibility_rule_repair");
+    return true;
+  } catch (error) {
+    addWorkflowErrorBlocker(blockers, "shipping_option_rule_repair", error);
+    return false;
+  }
+}
+
+const hasUsdFlatRatePrice = (shippingOption: unknown): boolean => {
+  const prices = asArray<Record<string, unknown>>(
+    isRecord(shippingOption) ? shippingOption.prices : undefined,
+  );
+
+  return prices.some(
+    (price) =>
+      String(price.currency_code || "").toLowerCase() === "usd" &&
+      Number.isFinite(Number(price.amount)) &&
+      Number(price.amount) >= 0,
+  );
+};
+
+const hasOnlyStoreVisibleRules = (shippingOption: unknown): boolean =>
+  asArray<Record<string, unknown>>(
+    isRecord(shippingOption) ? shippingOption.rules : undefined,
+  ).every((rule) => {
+    const attribute = String(rule.attribute || "");
+    return attribute === "enabled_in_store" || attribute === "is_return";
+  });
+
 async function findShippingOption(
   query: any,
   serviceZoneId: string | null,
@@ -560,6 +609,14 @@ async function findShippingOption(
       "service_zone_id",
       "shipping_profile_id",
       "provider_id",
+      "price_type",
+      "rules.id",
+      "rules.attribute",
+      "rules.operator",
+      "rules.value",
+      "prices.id",
+      "prices.currency_code",
+      "prices.amount",
       "service_zone.id",
       "shipping_profile.id",
     ],
@@ -938,9 +995,6 @@ export async function ensureShippingReadiness(
             },
             price_type: "flat",
             prices: [{ currency_code: "usd", amount: 0 }],
-            rules: [
-              { operator: "eq", attribute: "region_id", value: regionId },
-            ],
           },
         ]
       : null;
@@ -973,13 +1027,43 @@ export async function ensureShippingReadiness(
     }
   }
 
-  const shippingOptionReady = Boolean(shippingOptionId);
+  if (shippingOptionId && repair) {
+    const rulesRepaired = await removeStoreVisibilityBlockingRules(
+      container,
+      shippingOption,
+      blockers,
+      created,
+    );
+    if (rulesRepaired) {
+      shippingOption = await findShippingOption(
+        query,
+        serviceZoneId,
+        shippingProfileId,
+        fulfillmentProviderId,
+      );
+      shippingOptionId = getId(shippingOption);
+    }
+  }
+
+  const priceReady = hasUsdFlatRatePrice(shippingOption);
+  const rulesReady = hasOnlyStoreVisibleRules(shippingOption);
+  const visibleToStoreApiExpected = Boolean(
+    shippingOptionId &&
+      priceReady &&
+      rulesReady &&
+      serviceZoneReady &&
+      fulfillmentProviderReady &&
+      providerEnabledForServiceLocation,
+  );
+  const shippingOptionReady = Boolean(shippingOptionId && priceReady && rulesReady);
   if (shippingOptionReady)
     pushUnique(
       created.includes("shipping_option") ? created : existing,
       "shipping_option",
     );
   else pushUnique(blockers, "shipping_option_missing");
+  if (shippingOptionId && !priceReady) pushUnique(blockers, "shipping_option_usd_flat_rate_price_missing");
+  if (shippingOptionId && !rulesReady) pushUnique(blockers, "shipping_option_store_visibility_rules_blocking");
 
   return {
     created,
@@ -1000,6 +1084,9 @@ export async function ensureShippingReadiness(
     serviceZoneReady,
     serviceZoneId,
     shippingOptionReady,
+    priceReady,
+    rulesReady,
+    visibleToStoreApiExpected,
     providerEnabledForServiceLocation,
     stockLocationProviderIds,
     serviceZoneProviderIds,

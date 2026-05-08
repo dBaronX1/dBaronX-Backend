@@ -84,7 +84,7 @@ Medusa shipping visibility uses the Store API with the publishable key present w
 3. `POST /store/carts/:cart_id/shipping-methods` with `{ "option_id": "so_..." }` only after a real option is returned.
 4. `GET /store/carts/:cart_id` to capture cart shipping totals.
 
-The smoke does not mark `shippingOptionReady` unless Medusa returns a real shipping option ID. If Medusa returns zero options, the result remains the real blocker `shipping_option_missing` rather than a fabricated shipping success.
+The smoke does not mark `shippingOptionReady` unless Medusa returns a real shipping option ID. If Medusa returns zero options, the result remains the real blocker `shipping_option_store_visibility_missing` rather than a fabricated shipping success.
 
 PowerShell live smoke environment:
 
@@ -175,7 +175,7 @@ node scripts/e2e-stripe-checkout-session-smoke.mjs
   "unsignedWebhookRejected": true,
   "paymentMarkedPaid": false,
   "orderSyncReady": false,
-  "nextManualStep": "Open https://checkout.stripe.com/... and complete Stripe Checkout with test card 4242 4242 4242 4242; verify checkout.session.completed reaches https://dbaronx-api-unified.onrender.com/api/checkout/stripe/webhook."
+  "nextManualStep": "Open https://checkout.stripe.com/... only when sessionId starts with cs_test_; complete Stripe Checkout with test card 4242 4242 4242 4242; verify checkout.session.completed reaches https://dbaronx-api-unified.onrender.com/api/checkout/stripe/webhook."
 }
 ```
 
@@ -184,7 +184,7 @@ node scripts/e2e-stripe-checkout-session-smoke.mjs
 ## First controlled manual Stripe test checkout
 1. Confirm the smoke returns `checkoutSessionCreated: true`, `checkoutUrlPresent: true`, `unsignedWebhookRejected: true`, and `paymentMarkedPaid: false`.
 2. Open the returned Stripe hosted `checkoutUrl`.
-3. Use Stripe test card `4242 4242 4242 4242`, any future expiry, any CVC, and a valid billing ZIP.
+3. Only for `cs_test_*` sessions, use Stripe test card `4242 4242 4242 4242`, any future expiry, any CVC, and a valid billing ZIP. For `cs_live_*`, stop and reconfigure test-mode Stripe secrets.
 4. After the hosted checkout succeeds, open Stripe Dashboard → Developers → Webhooks → the configured endpoint.
 5. Confirm a `checkout.session.completed` delivery reached `POST /api/checkout/stripe/webhook`.
 6. Confirm the API response for the verified event is `verified: true`, `paymentMarkedPaid: false`, and includes `settlement_pending` until durable settlement is implemented.
@@ -366,6 +366,26 @@ Shipping option visibility is required before the smoke can report checkout read
 
 4. Fetch cart-scoped Medusa v2 options with `GET /store/shipping-options?cart_id={cart_id}` and include `x-publishable-api-key` when the store requires a publishable key.
 
-The smoke must keep `shippingOptionReady: false` when the Store API returns no real `shipping_options` and must report `shipping_option_missing`; it must never fake `dBaronX Standard Delivery` readiness.
+The smoke must keep `shippingOptionReady: false` when the Store API returns no real `shipping_options` and must report `shipping_option_store_visibility_missing`; it must never fake `dBaronX Standard Delivery` readiness.
 
-Only open `checkoutUrl` when the smoke reports all of the following: no checkout blockers, `checkoutSessionCreated: true`, `checkoutUrl` begins with `https://checkout.stripe.com/`, `unsignedWebhookRejected: true`, and `paymentMarkedPaid: false`. Use Stripe test card `4242 4242 4242 4242`, any future expiry, any CVC, and any postal code. Frontend redirect success is only a browser navigation result; it is not proof of payment and must not mark an order paid. Paid/order settlement may move only from a signed, verified Stripe webhook and the durable settlement path.
+Only open `checkoutUrl` when the smoke reports all of the following: no checkout blockers, `checkoutSessionCreated: true`, `checkoutUrl` begins with `https://checkout.stripe.com/`, `unsignedWebhookRejected: true`, `paymentMarkedPaid: false`, and `sessionId` begins with `cs_test_`. Use Stripe test card `4242 4242 4242 4242`, any future expiry, any CVC, and any postal code. Frontend redirect success is only a browser navigation result; it is not proof of payment and must not mark an order paid. Paid/order settlement may move only from a signed, verified Stripe webhook and the durable settlement path.
+
+## Controlled Stripe test-mode guard (May 2026)
+
+Controlled first-transaction smokes must create Stripe **test-mode** Checkout Sessions. A valid controlled test session has a `sessionId` beginning with `cs_test_`; only that mode may be used with Stripe test cards such as `4242 4242 4242 4242`.
+
+A `sessionId` beginning with `cs_live_` is live-money mode. Do **not** open or pay a `cs_live_*` Checkout URL for test-card validation. If the first Stripe smoke returns `stripeSessionModeDetected: "live"`, the smoke reports `stripe_live_session_returned_for_test_smoke` and the manual step is: “Do not open/pay this live session for test-card validation. Configure `STRIPE_SECRET_KEY=sk_test_...` and `STRIPE_WEBHOOK_SECRET` from a test webhook endpoint, redeploy, and rerun.”
+
+The API also rejects a request with `checkoutMode: "test"` when the configured Stripe key is detected as live mode, returning the blocker `stripe_live_key_used_for_test_checkout`. Legitimate live checkout remains supported for explicit `checkoutMode: "live"`; `ALLOW_LIVE_STRIPE_CHECKOUT_FOR_SMOKE=true` is only an explicit smoke override and must not be used for controlled test-card validation.
+
+## Shipping option Store API visibility requirement
+
+The first Stripe smoke only reports `shippingOptionReady: true` when `GET /store/shipping-options?cart_id=<cart_id>` returns at least one real shipping option ID after a US shipping address is set on the cart. If Medusa returns HTTP 200 with an empty `shipping_options` array, the blocker is `shipping_option_store_visibility_missing`.
+
+Run the Medusa repair/diagnostic before rerunning controlled checkout smoke:
+
+```bash
+pnpm --filter @dbaronx/medusa shipping:visibility:diagnose
+```
+
+The diagnostic verifies/repairs the US service zone, fulfillment provider linkage, stock location/sales-channel coverage, shipping profile, flat USD shipping-option price, and removes shipping-option rules that block Store API context visibility.

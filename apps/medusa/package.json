@@ -31,7 +31,8 @@
     "shipping:ensure": "pnpm exec medusa exec ./src/scripts/ensure-shipping.ts",
     "commerce:ensure": "pnpm exec medusa exec ./src/scripts/ensure-commerce-prerequisites.ts",
     "channel:stock:ensure": "pnpm exec medusa exec ./src/scripts/ensure-sales-channel-stock-location.ts",
-    "variant:inventory:ensure": "pnpm exec medusa exec ./src/scripts/ensure-variant-inventory-link.ts"
+    "variant:inventory:ensure": "pnpm exec medusa exec ./src/scripts/ensure-variant-inventory-link.ts",
+    "shipping:visibility:diagnose": "pnpm exec medusa exec ./src/scripts/diagnose-shipping-option-visibility.ts"
   },
   "dependencies": {
     "@medusajs/admin-sdk": "2.13.6",

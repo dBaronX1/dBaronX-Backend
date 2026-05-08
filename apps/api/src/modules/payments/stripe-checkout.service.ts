@@ -7,6 +7,7 @@ import { SupabaseService } from "../../shared/services/supabase.service";
 import { CreateStripeCheckoutSessionDto } from "./dto/create-stripe-checkout-session.dto";
 
 type StripeCheckoutMode = "test" | "live" | "unknown";
+type RequestedCheckoutMode = "test" | "live";
 type SettlementStatus =
   | "unverified"
   | "ignored"
@@ -188,6 +189,8 @@ export class StripeCheckoutService {
     const secretKey = this.getStripeSecretKey();
     const blockers: string[] = [];
     const mode = this.getStripeMode(secretKey);
+    const checkoutMode = this.getRequestedCheckoutMode(input.checkoutMode);
+    const liveSmokeOverrideAllowed = this.isLiveSmokeOverrideAllowed();
 
     if (!secretKey) {
       blockers.push("stripe_secret_key_missing");
@@ -196,11 +199,30 @@ export class StripeCheckoutService {
         configured: false,
         provider: "stripe",
         mode,
+        requestedCheckoutMode: checkoutMode,
         checkoutSessionPathReady: true,
         checkoutUrl: null,
         sessionId: null,
         blockers,
         message: "STRIPE_SECRET_KEY is not configured on the API server.",
+      };
+    }
+
+    if (checkoutMode === "test" && mode === "live" && !liveSmokeOverrideAllowed) {
+      blockers.push("stripe_live_key_used_for_test_checkout");
+      return {
+        success: false,
+        configured: true,
+        provider: "stripe",
+        mode,
+        requestedCheckoutMode: checkoutMode,
+        checkoutSessionPathReady: true,
+        checkoutUrl: null,
+        sessionId: null,
+        blockers,
+        metadata: { stripeKeyMode: mode, requestedCheckoutMode: checkoutMode },
+        message:
+          "A live Stripe key is configured for a test checkout request. Configure Stripe test-mode secrets or explicitly allow live smoke checkout.",
       };
     }
 
@@ -246,6 +268,7 @@ export class StripeCheckoutService {
           configured: true,
           provider: "stripe",
           mode,
+          requestedCheckoutMode: checkoutMode,
           checkoutSessionPathReady: true,
           checkoutUrl: null,
           sessionId: session.id || null,
@@ -261,11 +284,12 @@ export class StripeCheckoutService {
         configured: true,
         provider: "stripe",
         mode,
+        requestedCheckoutMode: checkoutMode,
         checkoutSessionPathReady: true,
         checkoutUrl: session.url,
         sessionId: session.id,
         blockers,
-        metadata,
+        metadata: { ...metadata, stripeKeyMode: mode, requestedCheckoutMode: checkoutMode },
       };
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
@@ -275,6 +299,7 @@ export class StripeCheckoutService {
         configured: true,
         provider: "stripe",
         mode,
+        requestedCheckoutMode: checkoutMode,
         checkoutSessionPathReady: true,
         checkoutUrl: null,
         sessionId: null,
@@ -650,6 +675,16 @@ export class StripeCheckoutService {
     return new Stripe(secretKey, {
       apiVersion: "2025-09-30.clover",
     });
+  }
+
+  private getRequestedCheckoutMode(mode: CreateStripeCheckoutSessionDto["checkoutMode"]): RequestedCheckoutMode {
+    return mode === "live" ? "live" : "test";
+  }
+
+  private isLiveSmokeOverrideAllowed(): boolean {
+    return String(this.config.get<string>("ALLOW_LIVE_STRIPE_CHECKOUT_FOR_SMOKE") || process.env.ALLOW_LIVE_STRIPE_CHECKOUT_FOR_SMOKE || "")
+      .trim()
+      .toLowerCase() === "true";
   }
 
   private getStripeSecretKey(): string {
