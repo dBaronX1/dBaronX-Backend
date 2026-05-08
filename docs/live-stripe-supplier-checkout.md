@@ -281,43 +281,24 @@ The supplier readiness endpoint is `GET /api/suppliers/readiness`. It reports sa
 
 For the first CJ product test, set `CJ_TEST_PRODUCT_ID` or `CJ_TEST_SKU` and call `POST /api/suppliers/cj/import-readiness` with explicit product metadata. The boundary normalizes CJ product metadata, requires minimum economics and shipping fields before `supplierImportReady: true`, does not create a Medusa product automatically, and must not bulk auto-import the CJ catalog.
 
-## Live unified payment rail smoke
+## DBX token checkout readiness addendum
 
-Canonical Render command:
+DBX Solana token checkout now has an explicit route contract alongside the live Stripe and supplier checkout readiness flow:
+
+- `POST /api/dbx-payments/intents` creates a pending DBX payment intent for a `cartId` or `orderRef`, returns the public DBX receiver address, expected base-unit amount, expiry, and idempotency reference, and never marks payment paid.
+- `POST /api/dbx-payments/submit` accepts `transactionSignature`/`txHash`, validates Solana signature shape, attaches it to the DBX intent, and returns verification-pending state only.
+- `POST /api/dbx-payments/confirm` requires server-side Solana/FastAPI verification before any confirmed transition. If `SOLANA_RPC_URL` is missing, the explicit blocker is `solana_rpc_not_configured`.
+- `POST /api/dbx-payments/:reference/retry-order-sync` is reserved for verified payments whose Medusa order sync is pending.
+- `GET /api/dbx-payments/:reference` exposes frontend-safe status for polling.
+
+Stripe remains the card-checkout path and supplier readiness remains independent. DBX does not weaken Stripe/Medusa behavior: Medusa order payment state is not trusted from frontend wallet confirmation, and DBX order completion is only attempted after server-side transaction verification.
+
+Frontend checkout should show Stripe, Paystack, and DBX as separate payment options. The DBX option must render `NEXT_PUBLIC_DBX_SOLANA_PAYMENT_ADDRESS`, a QR/address instruction, transaction signature submission, and pending/confirmed/failed UI states. The UI must not implement a frontend-paid state.
+
+DBX readiness smoke:
 
 ```bash
-MEDUSA_URL=https://dbaronx-medusa.onrender.com \
-API_URL=https://dbaronx-api-unified.onrender.com \
-NEXT_PUBLIC_MEDUSA_PUBLISHABLE_KEY=<publishable-key> \
-API_BEARER_TOKEN=<authorized-smoke-jwt-if-needed> \
-node scripts/e2e-unified-payment-rail-smoke.mjs
+node scripts/e2e-dbx-token-checkout-readiness-smoke.mjs
 ```
 
-Public/client-safe env used by the smoke:
-
-- `MEDUSA_URL` / `MEDUSA_BACKEND_URL`: Medusa store API base URL.
-- `NEXT_PUBLIC_MEDUSA_PUBLISHABLE_KEY` / `MEDUSA_PUBLISHABLE_KEY`: Medusa publishable key for store products, regions, carts, line items, and shipping options.
-- `API_URL` / `NESTJS_API_URL`: NestJS API base URL.
-- `WEB_BASE_URL` / `NEXT_PUBLIC_WEB_BASE_URL`: redirect base used only for Stripe Checkout success/cancel URLs.
-
-Server-only env required on the API before a controlled Stripe payment:
-
-- `STRIPE_SECRET_KEY`: required for `POST /api/checkout/stripe/session`; missing returns `stripe_secret_key_missing`, `checkoutUrl: null`, and `sessionId: null`.
-- `STRIPE_WEBHOOK_SECRET`: required for verified `POST /api/checkout/stripe/webhook`; missing returns `stripe_webhook_secret_missing` and does not mark paid.
-- `JWT_SECRET`: required by protected payment mutation routes when `API_BEARER_TOKEN` is used.
-- Order sync env such as `MEDUSA_BASE_URL`/`MEDUSA_BACKEND_URL` and `MEDUSA_ADMIN_API_KEY`/`MEDUSA_ADMIN_TOKEN` is required before settlement can complete an order.
-
-Route/auth contract:
-
-- Public safe diagnostics: `GET /api/health`, `GET /api/payments/readiness`, and unsigned/Stripe-signed `POST /api/checkout/stripe/webhook`.
-- Protected mutation routes: `POST /api/checkout/stripe/session`, `POST /api/checkout/stripe/order-sync-preview`, and all `POST /api/dbx-payments/...` mutation routes. The smoke sends `Authorization: Bearer <API_BEARER_TOKEN>` when `API_BEARER_TOKEN` is present and reports `authorized_smoke_jwt_missing` when a protected live smoke cannot run without one.
-
-Acceptable blockers before live mode but not before the first controlled payment/order:
-
-- `stripe_event_idempotency_storage_pending`, `settlement_pending`, or `order_sync_not_configured` can be acceptable only before any paid-state mutation is enabled.
-- `stripe_secret_key_missing`, `stripe_webhook_secret_missing`, `authorized_smoke_jwt_missing`, and any Medusa cart/line-item/shipping blockers must be fixed before the first controlled Stripe payment.
-
-No-fake-paid-state rule:
-
-- Frontend redirects, unsigned webhooks, fake session IDs, and fake transaction signatures must never mark a payment or order paid.
-- Paid state is allowed only after a verified Stripe webhook or verified Solana transaction, with idempotent server-side settlement.
+The smoke confirms API health, pending intent creation, invalid/fake transaction rejection, no fake paid state, and explicit order-sync/Solana RPC blockers.

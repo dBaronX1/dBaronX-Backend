@@ -1,7 +1,7 @@
 import { Injectable } from "@nestjs/common";
 import { ConfigService } from "@nestjs/config";
 
-export type PaymentReadinessResponse = {
+type PaymentReadinessSnapshot = {
   stripeConfigured: boolean;
   stripeWebhookConfigured: boolean;
   dbxPaymentAddressPresent: boolean;
@@ -18,16 +18,25 @@ export type PaymentReadinessResponse = {
 export class PaymentReadinessService {
   constructor(private readonly config: ConfigService) {}
 
-  getReadiness(): PaymentReadinessResponse {
-    const stripeConfigured = this.has("STRIPE_SECRET_KEY");
-    const stripeWebhookConfigured = this.has("STRIPE_WEBHOOK_SECRET");
-    const dbxPaymentAddressPresent = this.hasAny("DBX_PAYMENT_ADDRESS", "DBX_TREASURY_WALLET", "DBX_TREASURY_ADDRESS");
-    const solanaRpcConfigured = this.hasAny("SOLANA_RPC_URL", "DBX_SOLANA_RPC_URL");
-    const dbxTokenMintPresent = this.hasAny("DBX_TOKEN_MINT", "DBX_MINT_ADDRESS");
-    const fastapiVerifierConfigured = this.hasAny("FASTAPI_BASE_URL", "fastapi.baseUrl") &&
-      this.hasAny("INTERNAL_SERVICE_TOKEN", "fastapi.internalServiceToken");
-    const orderSyncConfigured = this.hasAny("MEDUSA_BASE_URL", "MEDUSA_BACKEND_URL") &&
-      this.hasAny("MEDUSA_ADMIN_API_KEY", "MEDUSA_ADMIN_TOKEN");
+  snapshot(): PaymentReadinessSnapshot {
+    const stripeConfigured = this.present("STRIPE_SECRET_KEY");
+    const stripeWebhookConfigured = this.present("STRIPE_WEBHOOK_SECRET");
+    const dbxPaymentAddressPresent = this.anyPresent([
+      "NEXT_PUBLIC_DBX_SOLANA_PAYMENT_ADDRESS",
+      "DBX_TREASURY_WALLET",
+    ]);
+    const solanaRpcConfigured = this.anyPresent([
+      "SOLANA_RPC_URL",
+      "DBX_SOLANA_RPC_URL",
+    ]);
+    const dbxTokenMintPresent = this.anyPresent([
+      "DBX_TOKEN_MINT",
+      "DBX_MINT_ADDRESS",
+    ]);
+    const fastapiVerifierConfigured = this.present("FASTAPI_BASE_URL") &&
+      this.present("INTERNAL_SERVICE_TOKEN");
+    const orderSyncConfigured = this.present("SUPABASE_SERVICE_ROLE_KEY") &&
+      this.anyPresent(["SUPABASE_URL", "NEXT_PUBLIC_SUPABASE_URL"]);
 
     const blockers = [
       ...(stripeConfigured ? [] : ["stripe_secret_key_missing"]),
@@ -53,11 +62,11 @@ export class PaymentReadinessService {
     };
   }
 
-  private hasAny(...keys: string[]): boolean {
-    return keys.some((key) => this.has(key));
+  private anyPresent(keys: string[]): boolean {
+    return keys.some((key) => this.present(key));
   }
 
-  private has(key: string): boolean {
-    return Boolean(String(this.config.get<string>(key) || "").trim());
+  private present(key: string): boolean {
+    return Boolean(String(this.config.get<string>(key) || process.env[key] || "").trim());
   }
 }

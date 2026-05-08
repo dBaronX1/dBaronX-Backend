@@ -20,6 +20,8 @@ import { PaymentReadinessController } from "./payment-readiness.controller";
 import { PaymentReadinessService } from "./payment-readiness.service";
 import { StripeCheckoutController } from "./stripe-checkout.controller";
 import { StripeCheckoutService } from "./stripe-checkout.service";
+import { PaymentReadinessController } from "./payment-readiness.controller";
+import { PaymentReadinessService } from "./payment-readiness.service";
 
 @Module({
   imports: [ConfigModule, WalletModule],

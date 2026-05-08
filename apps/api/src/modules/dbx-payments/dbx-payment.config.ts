@@ -6,11 +6,9 @@ export class DbxPaymentConfig {
   constructor(private readonly config: ConfigService) {}
 
   get mintAddress(): string {
-    const value = this.first("DBX_TOKEN_MINT", "DBX_MINT_ADDRESS");
-    if (!value) {
-      throw new Error("DBX_TOKEN_MINT is required");
-    }
-    return value;
+    return this.config.get<string>("DBX_TOKEN_MINT") ||
+      this.config.get<string>("DBX_MINT_ADDRESS") ||
+      "4ZdL7df7KoDTyVqAnQ398ofsykqsox2S834KQBXNQNYE";
   }
 
   get decimals(): number {
@@ -18,11 +16,27 @@ export class DbxPaymentConfig {
   }
 
   get treasuryWallet(): string {
-    const value = this.first("DBX_PAYMENT_ADDRESS", "DBX_TREASURY_WALLET", "DBX_TREASURY_ADDRESS");
+    const value =
+      this.config.get<string>("NEXT_PUBLIC_DBX_SOLANA_PAYMENT_ADDRESS") ||
+      this.config.get<string>("DBX_TREASURY_WALLET") ||
+      this.config.get<string>("DBX_PAYMENT_ADDRESS") ||
+      "";
     if (!value) {
-      throw new Error("DBX payment address is required");
+      throw new Error("NEXT_PUBLIC_DBX_SOLANA_PAYMENT_ADDRESS or DBX_TREASURY_WALLET is required");
     }
-    return value;
+    return value.trim();
+  }
+
+  get solanaRpcUrl(): string {
+    return String(
+      this.config.get<string>("SOLANA_RPC_URL") ||
+      this.config.get<string>("DBX_SOLANA_RPC_URL") ||
+      "",
+    ).trim();
+  }
+
+  get solanaRpcConfigured(): boolean {
+    return this.solanaRpcUrl.length > 0;
   }
 
   get intentTtlMinutes(): number {

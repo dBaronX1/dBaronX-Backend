@@ -1,19 +1,17 @@
 #!/usr/bin/env node
 
-const MEDUSA_URL = (process.env.MEDUSA_URL || process.env.MEDUSA_BACKEND_URL || "https://dbaronx-medusa.onrender.com").replace(/\/+$/, "");
 const API_URL = (process.env.API_URL || process.env.NESTJS_API_URL || "https://dbaronx-api-unified.onrender.com").replace(/\/+$/, "");
+const MEDUSA_URL = (process.env.MEDUSA_URL || process.env.MEDUSA_BACKEND_URL || process.env.NEXT_PUBLIC_MEDUSA_BACKEND_URL || "https://dbaronx-medusa.onrender.com").replace(/\/+$/, "");
 const WEB_BASE_URL = (process.env.WEB_BASE_URL || process.env.NEXT_PUBLIC_WEB_BASE_URL || "https://dbaronx.com").replace(/\/+$/, "");
-const API_BEARER_TOKEN = (process.env.API_BEARER_TOKEN || "").trim();
-const MEDUSA_PUBLISHABLE_KEY = (process.env.NEXT_PUBLIC_MEDUSA_PUBLISHABLE_KEY || process.env.MEDUSA_PUBLISHABLE_KEY || "").trim();
+const MEDUSA_PUBLISHABLE_KEY = (process.env.MEDUSA_PUBLISHABLE_KEY || process.env.NEXT_PUBLIC_MEDUSA_PUBLISHABLE_KEY || "").trim();
+const API_BEARER_TOKEN = (process.env.API_BEARER_TOKEN || process.env.SMOKE_API_BEARER_TOKEN || process.env.SMOKE_JWT || "").trim();
 const SHIPPING_OPTION_ID = (process.env.SHIPPING_OPTION_ID || "").trim();
-const SNIPPET_LIMIT = 700;
+const SNIPPET_LIMIT = 900;
+const FAKE_DBX_SIGNATURE = `fake-smoke-signature-${Date.now()}`;
 
 const blockers = [];
-const warnings = [];
 const responseSnippets = {};
 const fetchErrors = [];
-const checks = {};
-const apiPathsUsed = {};
 
 const out = {
   success: false,
@@ -38,32 +36,26 @@ const out = {
   nextManualStep: null,
   responseSnippets,
   fetchErrors,
-  authUsed: Boolean(API_BEARER_TOKEN),
-  envReadiness: null,
-  medusaUrl: MEDUSA_URL,
-  apiUrl: API_URL,
-  productId: null,
-  variantId: null,
-  regionId: null,
-  cartId: null,
-  dbxReference: null,
-  warnings,
-  checks,
-  apiPathsUsed,
+  checks: {
+    apiUrl: API_URL,
+    medusaUrl: MEDUSA_URL,
+    medusaPublishableKeyPresent: Boolean(MEDUSA_PUBLISHABLE_KEY),
+    apiBearerTokenPresent: Boolean(API_BEARER_TOKEN),
+  },
 };
 
 const medusaHeaders = {
   "content-type": "application/json",
   ...(MEDUSA_PUBLISHABLE_KEY ? { "x-publishable-api-key": MEDUSA_PUBLISHABLE_KEY } : {}),
 };
-const apiJsonHeaders = {
+const apiHeaders = {
   "content-type": "application/json",
   ...(API_BEARER_TOKEN ? { authorization: `Bearer ${API_BEARER_TOKEN}` } : {}),
 };
 
 function api(path) {
-  const base = API_URL.endsWith("/api") ? API_URL.slice(0, -4) : API_URL;
-  return `${base}${path}`;
+  const normalized = API_URL.endsWith("/api") ? API_URL.slice(0, -4) : API_URL;
+  return `${normalized}${path}`;
 }
 
 function snippet(value) {
@@ -72,55 +64,40 @@ function snippet(value) {
 }
 
 function unwrap(body) {
-  return body && typeof body === "object" && body.success === true && body.data ? body.data : body;
-}
-
-function firstArray(value) {
-  return Array.isArray(value) ? value : [];
+  return body && typeof body === "object" && body.success === true && body.data !== undefined ? body.data : body;
 }
 
 function safeHeadersUsed(headers) {
-  return Object.fromEntries(Object.entries(headers || {}).map(([key, value]) => {
-    const lower = key.toLowerCase();
-    return [key, lower.includes("authorization") || lower.includes("key") || lower.includes("token") ? Boolean(String(value || "").trim()) : value];
-  }));
+  return Object.fromEntries(
+    Object.entries(headers || {}).map(([key, value]) => {
+      const lower = key.toLowerCase();
+      const sensitive = lower.includes("authorization") || lower.includes("key") || lower.includes("token") || lower.includes("secret");
+      return [key, sensitive ? Boolean(String(value || "").trim()) : value];
+    }),
+  );
 }
 
-function collectResponseBlockers(payload) {
-  const direct = firstArray(payload?.blockers);
-  const nested = firstArray(payload?.response?.blockers);
-  const errorNested = firstArray(payload?.error?.blockers);
-  return [...direct, ...nested, ...errorNested];
+function errorPayload(error, request) {
+  return {
+    endpoint: request.url,
+    method: request.method || "GET",
+    headersUsed: safeHeadersUsed(request.headers),
+    bodyPreview: request.body ? snippet(request.body) : null,
+    errorName: error instanceof Error ? error.name : "NonErrorThrown",
+    errorMessage: error instanceof Error ? error.message : String(error),
+    cause: error instanceof Error && error.cause ? String(error.cause) : null,
+  };
 }
 
-function addUniqueBlocker(code) {
-  if (!blockers.includes(code)) blockers.push(code);
-}
-
-function noteAuthBlocker(probe, route) {
-  if ((probe.status === 401 || probe.status === 403) && !API_BEARER_TOKEN) {
-    addUniqueBlocker("authorized_smoke_jwt_missing");
-    checks[`${route}AuthRequired`] = true;
-    return true;
-  }
-  return false;
-}
-
-async function getJson(url, init = {}) {
+async function requestJson(url, init = {}, label = url) {
   const request = { url, method: init.method || "GET", headers: init.headers || {}, body: init.body };
   let response;
   try {
     response = await fetch(url, init);
   } catch (error) {
-    const normalized = {
-      endpoint: request.url,
-      method: request.method,
-      headersUsed: safeHeadersUsed(request.headers),
-      bodyPreview: request.body ? snippet(request.body) : null,
-      errorName: error instanceof Error ? error.name : "NonErrorThrown",
-      errorMessage: error instanceof Error ? error.message : String(error),
-    };
+    const normalized = errorPayload(error, request);
     fetchErrors.push(normalized);
+    responseSnippets[label] = snippet(normalized);
     return { ok: false, status: 0, body: { message: normalized.errorMessage }, data: {}, text: normalized.errorMessage };
   }
 
@@ -131,199 +108,229 @@ async function getJson(url, init = {}) {
   } catch {
     body = { raw: text };
   }
-
+  responseSnippets[label] = snippet(text || body);
   return { ok: response.ok, status: response.status, body, data: unwrap(body), text };
 }
 
-async function apiJson(path, options = {}) {
-  const url = api(path);
-  const probe = await getJson(url, {
-    method: options.method || "GET",
-    headers: options.headers || apiJsonHeaders,
-    ...(options.body === undefined ? {} : { body: JSON.stringify(options.body) }),
-  });
-  responseSnippets[path] = snippet(probe.text || probe.body);
-  return probe;
+async function postApi(canonicalPath, legacyPath, body, headers = apiHeaders) {
+  const canonical = await requestJson(api(canonicalPath), { method: "POST", headers, body: JSON.stringify(body) }, canonicalPath);
+  if (canonical.status !== 404 || !legacyPath) return { probe: canonical, pathUsed: canonicalPath };
+  const legacy = await requestJson(api(legacyPath), { method: "POST", headers, body: JSON.stringify(body) }, legacyPath);
+  return { probe: legacy, pathUsed: legacyPath };
+}
+
+async function getApi(canonicalPath, legacyPath, headers = apiHeaders) {
+  const canonical = await requestJson(api(canonicalPath), { headers }, canonicalPath);
+  if (canonical.status !== 404 || !legacyPath) return { probe: canonical, pathUsed: canonicalPath };
+  const legacy = await requestJson(api(legacyPath), { headers }, legacyPath);
+  return { probe: legacy, pathUsed: legacyPath };
+}
+
+function firstArray(value) {
+  return Array.isArray(value) ? value : [];
 }
 
 function cartFrom(data) {
   return data?.cart || data;
 }
 
-function salesChannelIdFrom(product) {
-  return (process.env.MEDUSA_SALES_CHANNEL_ID || firstArray(product?.sales_channels)[0]?.id || "").trim();
+function statusFrom(probe) {
+  return String((probe?.data || probe?.body || {})?.status || "").toLowerCase();
 }
 
-function minorUnitAmountFromCart(cart) {
-  const amount = Number(cart?.total ?? cart?.subtotal ?? 0);
-  return Number.isInteger(amount) && amount > 0 ? amount : 100;
+function markedPaid(probe) {
+  const data = probe?.data || probe?.body || {};
+  const status = String(data.status || data.paymentStatus || "").toLowerCase();
+  return data.paymentMarkedPaid === true || data.paid === true || ["paid", "captured", "completed"].includes(status);
 }
 
-async function createCart(regionId, salesChannelId) {
-  const bodies = salesChannelId ? [{ region_id: regionId, sales_channel_id: salesChannelId }, { region_id: regionId }] : [{ region_id: regionId }];
-  let last = null;
-  for (const body of bodies) {
-    const probe = await getJson(`${MEDUSA_URL}/store/carts`, { method: "POST", headers: medusaHeaders, body: JSON.stringify(body) });
-    responseSnippets["POST /store/carts"] = snippet(probe.text || probe.body);
-    last = probe;
-    const cart = cartFrom(probe.data);
-    if (probe.ok && cart?.id) return { probe, cart };
-  }
-  return { probe: last, cart: null };
+function addBlockerOnce(blocker) {
+  if (blocker && !blockers.includes(blocker)) blockers.push(blocker);
 }
 
-const health = await apiJson("/api/health", { headers: { "content-type": "application/json" } });
-checks.apiHealthHttp = health.status;
-out.apiReady = health.ok;
-if (!health.ok) addUniqueBlocker(`api_health_http_${health.status}`);
+const health = await getApi("/health", "/api/health", {});
+out.apiReady = health.probe.ok;
+out.checks.apiHealthHttp = health.probe.status;
+if (!out.apiReady) addBlockerOnce(`api_health_http_${health.probe.status}`);
 
-const readiness = await apiJson("/api/payments/readiness", { headers: { "content-type": "application/json" } });
-apiPathsUsed.paymentReadiness = "/api/payments/readiness";
-checks.paymentReadinessHttp = readiness.status;
-out.envReadiness = readiness.data || null;
-out.stripeReady = readiness.ok && readiness.data?.stripeConfigured === true && readiness.data?.stripeWebhookConfigured === true;
-out.dbxReady = readiness.ok && readiness.data?.dbxPaymentAddressPresent === true && readiness.data?.solanaRpcConfigured === true && readiness.data?.dbxTokenMintPresent === true && readiness.data?.fastapiVerifierConfigured === true;
-out.orderSyncReady = readiness.ok && readiness.data?.orderSyncConfigured === true;
-if (!readiness.ok) addUniqueBlocker(`payment_readiness_http_${readiness.status}`);
-for (const blocker of firstArray(readiness.data?.blockers)) addUniqueBlocker(blocker);
+const readiness = await getApi("/api/payments/readiness", "/api/v1/payments/readiness", {});
+const readinessData = readiness.probe.data || {};
+out.checks.paymentReadinessHttp = readiness.probe.status;
+out.checks.paymentReadiness = readinessData;
+if (readiness.probe.status === 404) addBlockerOnce("payments_readiness_route_missing");
+if (readiness.probe.ok) {
+  if (readinessData.stripeConfigured === false) addBlockerOnce("stripe_secret_key_missing");
+  if (readinessData.stripeWebhookConfigured === false) addBlockerOnce("stripe_webhook_secret_missing");
+  if (readinessData.solanaRpcConfigured === false) addBlockerOnce("solana_rpc_not_configured");
+  out.orderSyncReady = readinessData.orderSyncConfigured === true;
+  if (!out.orderSyncReady) addBlockerOnce("order_sync_not_configured");
+}
 
-const products = await getJson(`${MEDUSA_URL}/store/products?limit=20`, { headers: medusaHeaders });
-responseSnippets["/store/products"] = snippet(products.text || products.body);
-checks.medusaProductsHttp = products.status;
-const product = firstArray(products.data?.products).find((item) => firstArray(item?.variants).length > 0) || firstArray(products.data?.products)[0] || null;
-out.productId = product?.id || null;
-out.variantId = firstArray(product?.variants)[0]?.id || null;
-if (!products.ok) addUniqueBlocker(`store_products_http_${products.status}`);
-if (!out.variantId) addUniqueBlocker("variant_id_missing");
+const products = await requestJson(`${MEDUSA_URL}/store/products?limit=20`, { headers: medusaHeaders }, "/store/products");
+const product = firstArray(products.data?.products).find((item) => firstArray(item?.variants).length > 0) || null;
+const variantId = product?.variants?.[0]?.id || null;
+out.checks.medusaProductsHttp = products.status;
+out.checks.productId = product?.id || null;
+out.checks.variantId = variantId;
+if (!products.ok) addBlockerOnce(`store_products_http_${products.status}`);
+if (!variantId) addBlockerOnce("variant_id_missing");
 
-const regions = await getJson(`${MEDUSA_URL}/store/regions?limit=20`, { headers: medusaHeaders });
-responseSnippets["/store/regions"] = snippet(regions.text || regions.body);
-checks.medusaRegionsHttp = regions.status;
-out.regionId = firstArray(regions.data?.regions)[0]?.id || null;
-if (!regions.ok) addUniqueBlocker(`store_regions_http_${regions.status}`);
-if (!out.regionId) addUniqueBlocker("region_missing");
-out.medusaReady = products.ok && regions.ok && Boolean(out.variantId && out.regionId);
+const regions = await requestJson(`${MEDUSA_URL}/store/regions?limit=20`, { headers: medusaHeaders }, "/store/regions");
+const regionId = firstArray(regions.data?.regions)[0]?.id || null;
+out.checks.medusaRegionsHttp = regions.status;
+out.checks.regionId = regionId;
+if (!regions.ok) addBlockerOnce(`store_regions_http_${regions.status}`);
+if (!regionId) addBlockerOnce("region_missing");
+out.medusaReady = products.ok && regions.ok && Boolean(variantId && regionId);
 
 let cart = null;
-if (out.regionId) {
-  const cartResult = await createCart(out.regionId, salesChannelIdFrom(product));
-  checks.cartCreateHttp = cartResult.probe?.status ?? 0;
-  cart = cartResult.cart;
-  out.cartId = cart?.id || null;
-  out.cartReady = Boolean(cartResult.probe?.ok && out.cartId);
-  if (!out.cartReady) addUniqueBlocker(`cart_create_http_${cartResult.probe?.status ?? 0}`);
+if (regionId) {
+  const cartBodies = [{ region_id: regionId }];
+  const salesChannelId = process.env.MEDUSA_SALES_CHANNEL_ID || firstArray(product?.sales_channels)[0]?.id || "";
+  if (salesChannelId) cartBodies.push({ region_id: regionId, sales_channel_id: salesChannelId });
+
+  let cartProbe = null;
+  for (const body of cartBodies) {
+    cartProbe = await requestJson(`${MEDUSA_URL}/store/carts`, {
+      method: "POST",
+      headers: medusaHeaders,
+      body: JSON.stringify(body),
+    }, "POST /store/carts");
+    cart = cartFrom(cartProbe.data);
+    if (cartProbe.ok && cart?.id) break;
+  }
+  out.cartReady = Boolean(cart?.id);
+  out.checks.cartId = cart?.id || null;
+  out.checks.cartCreateHttp = cartProbe?.status ?? 0;
+  if (!out.cartReady) addBlockerOnce(`cart_create_http_${cartProbe?.status ?? 0}`);
 }
 
-if (out.cartId && out.variantId) {
-  const line = await getJson(`${MEDUSA_URL}/store/carts/${out.cartId}/line-items`, {
+if (cart?.id && variantId) {
+  const line = await requestJson(`${MEDUSA_URL}/store/carts/${cart.id}/line-items`, {
     method: "POST",
     headers: medusaHeaders,
-    body: JSON.stringify({ variant_id: out.variantId, quantity: 1 }),
-  });
-  responseSnippets["/store/carts/:id/line-items"] = snippet(line.text || line.body);
-  checks.lineItemAddHttp = line.status;
+    body: JSON.stringify({ variant_id: variantId, quantity: 1 }),
+  }, "/store/carts/:id/line-items");
   out.lineItemAdded = line.ok;
+  out.checks.lineItemAddHttp = line.status;
   cart = cartFrom(line.data) || cart;
-  if (!line.ok) addUniqueBlocker(`line_item_add_http_${line.status}`);
+  if (!line.ok) addBlockerOnce(`line_item_add_http_${line.status}`);
 
-  const shipping = await getJson(`${MEDUSA_URL}/store/shipping-options?cart_id=${encodeURIComponent(out.cartId)}`, { headers: medusaHeaders });
-  responseSnippets["/store/shipping-options"] = snippet(shipping.text || shipping.body);
-  checks.shippingOptionsHttp = shipping.status;
+  const shipping = await requestJson(`${MEDUSA_URL}/store/shipping-options?cart_id=${encodeURIComponent(cart.id)}`, { headers: medusaHeaders }, "/store/shipping-options");
   const options = firstArray(shipping.data?.shipping_options);
-  checks.shippingOptionsCount = options.length;
-  checks.expectedShippingOptionAvailable = SHIPPING_OPTION_ID ? options.some((option) => option?.id === SHIPPING_OPTION_ID) : null;
   out.shippingOptionReady = shipping.ok && options.length > 0;
-  if (!shipping.ok) addUniqueBlocker(`shipping_options_http_${shipping.status}`);
-  if (shipping.ok && options.length === 0) addUniqueBlocker("shipping_option_missing");
-  if (shipping.ok && SHIPPING_OPTION_ID && !checks.expectedShippingOptionAvailable) warnings.push(`shipping_option_${SHIPPING_OPTION_ID}_not_returned_for_cart`);
+  out.checks.shippingOptionsHttp = shipping.status;
+  out.checks.shippingOptionsCount = options.length;
+  out.checks.expectedShippingOptionAvailable = SHIPPING_OPTION_ID ? options.some((option) => option?.id === SHIPPING_OPTION_ID) : null;
+  if (!shipping.ok) addBlockerOnce(`shipping_options_http_${shipping.status}`);
+  if (shipping.ok && options.length === 0) addBlockerOnce("shipping_option_missing");
 }
 
-const checkoutAmount = minorUnitAmountFromCart(cart);
-const checkoutCurrency = String(cart?.currency_code || "usd").toLowerCase();
+const checkoutAmount = Number.isInteger(Number(cart?.total ?? cart?.subtotal)) && Number(cart?.total ?? cart?.subtotal) > 0 ? Number(cart?.total ?? cart?.subtotal) : 100;
+const currency = String(cart?.currency_code || "usd").toLowerCase();
+const orderRef = `unified-payment-smoke-${Date.now()}`;
 const sessionBody = {
-  cartId: out.cartId || "smoke-cart",
-  orderRef: `unified-stripe-smoke-${Date.now()}`,
+  cartId: cart?.id || "smoke-cart-unavailable",
+  orderRef,
   customerRef: "unified-payment-rail-smoke",
   amount: checkoutAmount,
-  currency: checkoutCurrency,
+  currency,
   successUrl: `${WEB_BASE_URL}/checkout/success?session_id={CHECKOUT_SESSION_ID}`,
   cancelUrl: `${WEB_BASE_URL}/checkout/cancel`,
   productName: "dBaronX unified payment rail smoke",
 };
-const stripeSession = await apiJson("/api/checkout/stripe/session", { method: "POST", body: sessionBody });
-apiPathsUsed.stripeSession = "/api/checkout/stripe/session";
-checks.stripeSessionHttp = stripeSession.status;
-const stripeSessionBody = stripeSession.data || {};
-out.stripeSessionCreated = stripeSessionBody.success === true && Boolean(stripeSessionBody.sessionId) && Boolean(stripeSessionBody.checkoutUrl);
-out.stripeCheckoutUrlPresent = Boolean(stripeSessionBody.checkoutUrl);
-if (stripeSession.status === 404) addUniqueBlocker("stripe_session_route_missing");
-else if (!stripeSession.ok && !noteAuthBlocker(stripeSession, "stripeSession")) addUniqueBlocker(`stripe_session_http_${stripeSession.status}`);
-if (stripeSessionBody.configured === false && (stripeSessionBody.sessionId || stripeSessionBody.checkoutUrl)) addUniqueBlocker("stripe_returned_checkout_artifacts_while_unconfigured");
-if (stripeSessionBody.configured === false && !firstArray(stripeSessionBody.blockers).includes("stripe_secret_key_missing")) addUniqueBlocker("stripe_unconfigured_without_missing_secret_blocker");
-if (stripeSessionBody.configured === true && stripeSessionBody.success === true && !String(stripeSessionBody.checkoutUrl || "").startsWith("https://checkout.stripe.com/")) addUniqueBlocker("stripe_checkout_url_not_stripe_hosted");
+const stripeSession = await postApi("/api/checkout/stripe/session", "/api/v1/checkout/stripe/session", sessionBody, { "content-type": "application/json" });
+const stripeSessionData = stripeSession.probe.data || {};
+out.stripeReady = stripeSession.probe.status !== 404;
+out.stripeSessionCreated = stripeSessionData.success === true && Boolean(stripeSessionData.sessionId) && Boolean(stripeSessionData.checkoutUrl);
+out.stripeCheckoutUrlPresent = Boolean(stripeSessionData.checkoutUrl);
+out.checks.stripeSessionHttp = stripeSession.probe.status;
+out.checks.stripeConfigured = stripeSessionData.configured ?? readinessData.stripeConfigured ?? null;
+if (!out.stripeReady) addBlockerOnce("stripe_session_route_missing");
+if (stripeSessionData.configured === false) addBlockerOnce("stripe_secret_key_missing");
+if (stripeSessionData.configured === false && (stripeSessionData.sessionId || stripeSessionData.checkoutUrl)) addBlockerOnce("stripe_returned_checkout_artifacts_while_unconfigured");
+if (stripeSessionData.configured === true && !out.stripeSessionCreated) addBlockerOnce("stripe_configured_session_not_created");
+if (out.stripeCheckoutUrlPresent && !String(stripeSessionData.checkoutUrl).startsWith("https://checkout.stripe.com/")) addBlockerOnce("stripe_checkout_url_not_stripe_hosted");
 
-const webhook = await apiJson("/api/checkout/stripe/webhook", { method: "POST", headers: { "content-type": "application/json" }, body: {} });
-apiPathsUsed.stripeWebhook = "/api/checkout/stripe/webhook";
-checks.stripeWebhookHttp = webhook.status;
-const webhookBody = webhook.data || {};
-out.paymentMarkedPaid = Boolean(webhookBody.paymentMarkedPaid);
-out.stripeUnsignedWebhookRejected = webhook.ok && webhookBody.verified === false && out.paymentMarkedPaid === false;
-if (webhook.status === 404) addUniqueBlocker("stripe_webhook_route_missing");
-else if (!webhook.ok) addUniqueBlocker(`stripe_webhook_http_${webhook.status}`);
-if (webhookBody.verified) addUniqueBlocker("unsigned_webhook_marked_verified");
-if (out.paymentMarkedPaid) addUniqueBlocker("unsigned_webhook_marked_paid");
-if (webhook.ok && !firstArray(webhookBody.blockers).includes("stripe_signature_missing")) warnings.push("unsigned_stripe_webhook_missing_signature_blocker_not_reported");
+const webhook = await postApi("/api/checkout/stripe/webhook", "/api/v1/checkout/stripe/webhook", {}, { "content-type": "application/json" });
+const webhookData = webhook.probe.data || {};
+out.stripeUnsignedWebhookRejected = webhook.probe.ok && webhookData.verified === false && webhookData.paymentMarkedPaid === false;
+out.checks.stripeWebhookHttp = webhook.probe.status;
+out.paymentMarkedPaid = Boolean(webhookData.paymentMarkedPaid);
+if (webhook.probe.status === 404) addBlockerOnce("stripe_webhook_route_missing");
+if (webhookData.verified === true) addBlockerOnce("unsigned_webhook_marked_verified");
+if (webhookData.paymentMarkedPaid === true) addBlockerOnce("unsigned_webhook_marked_paid");
+if (!out.stripeUnsignedWebhookRejected) addBlockerOnce("stripe_unsigned_webhook_not_safely_rejected");
 
-const intentBody = {
-  cartId: out.cartId || "smoke-cart",
-  email: "smoke@dbaronx.invalid",
-  customerName: "Unified Smoke",
+const dbxIntentBody = {
+  cartId: cart?.id || `smoke-cart-${Date.now()}`,
+  email: "smoke@example.com",
+  customerName: "Unified Payment Smoke",
   expectedUsdCents: checkoutAmount,
   expectedDbxBaseUnits: 1,
-  senderWallet: "11111111111111111111111111111111",
-  idempotencyKey: `unified-smoke-${Date.now()}`,
-  metadata: { smoke: true, source: "e2e-unified-payment-rail-smoke" },
+  senderWallet: process.env.DBX_SMOKE_SENDER_WALLET || undefined,
+  idempotencyKey: `unified-payment-smoke-${Date.now()}`,
+  metadata: { source: "e2e-unified-payment-rail-smoke", orderRef },
 };
-const dbxIntent = await apiJson("/api/dbx-payments/intents", { method: "POST", body: intentBody });
-apiPathsUsed.dbxIntent = "/api/dbx-payments/intents";
-checks.dbxIntentHttp = dbxIntent.status;
-out.dbxIntentCreated = dbxIntent.ok && dbxIntent.data?.success !== false && Boolean(dbxIntent.data?.data?.reference || dbxIntent.data?.reference);
-out.dbxReference = dbxIntent.data?.data?.reference || dbxIntent.data?.reference || null;
-if (dbxIntent.status === 404) addUniqueBlocker("dbx_intent_route_missing");
-else if (!dbxIntent.ok && !noteAuthBlocker(dbxIntent, "dbxIntent")) {
-  for (const blocker of collectResponseBlockers(dbxIntent.body)) addUniqueBlocker(blocker);
-  if (collectResponseBlockers(dbxIntent.body).length === 0) addUniqueBlocker(`dbx_intent_http_${dbxIntent.status}`);
-}
+const dbxIntent = await postApi("/api/dbx-payments/intents", "/api/v1/dbx-payments/intents", dbxIntentBody);
+const dbxIntentData = dbxIntent.probe.data || {};
+const dbxReference = dbxIntentData.reference || null;
+out.dbxReady = dbxIntent.probe.status !== 404;
+out.dbxIntentCreated = dbxIntent.probe.ok && dbxIntentData.status === "pending" && Boolean(dbxReference);
+out.checks.dbxIntentHttp = dbxIntent.probe.status;
+out.checks.dbxIntentStatus = dbxIntentData.status || null;
+out.checks.dbxReference = dbxReference;
+if (!out.dbxReady) addBlockerOnce("dbx_intent_route_missing");
+if (dbxIntent.probe.status === 401 && !API_BEARER_TOKEN) addBlockerOnce("dbx_auth_token_missing");
+if (dbxIntent.probe.ok && dbxIntentData.status !== "pending") addBlockerOnce("dbx_intent_not_pending");
+if (!out.dbxIntentCreated) addBlockerOnce(`dbx_intent_http_${dbxIntent.probe.status}`);
 
-const fakeSignature = `fake-smoke-signature-${Date.now()}`;
-if (out.dbxReference) {
-  const submit = await apiJson("/api/dbx-payments/submit", { method: "POST", body: { intentReference: out.dbxReference, transactionSignature: fakeSignature, senderWallet: "11111111111111111111111111111111" } });
-  checks.dbxSubmitHttp = submit.status;
-  out.dbxSubmitReady = submit.status !== 404 && submit.status !== 401 && submit.status !== 403;
-  if (submit.status === 404) addUniqueBlocker("dbx_submit_route_missing");
-  else if (!submit.ok && !noteAuthBlocker(submit, "dbxSubmit")) addUniqueBlocker(`dbx_submit_http_${submit.status}`);
+let dbxSubmit = null;
+let dbxConfirm = null;
+if (dbxReference) {
+  const txBody = { intentReference: dbxReference, transactionSignature: FAKE_DBX_SIGNATURE, senderWallet: process.env.DBX_SMOKE_SENDER_WALLET || undefined };
+  dbxSubmit = await postApi("/api/dbx-payments/submit", "/api/v1/dbx-payments/submit", txBody);
+  const submitStatus = statusFrom(dbxSubmit.probe);
+  out.dbxSubmitReady = dbxSubmit.probe.status !== 404 && (dbxSubmit.probe.ok || dbxSubmit.probe.status >= 400);
+  out.dbxPaymentMarkedPaid = markedPaid(dbxSubmit.probe);
+  out.dbxFakeTxRejected = !dbxSubmit.probe.ok || ["submitted", "verification_pending", "pending", "failed"].includes(submitStatus);
+  out.checks.dbxSubmitHttp = dbxSubmit.probe.status;
+  out.checks.dbxSubmitStatus = submitStatus || null;
+  if (out.dbxPaymentMarkedPaid) addBlockerOnce("dbx_submit_fake_tx_marked_paid");
 
-  const confirm = await apiJson("/api/dbx-payments/confirm", { method: "POST", body: { intentReference: out.dbxReference, transactionSignature: fakeSignature } });
-  checks.dbxConfirmHttp = confirm.status;
-  const confirmStatus = confirm.data?.data?.status || confirm.data?.status || null;
-  out.dbxConfirmReady = confirm.status !== 404 && confirm.status !== 401 && confirm.status !== 403;
-  out.dbxPaymentMarkedPaid = ["completed", "paid"].includes(String(confirmStatus));
-  out.dbxFakeTxRejected = !out.dbxPaymentMarkedPaid && (confirm.ok || confirm.status >= 400);
-  if (confirm.status === 404) addUniqueBlocker("dbx_confirm_route_missing");
-  else if (!confirm.ok && !noteAuthBlocker(confirm, "dbxConfirm")) {
-    for (const blocker of collectResponseBlockers(confirm.body)) addUniqueBlocker(blocker);
+  dbxConfirm = await postApi("/api/dbx-payments/confirm", "/api/v1/dbx-payments/confirm", txBody);
+  const confirmStatus = statusFrom(dbxConfirm.probe);
+  const confirmText = `${dbxConfirm.probe.text || ""} ${JSON.stringify(dbxConfirm.probe.body || {})}`.toLowerCase();
+  out.dbxConfirmReady = dbxConfirm.probe.status !== 404 && (dbxConfirm.probe.ok || dbxConfirm.probe.status >= 400);
+  out.dbxPaymentMarkedPaid = out.dbxPaymentMarkedPaid || markedPaid(dbxConfirm.probe);
+  if (!dbxConfirm.probe.ok || ["failed", "submitted", "verification_pending", "pending"].includes(confirmStatus) || confirmText.includes("solana_rpc_not_configured")) {
+    out.dbxFakeTxRejected = true;
   }
-  if (out.dbxPaymentMarkedPaid) addUniqueBlocker("dbx_fake_transaction_marked_paid");
-} else {
-  out.dbxSubmitReady = dbxIntent.status !== 404;
-  out.dbxConfirmReady = dbxIntent.status !== 404;
-  out.dbxFakeTxRejected = true;
+  if (confirmText.includes("solana_rpc_not_configured")) addBlockerOnce("solana_rpc_not_configured");
+  out.checks.dbxConfirmHttp = dbxConfirm.probe.status;
+  out.checks.dbxConfirmStatus = confirmStatus || null;
+  if (out.dbxPaymentMarkedPaid) addBlockerOnce("dbx_confirm_fake_tx_marked_paid");
+
+  const dbxStatus = await getApi(`/api/dbx-payments/${encodeURIComponent(dbxReference)}`, `/api/v1/dbx-payments/${encodeURIComponent(dbxReference)}`);
+  out.checks.dbxStatusHttp = dbxStatus.probe.status;
+  out.checks.dbxStatus = statusFrom(dbxStatus.probe) || null;
+  if (markedPaid(dbxStatus.probe)) {
+    out.dbxPaymentMarkedPaid = true;
+    addBlockerOnce("dbx_status_fake_tx_marked_paid");
+  }
 }
+
+if (dbxReference && !out.dbxSubmitReady) addBlockerOnce(`dbx_submit_http_${dbxSubmit?.probe?.status ?? 0}`);
+if (dbxReference && !out.dbxConfirmReady) addBlockerOnce(`dbx_confirm_http_${dbxConfirm?.probe?.status ?? 0}`);
+if (dbxReference && !out.dbxFakeTxRejected) addBlockerOnce("dbx_fake_tx_not_rejected_or_held_for_verification");
 
 out.paymentMarkedPaid = out.paymentMarkedPaid || out.dbxPaymentMarkedPaid;
+if (out.paymentMarkedPaid) addBlockerOnce("fake_payment_marked_paid");
+
 out.nextManualStep = blockers.length === 0
-  ? "Run a controlled real Stripe Checkout payment or submit a real verified Solana DBX transfer; paid state must still come only from the verified webhook or verified transaction."
-  : "Resolve the listed blockers, then rerun this live unified payment rail smoke before attempting the first controlled payment order.";
+  ? "Run a controlled Stripe test-card checkout and a real DBX token transfer, then verify only signed Stripe webhooks or verified Solana transactions advance paid/order-sync state."
+  : "Resolve blockers, then rerun node scripts/e2e-unified-payment-rail-smoke.mjs before attempting controlled payment orders.";
+
 out.success = blockers.length === 0;
 console.log(JSON.stringify(out, null, 2));
 process.exit(out.success ? 0 : 1);

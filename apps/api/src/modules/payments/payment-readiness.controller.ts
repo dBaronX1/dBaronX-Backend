@@ -4,13 +4,13 @@ import { Public } from "../../shared/decorators/public.decorator";
 import { PaymentReadinessService } from "./payment-readiness.service";
 
 @ApiTags("payment-readiness")
-@Controller({ path: "payments/readiness", version: VERSION_NEUTRAL })
+@Public()
+@Controller({ path: "payments", version: VERSION_NEUTRAL })
 export class PaymentReadinessController {
   constructor(private readonly readiness: PaymentReadinessService) {}
 
-  @Public()
-  @Get()
-  getReadiness() {
-    return this.readiness.getReadiness();
+  @Get("readiness")
+  snapshot() {
+    return this.readiness.snapshot();
   }
 }
