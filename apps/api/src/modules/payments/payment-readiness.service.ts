@@ -1,9 +1,14 @@
 import { Injectable } from "@nestjs/common";
 import { ConfigService } from "@nestjs/config";
 
+type StripeSecretKeyMode = "test" | "live" | "unknown" | "missing";
+
 type PaymentReadinessSnapshot = {
   stripeConfigured: boolean;
+  stripeSecretKeyMode: StripeSecretKeyMode;
   stripeWebhookConfigured: boolean;
+  stripeWebhookUrlExpected: string;
+  liveCheckoutExplicitlyAllowed: boolean;
   dbxPaymentAddressPresent: boolean;
   solanaRpcConfigured: boolean;
   dbxTokenMintPresent: boolean;
@@ -19,8 +24,11 @@ export class PaymentReadinessService {
   constructor(private readonly config: ConfigService) {}
 
   snapshot(): PaymentReadinessSnapshot {
-    const stripeConfigured = this.present("STRIPE_SECRET_KEY");
+    const stripeSecretKey = this.value("STRIPE_SECRET_KEY");
+    const stripeConfigured = Boolean(stripeSecretKey);
+    const stripeSecretKeyMode = this.stripeSecretKeyMode(stripeSecretKey);
     const stripeWebhookConfigured = this.present("STRIPE_WEBHOOK_SECRET");
+    const liveCheckoutExplicitlyAllowed = this.value("ALLOW_LIVE_STRIPE_CHECKOUT").toLowerCase() === "true";
     const dbxPaymentAddressPresent = this.anyPresent([
       "NEXT_PUBLIC_DBX_SOLANA_PAYMENT_ADDRESS",
       "DBX_PAYMENT_ADDRESS",
@@ -42,6 +50,7 @@ export class PaymentReadinessService {
 
     const blockers = [
       ...(stripeConfigured ? [] : ["stripe_secret_key_missing"]),
+      ...(stripeSecretKeyMode === "live" && !liveCheckoutExplicitlyAllowed ? ["stripe_live_key_present_without_live_checkout_allowance"] : []),
       ...(stripeWebhookConfigured ? [] : ["stripe_webhook_secret_missing"]),
       ...(dbxPaymentAddressPresent ? [] : ["dbx_payment_address_missing"]),
       ...(solanaRpcConfigured ? [] : ["solana_rpc_not_configured"]),
@@ -52,7 +61,10 @@ export class PaymentReadinessService {
 
     return {
       stripeConfigured,
+      stripeSecretKeyMode,
       stripeWebhookConfigured,
+      stripeWebhookUrlExpected: "/api/checkout/stripe/webhook",
+      liveCheckoutExplicitlyAllowed,
       dbxPaymentAddressPresent,
       solanaRpcConfigured,
       dbxTokenMintPresent,
@@ -69,6 +81,17 @@ export class PaymentReadinessService {
   }
 
   private present(key: string): boolean {
-    return Boolean(String(this.config.get<string>(key) || process.env[key] || "").trim());
+    return Boolean(this.value(key));
+  }
+
+  private value(key: string): string {
+    return String(this.config.get<string>(key) || process.env[key] || "").trim();
+  }
+
+  private stripeSecretKeyMode(secretKey: string): StripeSecretKeyMode {
+    if (!secretKey) return "missing";
+    if (secretKey.startsWith("sk_test_")) return "test";
+    if (secretKey.startsWith("sk_live_")) return "live";
+    return "unknown";
   }
 }
