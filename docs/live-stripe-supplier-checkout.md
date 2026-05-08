@@ -20,13 +20,13 @@ CJ_API_BASE_URL=https://developers.cjdropshipping.com/api2.0
 ```
 
 - `STRIPE_SECRET_KEY` must be a Stripe **test** secret key (`sk_test_*`) for the first controlled checkout. It is the only key used by NestJS to create hosted Checkout Sessions.
-- `STRIPE_WEBHOOK_SECRET` must be the Stripe Dashboard signing secret (`whsec_*`) for `POST /api/checkout/stripe/webhook`; a webhook destination ID (`we_*`) is not a signing secret.
+- `STRIPE_WEBHOOK_SECRET` must be the Stripe Dashboard signing secret (`whsec_*`) copied from the **same Stripe test-mode webhook endpoint** used for the controlled checkout; a webhook destination ID (`we_*`) is not a signing secret. Do not mix live and test keys or webhook secrets.
 - `INTERNAL_SERVICE_TOKEN` is server-only and is used by internal readiness/order preview probes.
 - `CJ_ACCESS_TOKEN` is optional for the Stripe-only smoke but required for CJ supplier live probe readiness.
 - `CJ_API_BASE_URL` should remain `https://developers.cjdropshipping.com/api2.0`.
 
 ### Web Render service / browser-safe values
-Set these on the web service with public/test values only.
+Set these on the web service with public/test values only. The first controlled checkout must use a `pk_test_*` publishable key that belongs to the same Stripe account/mode as the API `sk_test_*` secret key.
 
 ```dotenv
 NEXT_PUBLIC_STRIPE_PUBLIC_KEY=
@@ -45,7 +45,7 @@ The web app must never receive `STRIPE_SECRET_KEY`, `STRIPE_WEBHOOK_SECRET`, `CJ
 - `sk_live_*` creates live-mode Checkout Sessions such as `cs_live_*`.
 - Any other secret-key prefix is treated as `unknown` and must be corrected before relying on the result.
 
-The first controlled Stripe checkout requires both test-mode Stripe keys: `STRIPE_SECRET_KEY` to an `sk_test_*` value on the API service and `NEXT_PUBLIC_STRIPE_PUBLIC_KEY` to a `pk_test_*` value on the web service. If a controlled test request asks for `checkoutMode: "test"` while the API has an `sk_live_*` secret key, the API must block Checkout Session creation with `stripe_live_key_used_for_test_checkout` and must not return a `checkoutUrl` or `sessionId`.
+The first controlled Stripe checkout requires all Stripe values to be test-mode values from the same Stripe environment: `STRIPE_SECRET_KEY=sk_test_*` on the API service, `NEXT_PUBLIC_STRIPE_PUBLIC_KEY=pk_test_*` on the web service, and `STRIPE_WEBHOOK_SECRET=whsec_*` from the matching test-mode webhook endpoint. Do not mix `sk_live_*`, `pk_test_*`, or a live `whsec_*` in one controlled test run. If a controlled test request asks for `checkoutMode: "test"` while the API has an `sk_live_*` secret key, the API must block Checkout Session creation with `stripe_live_key_used_for_test_checkout` and must not return a `checkoutUrl` or `sessionId`.
 
 Live checkout is still supported for future production use, but it must be explicitly requested with `checkoutMode: "live"` and the API environment must set `ALLOW_LIVE_STRIPE_CHECKOUT` to `true`. Without that explicit allowance, readiness reports `stripe_live_key_present_without_live_checkout_allowance` when an `sk_live_*` key is present.
 
@@ -58,7 +58,7 @@ Never use a Stripe test card on a `cs_live_*` session. A smoke output containing
 4. Select `checkout.session.completed`.
 5. Save the endpoint and copy the `whsec_*` signing secret from that same test webhook endpoint into the API service as `STRIPE_WEBHOOK_SECRET`.
 6. Do not use the webhook destination ID (`we_*`) as `STRIPE_WEBHOOK_SECRET`; `we_*` identifies the destination, while `whsec_*` verifies signatures.
-7. Do not use the Supabase project URL as the Stripe webhook URL unless an explicit Supabase Edge Function relay is implemented and documented. The current direct webhook destination is the Render API URL above.
+7. Do not use the Supabase project URL as the direct Stripe webhook URL unless an explicit Supabase Edge Function relay is intentionally built, deployed, and documented. The canonical direct webhook destination is `https://dbaronx-api-unified.onrender.com/api/checkout/stripe/webhook`.
 8. Redeploy/restart the API service so the env var is loaded.
 9. Keep test-mode and live-mode webhook endpoints/secrets separate.
 
@@ -162,6 +162,16 @@ INTERNAL_SERVICE_TOKEN= \
 node scripts/e2e-live-stripe-controlled-checkout-smoke.mjs
 ```
 
+First controlled transaction proof smoke:
+
+```bash
+MEDUSA_URL=https://dbaronx-medusa.onrender.com \
+API_URL=https://dbaronx-api-unified.onrender.com \
+WEB_BASE_URL=https://dbaronx.com \
+INTERNAL_SERVICE_TOKEN= \
+node scripts/e2e-first-stripe-test-transaction-smoke.mjs
+```
+
 Compatibility smoke:
 
 ```bash
@@ -201,8 +211,8 @@ node scripts/e2e-stripe-checkout-session-smoke.mjs
 `orderSyncReady` remains `false` until durable DBX payment-record lookup and Medusa order completion settlement are connected. That is intentional: the smoke proves the mapping boundary and prevents fake paid/order-complete state.
 
 ## First controlled manual Stripe test checkout
-1. Confirm the smoke returns `checkoutSessionCreated: true`, `checkoutUrlPresent: true`, `unsignedWebhookRejected: true`, and `paymentMarkedPaid: false`.
-2. Open the returned Stripe hosted `checkoutUrl`.
+1. Confirm the smoke returns `checkoutSessionCreated: true`, `checkoutUrlPresent: true`, `stripeSecretKeyMode: "test"`, `shippingOptionReady: true`, `unsignedWebhookRejected: true`, `paymentMarkedPaid: false`, and no checkout blockers.
+2. Open the returned Stripe hosted `checkoutUrl` only when `blockers` is empty, or the only remaining blockers are documented non-live settlement blockers that do not affect hosted checkout creation or webhook safety (for example order-sync/idempotency persistence readiness).
 3. Only for `cs_test_*` sessions, use Stripe test card `4242 4242 4242 4242`, any future expiry, any CVC, and a valid billing ZIP. For `cs_live_*`, stop and reconfigure test-mode Stripe secrets.
 4. After the hosted checkout succeeds, open Stripe Dashboard → Developers → Webhooks → the configured endpoint.
 5. Confirm a `checkout.session.completed` delivery reached `POST /api/checkout/stripe/webhook`.
@@ -387,7 +397,7 @@ Shipping option visibility is required before the smoke can report checkout read
 
 The smoke must keep `shippingOptionReady: false` when the Store API returns no real `shipping_options` and must report `shipping_option_store_visibility_missing`; it must never fake `dBaronX Standard Delivery` readiness.
 
-Only open `checkoutUrl` when the smoke reports all of the following: no checkout blockers, `checkoutSessionCreated: true`, `checkoutUrl` begins with `https://checkout.stripe.com/`, `unsignedWebhookRejected: true`, `paymentMarkedPaid: false`, and `sessionId` begins with `cs_test_`. Use Stripe test card `4242 4242 4242 4242`, any future expiry, any CVC, and any postal code. Frontend redirect success is only a browser navigation result; it is not proof of payment and must not mark an order paid. Paid/order settlement may move only from a signed, verified Stripe webhook and the durable settlement path.
+Only open `checkoutUrl` when the smoke reports all of the following: `stripeSecretKeyMode: "test"`, no checkout blockers, `shippingOptionReady: true`, `checkoutSessionCreated: true`, `checkoutUrl` begins with `https://checkout.stripe.com/`, `unsignedWebhookRejected: true`, `paymentMarkedPaid: false`, and `sessionId` begins with `cs_test_`. Blockers must be empty except for explicitly documented non-live settlement blockers that do not fake paid/order state. Use Stripe test card `4242 4242 4242 4242`, any future expiry, any CVC, and any postal code. Frontend redirect success is only a browser navigation result; it is not proof of payment and must not mark an order paid. Paid/order settlement may move only from a signed, verified Stripe webhook and the durable settlement path.
 
 ## Controlled Stripe test-mode guard (May 2026)
 
@@ -399,7 +409,7 @@ The API also rejects a request with `checkoutMode: "test"` when the configured S
 
 ## Shipping option Store API visibility requirement
 
-The first Stripe smoke only reports `shippingOptionReady: true` when `GET /store/shipping-options?cart_id=<cart_id>` returns at least one real shipping option ID after a US shipping address is set on the cart. If Medusa returns HTTP 200 with an empty `shipping_options` array, the blocker is `shipping_option_store_visibility_missing`.
+The first Stripe smoke only reports `shippingOptionReady: true` when `GET /store/shipping-options?cart_id=<cart_id>` returns at least one real shipping option ID after a US shipping address is set on the cart. It preserves the exact Store API sequence: `POST /store/carts`, `POST /store/carts/:id/line-items`, `POST /store/carts/:id` with a US shipping address, `GET /store/shipping-options?cart_id=:cart_id`, `POST /store/carts/:id/shipping-methods` when an option exists, and `GET /store/carts/:id`. If Medusa readiness/`commerce:ensure` indicates Store API shipping visibility is expected but the Store API returns HTTP 200 with an empty `shipping_options` array, the blocker is `shipping_option_store_visibility_mismatch` in addition to `shipping_option_store_visibility_missing`.
 
 Run the Medusa repair/diagnostic before rerunning controlled checkout smoke:
 

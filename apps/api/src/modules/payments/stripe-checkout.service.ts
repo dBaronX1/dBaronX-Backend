@@ -212,6 +212,7 @@ export class StripeCheckoutService {
         configured: false,
         provider: "stripe",
         mode,
+        stripeSecretKeyMode: mode,
         requestedCheckoutMode: checkoutMode,
         checkoutSessionPathReady: true,
         checkoutUrl: null,
@@ -228,12 +229,13 @@ export class StripeCheckoutService {
         configured: true,
         provider: "stripe",
         mode,
+        stripeSecretKeyMode: mode,
         requestedCheckoutMode: checkoutMode,
         checkoutSessionPathReady: true,
         checkoutUrl: null,
         sessionId: null,
         blockers,
-        metadata: { stripeKeyMode: mode, requestedCheckoutMode: checkoutMode },
+        metadata: { stripeKeyMode: mode, stripeSecretKeyMode: mode, requestedCheckoutMode: checkoutMode },
         message:
           "A live Stripe key is configured for a test checkout request. Configure Stripe test-mode secrets or explicitly allow live smoke checkout.",
       };
@@ -246,12 +248,13 @@ export class StripeCheckoutService {
         configured: true,
         provider: "stripe",
         mode,
+        stripeSecretKeyMode: mode,
         requestedCheckoutMode: checkoutMode,
         checkoutSessionPathReady: true,
         checkoutUrl: null,
         sessionId: null,
         blockers,
-        metadata: { stripeKeyMode: mode, requestedCheckoutMode: checkoutMode },
+        metadata: { stripeKeyMode: mode, stripeSecretKeyMode: mode, requestedCheckoutMode: checkoutMode },
         message: "Live Stripe checkout requires ALLOW_LIVE_STRIPE_CHECKOUT=true before a session can be created.",
       };
     }
@@ -298,6 +301,7 @@ export class StripeCheckoutService {
           configured: true,
           provider: "stripe",
           mode,
+          stripeSecretKeyMode: mode,
           requestedCheckoutMode: checkoutMode,
           checkoutSessionPathReady: true,
           checkoutUrl: null,
@@ -314,12 +318,13 @@ export class StripeCheckoutService {
         configured: true,
         provider: "stripe",
         mode,
+        stripeSecretKeyMode: mode,
         requestedCheckoutMode: checkoutMode,
         checkoutSessionPathReady: true,
         checkoutUrl: session.url,
         sessionId: session.id,
         blockers,
-        metadata: { ...metadata, stripeKeyMode: mode, requestedCheckoutMode: checkoutMode },
+        metadata: { ...metadata, stripeKeyMode: mode, stripeSecretKeyMode: mode, requestedCheckoutMode: checkoutMode },
       };
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
@@ -329,6 +334,7 @@ export class StripeCheckoutService {
         configured: true,
         provider: "stripe",
         mode,
+        stripeSecretKeyMode: mode,
         requestedCheckoutMode: checkoutMode,
         checkoutSessionPathReady: true,
         checkoutUrl: null,

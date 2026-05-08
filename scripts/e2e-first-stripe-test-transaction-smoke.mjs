@@ -13,7 +13,10 @@ const INTERNAL_SERVICE_TOKEN = (process.env.INTERNAL_SERVICE_TOKEN || "").trim()
 const WEB_BASE_URL = (process.env.WEB_BASE_URL || process.env.NEXT_PUBLIC_WEB_BASE_URL || "https://dbaronx.com").replace(/\/+$/, "");
 const TARGET_REGION_ID = "reg_01KQSEKK6A9T86NJ0AG05XPK3H";
 const SNIPPET_LIMIT = 900;
+const CANONICAL_STRIPE_WEBHOOK_URL = "https://dbaronx-api-unified.onrender.com/api/checkout/stripe/webhook";
 const STRIPE_WEBHOOK_URL_EXPECTED = `${API_BASE_URL}/api/checkout/stripe/webhook`;
+const ALLOW_LIVE_STRIPE_SMOKE = String(process.env.ALLOW_LIVE_STRIPE_SMOKE || "").trim().toLowerCase() === "true";
+const MEDUSA_COMMERCE_ENSURE_SHIPPING_VISIBLE_EXPECTED = String(process.env.MEDUSA_COMMERCE_ENSURE_SHIPPING_VISIBLE_EXPECTED || "true").trim().toLowerCase() !== "false";
 
 const blockers = [];
 const checkoutBlockers = [];
@@ -107,7 +110,24 @@ function detectStripeSessionMode(sessionId) {
 }
 
 function liveSessionTestModeWarning() {
-  return "Do not open/pay this live session for test-card validation. Configure STRIPE_SECRET_KEY=sk_test_... and STRIPE_WEBHOOK_SECRET from a test webhook endpoint, redeploy, and rerun.";
+  return "Do not open/pay this live session for test-card validation. Configure STRIPE_SECRET_KEY=sk_test_... and STRIPE_WEBHOOK_SECRET from a test webhook endpoint, redeploy, and rerun. Only set ALLOW_LIVE_STRIPE_SMOKE=true for an explicitly approved live smoke.";
+}
+
+function normalizeStripeKeyMode(value) {
+  return ["test", "live", "missing", "unknown"].includes(value) ? value : "unknown";
+}
+
+function summarizeShippingOption(option) {
+  return {
+    id: option?.id || null,
+    name: option?.name || option?.title || null,
+    price: option?.amount ?? option?.price?.amount ?? option?.calculated_price?.calculated_amount ?? option?.prices?.[0]?.amount ?? null,
+    currencyCode: option?.currency_code || option?.price?.currency_code || option?.calculated_price?.currency_code || option?.prices?.[0]?.currency_code || null,
+    providerId: option?.provider_id || option?.provider?.id || option?.service_zone?.fulfillment_set?.provider_id || null,
+    serviceZoneId: option?.service_zone_id || option?.service_zone?.id || null,
+    shippingProfileId: option?.shipping_profile_id || option?.shipping_profile?.id || null,
+    rules: Array.isArray(option?.rules) ? option.rules.map((rule) => ({ id: rule?.id || null, attribute: rule?.attribute || null, operator: rule?.operator || null, value: rule?.value ?? null })) : [],
+  };
 }
 
 async function requestJson(label, url, init = {}) {
@@ -206,16 +226,17 @@ const out = {
   stripeSecretKeyMode: "missing",
   stripeWebhookConfigured: false,
   stripeWebhookUrlExpected: STRIPE_WEBHOOK_URL_EXPECTED,
+  canonicalStripeWebhookUrl: CANONICAL_STRIPE_WEBHOOK_URL,
+  supabaseWebhookWarning: "Do not configure a Supabase URL as the direct Stripe webhook destination unless an intentional Supabase relay is built; Stripe should post directly to the API webhook URL.",
   liveCheckoutExplicitlyAllowed: false,
+  liveStripeSmokeExplicitlyAllowed: ALLOW_LIVE_STRIPE_SMOKE,
   checkoutSessionCreated: false,
   sessionId: null,
-  stripeSessionModeDetected: "missing",
+  stripeSessionModeDetected: "unknown",
   stripeSessionModeAllowed: false,
   checkoutUrl: null,
   checkoutUrlPresent: false,
   stripeHostedCheckoutUrl: false,
-  stripeSessionModeDetected: "unknown",
-  stripeSessionModeAllowed: false,
   unsignedWebhookRejected: false,
   paymentMarkedPaid: false,
   orderSyncReady: false,
@@ -231,6 +252,8 @@ const out = {
   shippingRoutesUsed,
   shippingOptionsCount: 0,
   shippingOptionIds: [],
+  shippingOptions: [],
+  medusaCommerceEnsureShippingVisibleToStoreApiExpected: MEDUSA_COMMERCE_ENSURE_SHIPPING_VISIBLE_EXPECTED,
   apiUrl: API_URL,
   medusaUrl: MEDUSA_URL,
   medusaPublishableKeyPresent: Boolean(MEDUSA_KEY),
@@ -260,12 +283,14 @@ checks.paymentReadinessPath = readiness.path;
 apiRoutesUsed.paymentReadiness = readiness.path;
 out.paymentReadinessReady = readiness.probe.ok === true;
 out.stripeConfigured = readinessBody.stripeConfigured === true;
-out.stripeSecretKeyMode = readinessBody.stripeSecretKeyMode || out.stripeSecretKeyMode;
+out.stripeSecretKeyMode = normalizeStripeKeyMode(readinessBody.stripeSecretKeyMode || out.stripeSecretKeyMode);
 out.stripeWebhookConfigured = readinessBody.stripeWebhookConfigured === true;
 out.stripeWebhookUrlExpected = readinessBody.stripeWebhookUrlExpected
   ? `${API_BASE_URL}${String(readinessBody.stripeWebhookUrlExpected).startsWith("/") ? readinessBody.stripeWebhookUrlExpected : `/${readinessBody.stripeWebhookUrlExpected}`}`
   : STRIPE_WEBHOOK_URL_EXPECTED;
 out.liveCheckoutExplicitlyAllowed = readinessBody.liveCheckoutExplicitlyAllowed === true;
+if (out.stripeSecretKeyMode === "live" && !ALLOW_LIVE_STRIPE_SMOKE) addBlocker("stripe_live_mode_blocked_for_controlled_test_smoke");
+if (out.stripeSecretKeyMode !== "test" && !(out.stripeSecretKeyMode === "live" && ALLOW_LIVE_STRIPE_SMOKE)) addBlocker(`stripe_test_mode_required_current_${out.stripeSecretKeyMode}`);
 if (!readiness.probe.ok) addBlocker(readiness.probe.status === 404 ? "payment_readiness_route_missing" : `payment_readiness_http_${readiness.probe.status}`);
 for (const blocker of array(readinessBody.blockers)) {
   if (blocker === "stripe_secret_key_missing") addBlocker("stripe_secret_key_missing");
@@ -370,11 +395,16 @@ if (out.cartId) {
   checks.shippingOptionsCount = options.length;
   out.shippingOptionsCount = options.length;
   out.shippingOptionIds = options.map((option) => option?.id).filter(Boolean);
+  out.shippingOptions = options.map(summarizeShippingOption);
+  checks.shippingOptions = out.shippingOptions;
   shippingOptionId = out.shippingOptionIds[0] || null;
   out.shippingOptionReady = shippingProbe.ok && Boolean(shippingOptionId);
   shippingRoutesUsed.shippingOptions = { method: "GET", path: shippingPath, headers: { "x-publishable-api-key": Boolean(MEDUSA_KEY) } };
   if (!shippingProbe.ok) addBlocker(`shipping_options_http_${shippingProbe.status}`);
-  if (shippingProbe.ok && !shippingOptionId) addBlocker("shipping_option_store_visibility_missing");
+  if (shippingProbe.ok && !shippingOptionId) {
+    addBlocker("shipping_option_store_visibility_missing");
+    if (MEDUSA_COMMERCE_ENSURE_SHIPPING_VISIBLE_EXPECTED) addBlocker("shipping_option_store_visibility_mismatch");
+  }
 }
 
 if (out.cartId && shippingOptionId) {
@@ -436,8 +466,6 @@ checks.stripeSessionBlockers = session.blockers || [];
 out.stripeConfigured = out.stripeConfigured || session.configured === true;
 out.checkoutUrl = typeof session.checkoutUrl === "string" ? session.checkoutUrl : null;
 out.sessionId = typeof session.sessionId === "string" ? session.sessionId : null;
-out.stripeSessionModeDetected = stripeSessionModeFromId(out.sessionId);
-out.stripeSessionModeAllowed = out.stripeSessionModeDetected === "test" || out.stripeSessionModeDetected === "missing";
 out.checkoutUrlPresent = Boolean(out.checkoutUrl);
 out.stripeHostedCheckoutUrl = Boolean(out.checkoutUrl && /^https:\/\/checkout\.stripe\.com\//.test(out.checkoutUrl));
 out.checkoutSessionCreated = session.success === true && Boolean(out.sessionId) && out.stripeHostedCheckoutUrl;
@@ -445,18 +473,21 @@ out.stripeSessionModeDetected = detectStripeSessionMode(out.sessionId);
 out.stripeSessionModeAllowed = sessionPayload.checkoutMode !== "test" || out.stripeSessionModeDetected !== "live";
 checks.stripeSessionModeDetected = out.stripeSessionModeDetected;
 checks.stripeSessionModeAllowed = out.stripeSessionModeAllowed;
+out.stripeSecretKeyMode = normalizeStripeKeyMode(session.stripeSecretKeyMode || session.mode || session.metadata?.stripeSecretKeyMode || session.metadata?.stripeKeyMode || out.stripeSecretKeyMode);
 checks.stripeResponseMode = session.mode || session.metadata?.stripeKeyMode || null;
 checks.requestedCheckoutMode = session.requestedCheckoutMode || session.metadata?.requestedCheckoutMode || sessionPayload.checkoutMode;
-if (sessionPayload.checkoutMode === "test" && out.stripeSessionModeDetected === "live") addBlocker("stripe_live_session_returned_for_test_smoke");
+if (sessionPayload.checkoutMode === "test" && out.stripeSessionModeDetected === "live" && !ALLOW_LIVE_STRIPE_SMOKE) addBlocker("stripe_live_session_returned_for_test_smoke");
 if (array(session.blockers).includes("stripe_live_key_used_for_test_checkout")) addBlocker("stripe_live_key_used_for_test_checkout");
 if (sessionProbe.status === 404) addBlocker("stripe_session_route_missing");
 if (!sessionProbe.ok) addBlocker(`stripe_session_http_${sessionProbe.status}`);
 if (array(session.blockers).includes("stripe_secret_key_missing") || session.configured === false) addBlocker("stripe_secret_key_missing");
 if (array(session.blockers).includes("stripe_live_key_used_for_test_checkout")) addBlocker("stripe_live_key_used_for_test_checkout");
-if (out.stripeSessionModeDetected === "live") {
+if (out.stripeSessionModeDetected === "live" && !ALLOW_LIVE_STRIPE_SMOKE) {
   out.stripeSessionModeAllowed = false;
   addBlocker("stripe_live_session_returned_for_test_smoke");
 }
+if (out.stripeSecretKeyMode === "live" && !ALLOW_LIVE_STRIPE_SMOKE) addBlocker("stripe_live_mode_blocked_for_controlled_test_smoke");
+if (out.stripeSecretKeyMode !== "test" && !(out.stripeSecretKeyMode === "live" && ALLOW_LIVE_STRIPE_SMOKE)) addBlocker(`stripe_test_mode_required_current_${out.stripeSecretKeyMode}`);
 if (!out.stripeConfigured && !out.checkoutSessionCreated) addBlocker("stripe_secret_key_missing");
 if (!out.checkoutSessionCreated && out.stripeConfigured) addBlocker("stripe_checkout_session_not_created");
 if ((out.checkoutUrlPresent || out.sessionId) && !out.stripeConfigured) addBlocker("stripe_returned_checkout_artifacts_while_unconfigured");
@@ -485,7 +516,7 @@ out.stripeWebhookConfigured = out.stripeWebhookConfigured || !array(unsignedWebh
 const previewRoute = await postApiWithFallback("order sync preview", "/api/checkout/stripe/order-sync-preview", "/api/v1/checkout/stripe/order-sync-preview", {
   ...sessionPayload,
   sessionId: out.sessionId || undefined,
-}, jsonHeaders);
+}, internalHeaders);
 const previewProbe = previewRoute.probe;
 const preview = previewProbe.data || {};
 stripeRoutesUsed.orderSyncPreview = previewRoute.path;
@@ -494,6 +525,7 @@ checks.orderSyncPreviewPath = previewRoute.path;
 checks.orderSyncPreviewBlockers = preview.blockers || [];
 out.orderSyncReady = preview.orderSyncReady === true;
 if (previewProbe.status === 404) addBlocker("order_sync_preview_route_missing", "settlement");
+else if (previewProbe.status === 401) addBlocker("protected_route_requires_internal_token", "settlement");
 else if (!previewProbe.ok) addBlocker(`order_sync_preview_http_${previewProbe.status}`, "settlement");
 if (array(preview.blockers).includes("payment_record_lookup_pending")) addBlocker("payment_verified_order_sync_pending", "settlement");
 if (array(readinessBody.orderSyncBlockers).length > 0) {
@@ -527,8 +559,8 @@ if (dryRun.paymentMarkedPaid === true || dryRun.orderCompleted === true) addBloc
 out.settlementBlockers = blockers.filter((blocker) => /webhook|paid|settlement|order_sync|economic|idempotency/i.test(blocker));
 out.success = blockers.length === 0;
 out.nextManualStep = out.checkoutSessionCreated
-  ? (out.stripeSessionModeDetected === "test"
-    ? `Open ${out.checkoutUrl}; use Stripe test card 4242 4242 4242 4242 with any future expiry, any CVC, and any postal code; then confirm checkout.session.completed in Stripe Dashboard and verify only a signed webhook can move paid/order sync state.`
+  ? (out.stripeSecretKeyMode === "test" && out.stripeSessionModeDetected === "test" && out.shippingOptionReady && out.unsignedWebhookRejected && blockers.length === 0
+    ? `Open ${out.checkoutUrl}; use Stripe test card 4242 4242 4242 4242 with any future expiry, any CVC, and any postal code; Stripe webhook destination must be ${CANONICAL_STRIPE_WEBHOOK_URL}; then confirm checkout.session.completed in Stripe Dashboard and verify only a signed webhook can move paid/order sync state.`
     : out.stripeSessionModeDetected === "live"
       ? liveSessionTestModeWarning()
       : "Stripe returned a hosted checkout URL with an unknown session mode. Do not use a test card until a cs_test_* session is produced for controlled test validation.")
