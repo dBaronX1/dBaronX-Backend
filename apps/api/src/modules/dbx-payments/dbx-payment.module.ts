@@ -1,28 +1,15 @@
 import { Module } from "@nestjs/common";
-import { ConfigModule } from "@nestjs/config";
-import { DbxChainVerifierClient } from "./dbx-chain-verifier.client";
-import { DbxMedusaCommerceAdapter } from "./dbx-medusa-commerce.adapter";
-import { DbxPaymentConfig } from "./dbx-payment.config";
-import { DbxPaymentController } from "./dbx-payment.controller";
-import { DbxPaymentReferenceService } from "./dbx-payment-reference.service";
-import { DbxPaymentRepository } from "./dbx-payment.repository";
-import { DbxPaymentService } from "./dbx-payment.service";
-import { SharedModule } from "../../shared/shared.module";
+import { DbxPaymentsModule } from "./dbx-payments.module";
 
+/**
+ * Backwards-compatible singular module alias.
+ *
+ * DbxPaymentsModule is the canonical owner for the DBX payment controller and
+ * providers. Keeping this module as an import/export wrapper prevents accidental
+ * duplicate controller registration if legacy imports use DbxPaymentModule.
+ */
 @Module({
-  imports: [ConfigModule, SharedModule],
-  controllers: [DbxPaymentController],
-  providers: [
-    DbxPaymentConfig,
-    DbxPaymentReferenceService,
-    DbxPaymentRepository,
-    DbxChainVerifierClient,
-    DbxMedusaCommerceAdapter,
-    DbxPaymentService,
-  ],
-  exports: [
-    DbxPaymentService,
-    DbxPaymentRepository,
-  ],
+  imports: [DbxPaymentsModule],
+  exports: [DbxPaymentsModule],
 })
 export class DbxPaymentModule {}
