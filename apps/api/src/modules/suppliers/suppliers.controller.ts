@@ -6,9 +6,9 @@ import {
   HttpStatus,
   Post,
   UseGuards,
+  VERSION_NEUTRAL,
 } from "@nestjs/common";
 import { ApiOperation, ApiTags } from "@nestjs/swagger";
-import { Public } from "../../shared/decorators/public.decorator";
 import { InternalAuthGuard } from "../../shared/guards/internal-auth.guard";
 import { CjSupplierAdapterService } from "./adapters/cj/cj-supplier-adapter.service";
 import { CjProductImportReadinessDto } from "./adapters/cj/dto/cj-supplier.dto";
@@ -16,10 +16,9 @@ import { CreateSupplierOrderDto } from "./dto/create-supplier-order.dto";
 import { SupplierOrchestrationService } from "./supplier-orchestration.service";
 
 @ApiTags("suppliers")
-@Public()
 @Controller({
   path: "suppliers",
-  version: "1",
+  version: VERSION_NEUTRAL,
 })
 @UseGuards(InternalAuthGuard)
 export class SuppliersController {

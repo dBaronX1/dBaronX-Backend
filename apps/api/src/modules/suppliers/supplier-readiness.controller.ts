@@ -6,6 +6,7 @@ import {
   VERSION_NEUTRAL,
 } from "@nestjs/common";
 import { ApiOperation, ApiTags } from "@nestjs/swagger";
+import { Public } from "../../shared/decorators/public.decorator";
 import { InternalAuthGuard } from "../../shared/guards/internal-auth.guard";
 import { CjSupplierAdapterService } from "./adapters/cj/cj-supplier-adapter.service";
 import { SupplierReadinessService } from "./supplier-readiness.service";
@@ -22,6 +23,7 @@ export class SupplierReadinessController {
     private readonly cj: CjSupplierAdapterService,
   ) {}
 
+  @Public()
   @Get("readiness")
   @ApiOperation({
     summary: "Internal server-only supplier credential readiness without secret disclosure",
@@ -30,6 +32,7 @@ export class SupplierReadinessController {
     return this.readiness.snapshot();
   }
 
+  @Public()
   @Get("cj/preflight")
   @ApiOperation({
     summary: "Internal CJ credential preflight without token disclosure",

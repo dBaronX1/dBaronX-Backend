@@ -20,7 +20,7 @@ CJ_API_BASE_URL=https://developers.cjdropshipping.com/api2.0
 ```
 
 - `STRIPE_SECRET_KEY` must be a Stripe **test** secret key for the first controlled checkout. It is the only key used by NestJS to create hosted Checkout Sessions.
-- `STRIPE_WEBHOOK_SECRET` must be the Stripe Dashboard signing secret for `POST /api/v1/checkout/stripe/webhook`.
+- `STRIPE_WEBHOOK_SECRET` must be the Stripe Dashboard signing secret for `POST /api/checkout/stripe/webhook`.
 - `INTERNAL_SERVICE_TOKEN` is server-only and is used by internal readiness/order preview probes.
 - `CJ_ACCESS_TOKEN` is optional for the Stripe-only smoke but required for CJ supplier live probe readiness.
 - `CJ_API_BASE_URL` should remain `https://developers.cjdropshipping.com/api2.0`.
@@ -40,7 +40,7 @@ The web app must never receive `STRIPE_SECRET_KEY`, `STRIPE_WEBHOOK_SECRET`, `CJ
 ## Stripe Dashboard webhook setup
 1. Open Stripe Dashboard with **Test mode** enabled.
 2. Go to **Developers → Webhooks → Add endpoint**.
-3. Enter `https://dbaronx-api-unified.onrender.com/api/v1/checkout/stripe/webhook`.
+3. Enter `https://dbaronx-api-unified.onrender.com/api/checkout/stripe/webhook`.
 4. Select `checkout.session.completed`.
 5. Save the endpoint and copy the signing secret into the API service as `STRIPE_WEBHOOK_SECRET`.
 6. Redeploy/restart the API service so the env var is loaded.
@@ -57,6 +57,34 @@ The NestJS endpoint verifies the raw body and `stripe-signature` header with `St
 - Browser redirects are not trusted as payment proof.
 - Paid/settled state can only be attached after a verified Stripe webhook event.
 - Verified `checkout.session.completed` currently returns `paymentMarkedPaid: false` with `settlement_pending` until durable order/payment settlement is connected.
+
+
+## Canonical live API route paths
+
+Use the unversioned Render route contract below unless route discovery proves a deployed service still needs a legacy `/api/v1` fallback:
+
+- `GET /api/suppliers/readiness`
+- `GET /api/suppliers/cj/preflight`
+- `POST /api/suppliers/cj/import-readiness`
+- `POST /api/checkout/stripe/session`
+- `POST /api/checkout/stripe/webhook`
+
+PowerShell live smoke environment:
+
+```powershell
+$env:API_URL="https://dbaronx-api-unified.onrender.com"
+$env:MEDUSA_URL="https://dbaronx-medusa.onrender.com"
+$env:MEDUSA_PUBLISHABLE_KEY="<publishable-key>"
+$env:NEXT_PUBLIC_MEDUSA_PUBLISHABLE_KEY="<publishable-key>"
+```
+
+PowerShell live smoke commands:
+
+```powershell
+node scripts/e2e-supplier-readiness-smoke.mjs
+node scripts/e2e-stripe-checkout-session-smoke.mjs
+node scripts/e2e-stripe-controlled-order-smoke.mjs
+```
 
 ## Stripe Checkout metadata contract
 The Checkout Session and PaymentIntent metadata include the safe mapping fields below when available:
@@ -130,7 +158,7 @@ node scripts/e2e-stripe-checkout-session-smoke.mjs
   "unsignedWebhookRejected": true,
   "paymentMarkedPaid": false,
   "orderSyncReady": false,
-  "nextManualStep": "Open https://checkout.stripe.com/... and complete Stripe Checkout with test card 4242 4242 4242 4242; verify checkout.session.completed reaches https://dbaronx-api-unified.onrender.com/api/v1/checkout/stripe/webhook."
+  "nextManualStep": "Open https://checkout.stripe.com/... and complete Stripe Checkout with test card 4242 4242 4242 4242; verify checkout.session.completed reaches https://dbaronx-api-unified.onrender.com/api/checkout/stripe/webhook."
 }
 ```
 
@@ -141,7 +169,7 @@ node scripts/e2e-stripe-checkout-session-smoke.mjs
 2. Open the returned Stripe hosted `checkoutUrl`.
 3. Use Stripe test card `4242 4242 4242 4242`, any future expiry, any CVC, and a valid billing ZIP.
 4. After the hosted checkout succeeds, open Stripe Dashboard → Developers → Webhooks → the configured endpoint.
-5. Confirm a `checkout.session.completed` delivery reached `POST /api/v1/checkout/stripe/webhook`.
+5. Confirm a `checkout.session.completed` delivery reached `POST /api/checkout/stripe/webhook`.
 6. Confirm the API response for the verified event is `verified: true`, `paymentMarkedPaid: false`, and includes `settlement_pending` until durable settlement is implemented.
 
 ## Remaining steps before live mode
@@ -168,16 +196,16 @@ CJ secrets are never frontend values: do not add `CJ_ACCESS_TOKEN` to the web se
 
 Supplier readiness now performs a safe CJ read-only live probe against `GET /api2.0/v1/product/getCategory` when both `CJ_ACCESS_TOKEN` and `CJ_API_BASE_URL` are configured. The response reports sanitized probe fields and blockers only.
 
-First product import-readiness remains explicit and non-mutating. Send one approved CJ `productId` or `sku` to `POST /api/v1/suppliers/cj/import-readiness`; the endpoint normalizes supplier fields, keeps `medusaSeeded: false`, and never auto-imports a bulk catalog.
+First product import-readiness remains explicit and non-mutating. Send one approved CJ `productId` or `sku` to `POST /api/suppliers/cj/import-readiness`; the endpoint normalizes supplier fields, keeps `medusaSeeded: false`, and never auto-imports a bulk catalog.
 
 CJ smoke commands:
 
 ```bash
-API_URL=https://api.dbaronx.com node scripts/e2e-supplier-readiness-smoke.mjs
+API_URL=https://dbaronx-api-unified.onrender.com node scripts/e2e-supplier-readiness-smoke.mjs
 ```
 
 ```bash
-API_URL=https://api.dbaronx.com \
+API_URL=https://dbaronx-api-unified.onrender.com \
 INTERNAL_SERVICE_TOKEN=... \
 CJ_TEST_PRODUCT_ID=... \
 node scripts/e2e-cj-live-probe-smoke.mjs
@@ -234,7 +262,7 @@ AliExpress remains disabled until the approved app key and app secret are presen
 ### Supplier readiness smoke
 
 ```bash
-API_URL=https://api.dbaronx.com \
+API_URL=https://dbaronx-api-unified.onrender.com \
 INTERNAL_SERVICE_TOKEN= \
 node scripts/e2e-supplier-readiness-smoke.mjs
 ```
@@ -242,7 +270,7 @@ node scripts/e2e-supplier-readiness-smoke.mjs
 CJ live probe and optional first explicit product import-readiness smoke:
 
 ```bash
-API_URL=https://api.dbaronx.com \
+API_URL=https://dbaronx-api-unified.onrender.com \
 INTERNAL_SERVICE_TOKEN= \
 CJ_TEST_PRODUCT_ID= \
 CJ_TEST_SKU= \
@@ -251,4 +279,4 @@ node scripts/e2e-cj-live-probe-smoke.mjs
 
 The supplier readiness endpoint is `GET /api/suppliers/readiness`. It reports safe booleans and blockers without returning raw supplier secrets. Missing CJ env returns `cj_access_token_missing` or `cj_base_url_missing`; invalid/expired tokens return `cj_token_invalid_or_expired`; rate limits return `cj_rate_limited`; network/timeouts return `cj_live_probe_unreachable`. A successful CJ probe sets `cjConfigured: true` and removes the old no-live-probe blocker.
 
-For the first CJ product test, set `CJ_TEST_PRODUCT_ID` or `CJ_TEST_SKU` and call `POST /api/v1/suppliers/cj/import-readiness` with explicit product metadata. The boundary normalizes CJ product metadata, requires minimum economics and shipping fields before `supplierImportReady: true`, does not create a Medusa product automatically, and must not bulk auto-import the CJ catalog.
+For the first CJ product test, set `CJ_TEST_PRODUCT_ID` or `CJ_TEST_SKU` and call `POST /api/suppliers/cj/import-readiness` with explicit product metadata. The boundary normalizes CJ product metadata, requires minimum economics and shipping fields before `supplierImportReady: true`, does not create a Medusa product automatically, and must not bulk auto-import the CJ catalog.
