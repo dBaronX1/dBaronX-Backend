@@ -280,3 +280,106 @@ node scripts/e2e-cj-live-probe-smoke.mjs
 The supplier readiness endpoint is `GET /api/suppliers/readiness`. It reports safe booleans and blockers without returning raw supplier secrets. Missing CJ env returns `cj_access_token_missing` or `cj_base_url_missing`; invalid/expired tokens return `cj_token_invalid_or_expired`; rate limits return `cj_rate_limited`; network/timeouts return `cj_live_probe_unreachable`. A successful CJ probe sets `cjConfigured: true` and removes the old no-live-probe blocker.
 
 For the first CJ product test, set `CJ_TEST_PRODUCT_ID` or `CJ_TEST_SKU` and call `POST /api/suppliers/cj/import-readiness` with explicit product metadata. The boundary normalizes CJ product metadata, requires minimum economics and shipping fields before `supplierImportReady: true`, does not create a Medusa product automatically, and must not bulk auto-import the CJ catalog.
+
+## Unified payment rail smoke
+
+The unified smoke validates the full safe checkout contract across Medusa cart/shipping, Stripe Checkout, unsigned webhook safety, DBX token checkout safety, and order-sync readiness:
+
+```bash
+MEDUSA_URL=https://dbaronx-medusa.onrender.com \
+API_URL=https://dbaronx-api-unified.onrender.com \
+NEXT_PUBLIC_MEDUSA_PUBLISHABLE_KEY=<publishable-key> \
+API_BEARER_TOKEN=<authorized-smoke-jwt-if-dbx-routes-require-auth> \
+node scripts/e2e-unified-payment-rail-smoke.mjs
+```
+
+The API readiness endpoint used by the smoke is:
+
+```http
+GET /api/payments/readiness
+```
+
+It reports booleans only for payment configuration and never returns secret values.
+
+### Server-only env checklist
+
+Configure these on the NestJS/API service only. Never expose them to the web service or client bundle.
+
+```dotenv
+STRIPE_SECRET_KEY = <server-only Stripe test secret>
+STRIPE_WEBHOOK_SECRET = <server-only Stripe webhook secret>
+SOLANA_RPC_URL = <server-only Solana RPC>
+DBX_SOLANA_RPC_URL = <optional fallback>
+DBX_TOKEN_MINT = <DBX token mint>
+FASTAPI_BASE_URL = <FastAPI service URL>
+INTERNAL_SERVICE_TOKEN = <server-only internal token>
+SUPABASE_SERVICE_ROLE_KEY = <server-only Supabase service role>
+```
+
+### Public env checklist
+
+Configure these only with browser-safe public values:
+
+```dotenv
+NEXT_PUBLIC_DBX_SOLANA_PAYMENT_ADDRESS=<public receiver address>
+NEXT_PUBLIC_STRIPE_PUBLIC_KEY=<Stripe test public key>
+NEXT_PUBLIC_MEDUSA_BACKEND_URL=<Medusa URL>
+NEXT_PUBLIC_MEDUSA_PUBLISHABLE_KEY=<Medusa publishable key>
+```
+
+### Expected safe blocked output
+
+A safe blocked run must not fabricate Stripe or DBX success. Missing server configuration should look like this shape:
+
+```json
+{
+  "success": false,
+  "blockers": [
+    "stripe_secret_key_missing",
+    "stripe_webhook_secret_missing",
+    "solana_rpc_not_configured",
+    "order_sync_not_configured"
+  ],
+  "stripeSessionCreated": false,
+  "stripeCheckoutUrlPresent": false,
+  "stripeUnsignedWebhookRejected": true,
+  "dbxPaymentMarkedPaid": false,
+  "paymentMarkedPaid": false
+}
+```
+
+If `STRIPE_SECRET_KEY` is missing, the Stripe session endpoint must return `stripe_secret_key_missing`, `sessionId: null`, and `checkoutUrl: null`. Unsigned webhook probes must keep `verified: false` and `paymentMarkedPaid: false`.
+
+### Expected green output
+
+A green pre-manual run has this shape:
+
+```json
+{
+  "success": true,
+  "blockers": [],
+  "apiReady": true,
+  "medusaReady": true,
+  "cartReady": true,
+  "lineItemAdded": true,
+  "shippingOptionReady": true,
+  "stripeReady": true,
+  "stripeSessionCreated": true,
+  "stripeCheckoutUrlPresent": true,
+  "stripeUnsignedWebhookRejected": true,
+  "dbxReady": true,
+  "dbxIntentCreated": true,
+  "dbxFakeTxRejected": true,
+  "dbxPaymentMarkedPaid": false,
+  "paymentMarkedPaid": false,
+  "orderSyncReady": true
+}
+```
+
+`dbxFakeTxRejected: true` means the fake signature was either rejected or held in a non-paid verification state. It must never become paid/completed from a frontend redirect or client-submitted transaction hash alone.
+
+### Manual payment steps after green smoke
+
+1. **Stripe test card:** open the returned hosted Stripe Checkout URL and use `4242 4242 4242 4242`, any future expiry, any CVC, and a valid postal code. Paid state may advance only after Stripe delivers a verified `checkout.session.completed` webhook to `POST /api/checkout/stripe/webhook`.
+2. **DBX real transaction:** submit a real DBX token transfer to `NEXT_PUBLIC_DBX_SOLANA_PAYMENT_ADDRESS`, then call the DBX submit/confirm path with the real transaction signature. Paid/order-sync state may advance only after server-side Solana verification confirms the mint, receiver, amount, and expected intent reference.
+3. **No fake paid-state rule:** browser redirects, fake Stripe webhook posts, fake Solana signatures, and client assertions must never mark a payment or Medusa order paid.
