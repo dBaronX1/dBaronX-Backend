@@ -408,3 +408,15 @@ pnpm --filter @dbaronx/medusa shipping:visibility:diagnose
 ```
 
 The diagnostic verifies/repairs the US service zone, fulfillment provider linkage, stock location/sales-channel coverage, shipping profile, flat USD shipping-option price, and removes shipping-option rules that block Store API context visibility.
+
+## Ownership and security control references
+
+This checkout runbook must be operated with the repository-level ownership and security controls in place:
+
+- [Ownership policy](./OWNERSHIP.md) defines source-of-truth repository, domain, copyright, contractor/IP, AI-output, and backup expectations.
+- [Security model](./SECURITY_MODEL.md) defines threat-model, secret-management, environment-separation, WAF, audit-log, 2FA, backup, and incident-response controls.
+- [Trade secrets policy](./TRADE_SECRETS.md) reinforces that Stripe secrets, supplier tokens, pricing, anti-fraud rules, and deployment controls must not be committed or shared in chat.
+- [Production control plan](./PRODUCTION_CONTROL.md) defines account ownership, GitHub controls, CODEOWNERS, release tagging, and rollback expectations.
+- [Security policy](../SECURITY.md) defines private vulnerability reporting and secret-leak response.
+
+These references do not change Stripe, supplier, or settlement behavior. They add operational controls around the existing no-fake-paid-state and signed-webhook requirements.

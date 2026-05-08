@@ -151,3 +151,16 @@ Expected output is JSON with:
 - `nextManualStep`
 
 A safe pre-production result may include explicit blockers such as `solana_rpc_not_configured` or `payment_confirmed_order_sync_pending`; fake transactions must never produce paid state.
+
+## Ownership, security, and token-governance references
+
+DBX token checkout must be operated with the repository-level control documents in place:
+
+- [Ownership policy](./OWNERSHIP.md) defines source-of-truth repository, contractor/IP, AI-output, and backup expectations.
+- [Security model](./SECURITY_MODEL.md) defines token-attacker, payment-attacker, insider, secret-management, audit-log, 2FA, and incident-response controls.
+- [Trade secrets policy](./TRADE_SECRETS.md) reinforces that DBX private keys, seed phrases, treasury procedures, anti-fraud rules, and deployment controls must not be committed or shared in chat.
+- [Production control plan](./PRODUCTION_CONTROL.md) defines account ownership, protected branches, CODEOWNERS review, release tagging, and rollback expectations.
+- [DBX token governance controls](./TOKEN_GOVERNANCE.md) define multisig treasury, mint/freeze authority decision logging, allocation controls, airdrop anti-sybil requirements, and the no-private-key-in-repo/chat rule.
+- [Security policy](../SECURITY.md) defines private vulnerability reporting and secret-leak response.
+
+These references do not change DBX checkout behavior. They preserve the existing server-verified Solana payment contract and no-frontend-paid rule.
