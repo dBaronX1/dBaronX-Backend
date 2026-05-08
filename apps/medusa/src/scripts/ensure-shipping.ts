@@ -9,7 +9,9 @@ import {
 
 export default async function ensureShipping({ container }: ExecArgs) {
   try {
-    const readiness = await ensureShippingReadiness(container, { repair: true });
+    const readiness = await ensureShippingReadiness(container, {
+      repair: true,
+    });
 
     console.log(
       JSON.stringify(
@@ -24,9 +26,17 @@ export default async function ensureShipping({ container }: ExecArgs) {
           priceReady: readiness.priceReady,
           rulesReady: readiness.rulesReady,
           visibleToStoreApiExpected: readiness.visibleToStoreApiExpected,
+          storeApiVisibilityProofReady: readiness.storeApiVisibilityProofReady,
+          storeApiVisibilityProofReason:
+            readiness.storeApiVisibilityProofReason,
+          salesChannelStockLocationLinked:
+            readiness.salesChannelStockLocationLinked,
+          salesChannelFulfillmentSetIds:
+            readiness.salesChannelFulfillmentSetIds,
           fulfillmentProviderReady: readiness.fulfillmentProviderReady,
           fulfillmentProviderId: readiness.fulfillmentProviderId,
-          selectedFulfillmentProviderId: readiness.selectedFulfillmentProviderId,
+          selectedFulfillmentProviderId:
+            readiness.selectedFulfillmentProviderId,
           selectedFulfillmentProviderSource:
             readiness.selectedFulfillmentProviderSource,
           serviceZoneReady: readiness.serviceZoneReady,
@@ -45,7 +55,8 @@ export default async function ensureShipping({ container }: ExecArgs) {
             ? { providerLinkRepairError: readiness.providerLinkRepairError }
             : {}),
           allFulfillmentProviderIds: readiness.allFulfillmentProviderIds,
-          allFulfillmentProviderRecords: readiness.allFulfillmentProviderRecords,
+          allFulfillmentProviderRecords:
+            readiness.allFulfillmentProviderRecords,
         },
         null,
         2,
@@ -77,6 +88,10 @@ export default async function ensureShipping({ container }: ExecArgs) {
           serviceZoneReady: false,
           serviceZoneId: null,
           providerEnabledForServiceLocation: false,
+          storeApiVisibilityProofReady: false,
+          storeApiVisibilityProofReason: null,
+          salesChannelStockLocationLinked: false,
+          salesChannelFulfillmentSetIds: [],
           stockLocationProviderIds: [],
           serviceZoneProviderIds: [],
           attemptedProviderLink: false,
@@ -87,8 +102,7 @@ export default async function ensureShipping({ container }: ExecArgs) {
           providerLinkRepairError: serializeProviderLinkRepairError(error),
           allFulfillmentProviderIds: [],
           allFulfillmentProviderRecords: [],
-          note:
-            "If Medusa boot fails before this script runs, Redis must be fixed at the environment/infrastructure level.",
+          note: "If Medusa boot fails before this script runs, Redis must be fixed at the environment/infrastructure level.",
         },
         null,
         2,

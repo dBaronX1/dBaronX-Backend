@@ -7,6 +7,7 @@ const MEDUSA_PUBLISHABLE_KEY = (process.env.MEDUSA_PUBLISHABLE_KEY || process.en
 const API_BEARER_TOKEN = (process.env.API_BEARER_TOKEN || process.env.SMOKE_API_BEARER_TOKEN || process.env.SMOKE_JWT || "").trim();
 const INTERNAL_SERVICE_TOKEN = (process.env.INTERNAL_SERVICE_TOKEN || "").trim();
 const SHIPPING_OPTION_ID = (process.env.SHIPPING_OPTION_ID || "").trim();
+const TARGET_SALES_CHANNEL_ID = "sc_01KQNM6EQZ19Y1BCSRVF9XV61H";
 const SNIPPET_LIMIT = 900;
 const CANONICAL_STRIPE_WEBHOOK_URL = "https://dbaronx-api-unified.onrender.com/api/checkout/stripe/webhook";
 const STRIPE_WEBHOOK_URL_EXPECTED = `${API_URL.endsWith("/api") ? API_URL.slice(0, -4) : API_URL}/api/checkout/stripe/webhook`;
@@ -21,6 +22,10 @@ const apiRoutesUsed = {};
 const stripeRoutesUsed = {};
 const economicRoutesUsed = {};
 const shippingRoutesUsed = {};
+
+function medusaPublishableKeyLooksLikeStripeKey() {
+  return /^(pk_test_|pk_live_)/.test(MEDUSA_PUBLISHABLE_KEY);
+}
 
 const out = {
   success: false,
@@ -112,6 +117,15 @@ function safeHeadersUsed(headers) {
   );
 }
 
+function medusaPublishableKeyInvalid(probe) {
+  const text = `${probe?.text || ""} ${JSON.stringify(probe?.body || {})}`.toLowerCase();
+  return probe?.status === 400 && text.includes("a valid publishable key is required");
+}
+
+function guardMedusaPublishableKeyProbe(probe) {
+  if (medusaPublishableKeyInvalid(probe)) addBlockerOnce("medusa_publishable_key_invalid");
+}
+
 function errorPayload(error, request) {
   return {
     endpoint: request.url,
@@ -183,6 +197,10 @@ function addBlockerOnce(blocker) {
   if (blocker && !blockers.includes(blocker)) blockers.push(blocker);
 }
 
+if (MEDUSA_PUBLISHABLE_KEY && medusaPublishableKeyLooksLikeStripeKey()) {
+  addBlockerOnce("medusa_publishable_key_looks_like_stripe_key");
+}
+
 function stripeSessionModeFromId(sessionId) {
   if (typeof sessionId !== "string" || sessionId.trim() === "") return "missing";
   if (sessionId.startsWith("cs_test_")) return "test";
@@ -250,6 +268,7 @@ const products = await requestJson(`${MEDUSA_URL}/store/products?limit=20`, { he
 const product = firstArray(products.data?.products).find((item) => firstArray(item?.variants).length > 0) || null;
 const variantId = product?.variants?.[0]?.id || null;
 out.checks.medusaProductsHttp = products.status;
+guardMedusaPublishableKeyProbe(products);
 out.checks.productId = product?.id || null;
 out.checks.variantId = variantId;
 if (!products.ok) addBlockerOnce(`store_products_http_${products.status}`);
@@ -258,6 +277,7 @@ if (!variantId) addBlockerOnce("variant_id_missing");
 const regions = await requestJson(`${MEDUSA_URL}/store/regions?limit=20`, { headers: medusaHeaders }, "/store/regions");
 const regionId = firstArray(regions.data?.regions)[0]?.id || null;
 out.checks.medusaRegionsHttp = regions.status;
+guardMedusaPublishableKeyProbe(regions);
 out.checks.regionId = regionId;
 if (!regions.ok) addBlockerOnce(`store_regions_http_${regions.status}`);
 if (!regionId) addBlockerOnce("region_missing");
@@ -265,9 +285,10 @@ out.medusaReady = products.ok && regions.ok && Boolean(variantId && regionId);
 
 let cart = null;
 if (regionId) {
-  const cartBodies = [{ region_id: regionId }];
-  const salesChannelId = process.env.MEDUSA_SALES_CHANNEL_ID || firstArray(product?.sales_channels)[0]?.id || "";
-  if (salesChannelId) cartBodies.push({ region_id: regionId, sales_channel_id: salesChannelId });
+  const salesChannelId = process.env.MEDUSA_SALES_CHANNEL_ID || firstArray(product?.sales_channels)[0]?.id || TARGET_SALES_CHANNEL_ID;
+  const cartBodies = salesChannelId
+    ? [{ region_id: regionId, sales_channel_id: salesChannelId }, { region_id: regionId }]
+    : [{ region_id: regionId }];
 
   let cartProbe = null;
   for (const body of cartBodies) {
@@ -276,6 +297,7 @@ if (regionId) {
       headers: medusaHeaders,
       body: JSON.stringify(body),
     }, "POST /store/carts");
+    guardMedusaPublishableKeyProbe(cartProbe);
     cart = cartFrom(cartProbe.data);
     if (cartProbe.ok && cart?.id) break;
   }
@@ -291,6 +313,7 @@ if (cart?.id && variantId) {
     headers: medusaHeaders,
     body: JSON.stringify({ variant_id: variantId, quantity: 1 }),
   }, "/store/carts/:id/line-items");
+  guardMedusaPublishableKeyProbe(line);
   out.lineItemAdded = line.ok;
   out.checks.lineItemAddHttp = line.status;
   cart = cartFrom(line.data) || cart;
@@ -313,11 +336,13 @@ if (cart?.id && variantId) {
     body: JSON.stringify(addressBody),
   }, "/store/carts/:id address");
   out.checks.cartAddressHttp = address.status;
+  guardMedusaPublishableKeyProbe(address);
   shippingRoutesUsed.cartAddress = { method: "POST", path: `/store/carts/${cart.id}`, body: addressBody };
   if (address.ok) cart = cartFrom(address.data) || cart;
 
   const shippingPath = `/store/shipping-options?cart_id=${encodeURIComponent(cart.id)}`;
   const shipping = await requestJson(`${MEDUSA_URL}${shippingPath}`, { headers: medusaHeaders }, shippingPath);
+  guardMedusaPublishableKeyProbe(shipping);
   const options = firstArray(shipping.data?.shipping_options);
   out.shippingOptionReady = shipping.ok && options.length > 0;
   out.shippingOptionsCount = options.length;
@@ -462,13 +487,17 @@ out.paymentMarkedPaid = out.paymentMarkedPaid || out.dbxPaymentMarkedPaid;
 if (out.paymentMarkedPaid) addBlockerOnce("fake_payment_marked_paid");
 
 out.settlementBlockers = blockers.filter((blocker) => /webhook|paid|settlement|order_sync|economic|idempotency|solana/i.test(blocker));
-out.nextManualStep = blockers.length === 0
-  ? (out.stripeSessionModeDetected === "test"
-    ? `Run a controlled Stripe test-card checkout only against ${CANONICAL_STRIPE_WEBHOOK_URL}, and a real DBX token transfer, then verify only signed Stripe webhooks or verified Solana transactions advance paid/order-sync state.`
-    : out.stripeSessionModeDetected === "live"
-      ? liveSessionTestModeWarning()
-      : "Resolve unknown Stripe session mode before attempting controlled test-card validation.")
-  : (out.stripeSessionModeDetected === "live" ? liveSessionTestModeWarning() : "Resolve blockers, then rerun node scripts/e2e-unified-payment-rail-smoke.mjs before attempting controlled payment orders.");
+if (out.stripeSessionModeDetected === "live" && !ALLOW_LIVE_STRIPE_SMOKE) {
+  out.nextManualStep = liveSessionTestModeWarning();
+} else if (out.checkoutSessionCreated && out.stripeHostedCheckoutUrl && out.stripeSessionModeDetected === "test" && !out.shippingOptionReady) {
+  out.nextManualStep = "Stripe test checkout is ready, but do not open it until Medusa Store API returns a real shipping option.";
+} else if (out.checkoutSessionCreated && out.stripeHostedCheckoutUrl && out.stripeSessionModeDetected === "unknown") {
+  out.nextManualStep = "Resolve unknown Stripe session mode before attempting controlled test-card validation.";
+} else if (blockers.length === 0 && out.stripeSessionModeDetected === "test") {
+  out.nextManualStep = `Run a controlled Stripe test-card checkout only against ${CANONICAL_STRIPE_WEBHOOK_URL}, and a real DBX token transfer, then verify only signed Stripe webhooks or verified Solana transactions advance paid/order-sync state.`;
+} else {
+  out.nextManualStep = "Resolve blockers, then rerun node scripts/e2e-unified-payment-rail-smoke.mjs before attempting controlled payment orders.";
+}
 
 out.success = blockers.length === 0;
 console.log(JSON.stringify(out, null, 2));

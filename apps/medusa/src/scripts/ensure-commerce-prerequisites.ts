@@ -12,10 +12,10 @@ import {
   isRedisUnavailableOrQuotaError,
   REDIS_UNAVAILABLE_BLOCKER,
   serializeProviderLinkRepairError,
+  TARGET_SALES_CHANNEL_ID,
   TARGET_STOCK_LOCATION_ID,
 } from "./shipping-readiness";
 
-const TARGET_SALES_CHANNEL_ID = "sc_01KQNM6EQZ19Y1BCSRVF9XV61H";
 const TARGET_VARIANT_ID = "variant_01KQR5QC1GWD6Z6Q4S9EY358JQ";
 const TARGET_INVENTORY_ITEM_ID = "iitem_01KQR5QC2583QHSFDYDWE942Y7";
 const TARGET_REGION_ID = "reg_01KQSEKK6A9T86NJ0AG05XPK3H";
@@ -29,9 +29,7 @@ const pushUnique = (values: string[], value: string) => {
   if (!values.includes(value)) values.push(value);
 };
 
-async function runEnsureCommercePrerequisites({
-  container,
-}: ExecArgs) {
+async function runEnsureCommercePrerequisites({ container }: ExecArgs) {
   const query = getQueryFromContainer(container);
 
   const created: string[] = [];
@@ -107,6 +105,12 @@ async function runEnsureCommercePrerequisites({
   const fulfillmentProviderReady = shippingReadiness.fulfillmentProviderReady;
   const providerEnabledForServiceLocation =
     shippingReadiness.providerEnabledForServiceLocation;
+  const storeApiVisibilityProofReady =
+    shippingReadiness.storeApiVisibilityProofReady;
+  const storeApiVisibilityProofReason =
+    shippingReadiness.storeApiVisibilityProofReason;
+  const salesChannelFulfillmentSetIds =
+    shippingReadiness.salesChannelFulfillmentSetIds;
 
   const productsRes = await query.graph({
     entity: "product",
@@ -250,7 +254,11 @@ async function runEnsureCommercePrerequisites({
         shippingOptionReady,
         shippingPriceReady: shippingReadiness.priceReady,
         shippingRulesReady: shippingReadiness.rulesReady,
-        shippingVisibleToStoreApiExpected: shippingReadiness.visibleToStoreApiExpected,
+        shippingVisibleToStoreApiExpected:
+          shippingReadiness.visibleToStoreApiExpected,
+        storeApiVisibilityProofReady,
+        storeApiVisibilityProofReason,
+        salesChannelFulfillmentSetIds,
         serviceZoneId,
         serviceZoneReady,
         fulfillmentProviderReady,
@@ -287,8 +295,7 @@ export default async function ensureCommercePrerequisites(args: ExecArgs) {
           existing: [],
           blockers,
           error: serializeProviderLinkRepairError(error),
-          note:
-            "If Medusa boot fails before this script runs, Redis must be fixed at the environment/infrastructure level.",
+          note: "If Medusa boot fails before this script runs, Redis must be fixed at the environment/infrastructure level.",
         },
         null,
         2,
