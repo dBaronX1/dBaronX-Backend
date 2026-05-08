@@ -23,7 +23,9 @@ export class PaymentReadinessService {
     const stripeWebhookConfigured = this.present("STRIPE_WEBHOOK_SECRET");
     const dbxPaymentAddressPresent = this.anyPresent([
       "NEXT_PUBLIC_DBX_SOLANA_PAYMENT_ADDRESS",
+      "DBX_PAYMENT_ADDRESS",
       "DBX_TREASURY_WALLET",
+      "DBX_TREASURY_ADDRESS",
     ]);
     const solanaRpcConfigured = this.anyPresent([
       "SOLANA_RPC_URL",

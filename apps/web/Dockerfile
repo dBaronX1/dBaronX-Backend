@@ -1,6 +1,6 @@
 FROM node:20-slim AS deps
 WORKDIR /app
-RUN corepack enable
+RUN corepack enable && corepack prepare pnpm@10.0.0 --activate
 COPY package.json ./
 COPY pnpm-lock.yaml* ./
 RUN if [ -f pnpm-lock.yaml ]; then \
@@ -11,7 +11,7 @@ RUN if [ -f pnpm-lock.yaml ]; then \
 
 FROM node:20-slim AS build
 WORKDIR /app
-RUN corepack enable
+RUN corepack enable && corepack prepare pnpm@10.0.0 --activate
 COPY --from=deps /app/node_modules ./node_modules
 COPY . .
 RUN pnpm build
@@ -24,7 +24,7 @@ RUN mkdir -p /tmp/runtime-assets/public \
 FROM node:20-slim AS runtime
 WORKDIR /app
 ENV NODE_ENV=production
-RUN corepack enable
+RUN corepack enable && corepack prepare pnpm@10.0.0 --activate
 COPY package.json ./
 COPY pnpm-lock.yaml* ./
 RUN if [ -f pnpm-lock.yaml ]; then \

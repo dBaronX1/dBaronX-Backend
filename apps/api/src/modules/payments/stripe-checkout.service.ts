@@ -157,6 +157,33 @@ export class StripeCheckoutService {
     return this.getStripeMode(this.getStripeSecretKey());
   }
 
+  async readiness(): Promise<StripePaymentReadinessResult> {
+    const stripeConfigured = this.isConfigured();
+    const stripeWebhookConfigured = Boolean(String(this.config.get<string>("STRIPE_WEBHOOK_SECRET") || "").trim());
+    const stripeEventIdempotency = await this.idempotencyRecorder.readiness();
+    const economicEventPersistence = await this.checkEconomicEventPersistence();
+    const orderSyncConfigured = this.isOrderSyncConfigured();
+    const blockers = [
+      ...(stripeConfigured ? [] : ["stripe_secret_key_missing"]),
+      ...(stripeWebhookConfigured ? [] : ["stripe_webhook_secret_missing"]),
+      ...stripeEventIdempotency.blockers,
+      ...economicEventPersistence.blockers,
+      ...(orderSyncConfigured ? [] : ["order_sync_not_configured"]),
+    ];
+
+    return {
+      success: blockers.length === 0,
+      provider: "stripe",
+      configured: stripeConfigured,
+      safeMode: blockers.length > 0,
+      stripeEventIdempotencyReady: stripeEventIdempotency.ready,
+      economicEventPersistenceReady: economicEventPersistence.ready,
+      verifiedWebhookSettlementReady: stripeConfigured && stripeWebhookConfigured && stripeEventIdempotency.ready && economicEventPersistence.ready,
+      orderSyncConfigured,
+      blockers: [...new Set(blockers)],
+    };
+  }
+
   async createSession(input: CreateStripeCheckoutSessionDto) {
     const secretKey = this.getStripeSecretKey();
     const blockers: string[] = [];
