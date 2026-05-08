@@ -102,8 +102,8 @@ function addWarning(warning) {
   addUnique(warnings, warning);
 }
 
-function detectStripeSessionMode(sessionId) {
-  if (typeof sessionId !== "string") return "unknown";
+function stripeSessionModeFromId(sessionId) {
+  if (typeof sessionId !== "string" || sessionId.trim() === "") return "missing";
   if (sessionId.startsWith("cs_test_")) return "test";
   if (sessionId.startsWith("cs_live_")) return "live";
   return "unknown";
@@ -469,14 +469,17 @@ out.sessionId = typeof session.sessionId === "string" ? session.sessionId : null
 out.checkoutUrlPresent = Boolean(out.checkoutUrl);
 out.stripeHostedCheckoutUrl = Boolean(out.checkoutUrl && /^https:\/\/checkout\.stripe\.com\//.test(out.checkoutUrl));
 out.checkoutSessionCreated = session.success === true && Boolean(out.sessionId) && out.stripeHostedCheckoutUrl;
-out.stripeSessionModeDetected = detectStripeSessionMode(out.sessionId);
+out.stripeSessionModeDetected = stripeSessionModeFromId(out.sessionId);
 out.stripeSessionModeAllowed = sessionPayload.checkoutMode !== "test" || out.stripeSessionModeDetected !== "live";
 checks.stripeSessionModeDetected = out.stripeSessionModeDetected;
 checks.stripeSessionModeAllowed = out.stripeSessionModeAllowed;
 out.stripeSecretKeyMode = normalizeStripeKeyMode(session.stripeSecretKeyMode || session.mode || session.metadata?.stripeSecretKeyMode || session.metadata?.stripeKeyMode || out.stripeSecretKeyMode);
 checks.stripeResponseMode = session.mode || session.metadata?.stripeKeyMode || null;
 checks.requestedCheckoutMode = session.requestedCheckoutMode || session.metadata?.requestedCheckoutMode || sessionPayload.checkoutMode;
-if (sessionPayload.checkoutMode === "test" && out.stripeSessionModeDetected === "live" && !ALLOW_LIVE_STRIPE_SMOKE) addBlocker("stripe_live_session_returned_for_test_smoke");
+if (sessionPayload.checkoutMode === "test" && out.stripeSessionModeDetected === "live" && !ALLOW_LIVE_STRIPE_SMOKE) {
+  addBlocker("stripe_live_session_returned_for_test_smoke");
+  addBlocker("stripe_live_mode_blocked_for_controlled_smoke");
+}
 if (array(session.blockers).includes("stripe_live_key_used_for_test_checkout")) addBlocker("stripe_live_key_used_for_test_checkout");
 if (sessionProbe.status === 404) addBlocker("stripe_session_route_missing");
 if (!sessionProbe.ok) addBlocker(`stripe_session_http_${sessionProbe.status}`);
@@ -485,6 +488,7 @@ if (array(session.blockers).includes("stripe_live_key_used_for_test_checkout")) 
 if (out.stripeSessionModeDetected === "live" && !ALLOW_LIVE_STRIPE_SMOKE) {
   out.stripeSessionModeAllowed = false;
   addBlocker("stripe_live_session_returned_for_test_smoke");
+  addBlocker("stripe_live_mode_blocked_for_controlled_smoke");
 }
 if (out.stripeSecretKeyMode === "live" && !ALLOW_LIVE_STRIPE_SMOKE) addBlocker("stripe_live_mode_blocked_for_controlled_test_smoke");
 if (out.stripeSecretKeyMode !== "test" && !(out.stripeSecretKeyMode === "live" && ALLOW_LIVE_STRIPE_SMOKE)) addBlocker(`stripe_test_mode_required_current_${out.stripeSecretKeyMode}`);
