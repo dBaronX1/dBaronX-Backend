@@ -14,6 +14,8 @@ import { DbxMedusaCommerceAdapter } from "./dbx-medusa-commerce.adapter";
 import { DbxPaymentConfig } from "./dbx-payment.config";
 import { DbxPaymentReferenceService } from "./dbx-payment-reference.service";
 import { DbxPaymentRepository } from "./dbx-payment.repository";
+import { DbxSignatureValidator } from "./validators/dbx-signature.validator";
+import { DbxWalletValidator } from "./validators/dbx-wallet.validator";
 import {
   DbxPaymentIntentRecord,
   DbxPaymentStatus,
@@ -30,6 +32,8 @@ export class DbxPaymentService {
   }
 
   private readonly logger = new Logger(DbxPaymentService.name);
+  private readonly signatures = new DbxSignatureValidator();
+  private readonly wallets = new DbxWalletValidator();
 
   private readonly allowedTransitions: Record<DbxPaymentStatus, DbxPaymentStatus[]> = {
     pending: ["submitted", "expired", "failed"],
@@ -54,6 +58,25 @@ export class DbxPaymentService {
     dto: CreateDbxPaymentIntentDto,
     actorUserId?: string | null,
   ): Promise<DbxPaymentIntentRecord> {
+    const commerceReference = (dto.cartId || dto.orderRef || dto.medusaOrderId || "").trim();
+    if (!commerceReference) {
+      throw new BadRequestException({
+        code: "DBX_COMMERCE_REFERENCE_REQUIRED",
+        message: "cartId or orderRef is required to create a DBX payment intent.",
+      });
+    }
+
+    const expectedDbxBaseUnits = this.normalizePositiveIntegerString(
+      dto.expectedDbxBaseUnits,
+      "expectedDbxBaseUnits",
+    );
+
+    const treasuryWallet = this.wallets.assertWallet(
+      this.config.treasuryWallet,
+      "dbxPaymentAddress",
+    );
+    const senderWallet = this.wallets.optionalWallet(dto.senderWallet, "senderWallet");
+
     const expiresAt = DateUtil.addMinutes(
       new Date(),
       this.config.intentTtlMinutes,
@@ -64,17 +87,21 @@ export class DbxPaymentService {
       userId: actorUserId || dto.userId || null,
       email: dto.email.trim().toLowerCase(),
       customerName: dto.customerName.trim(),
-      cartId: dto.cartId.trim(),
+      cartId: commerceReference,
       medusaOrderId: dto.medusaOrderId?.trim() || null,
       expectedUsdCents: dto.expectedUsdCents,
-      expectedDbxBaseUnits: String(dto.expectedDbxBaseUnits),
-      dbxMint: this.config.mintAddress,
-      treasuryWallet: this.config.treasuryWallet,
-      senderWallet: dto.senderWallet?.trim() || null,
+      expectedDbxBaseUnits,
+      dbxMint: this.wallets.assertWallet(this.config.mintAddress, "dbxMint"),
+      treasuryWallet,
+      senderWallet,
       expiresAt,
       idempotencyKey: dto.idempotencyKey?.trim() || null,
       metadata: {
         ...(dto.metadata || {}),
+        orderRef: dto.orderRef?.trim() || null,
+        currency: (dto.currency || "USD").toUpperCase(),
+        dbxPaymentAddress: treasuryWallet,
+        solanaRpcConfigured: this.config.solanaRpcConfigured,
         source: "nestjs_dbx_payment_service",
       },
     });
@@ -88,6 +115,7 @@ export class DbxPaymentService {
   }
 
   async submitPayment(dto: SubmitDbxPaymentDto): Promise<DbxPaymentIntentRecord> {
+    const transactionSignature = this.extractTransactionSignature(dto);
     const intent = await this.findIntentByReferenceOrThrowCompat(dto.intentReference);
     const checked = await this.expireIfNeeded(intent);
 
@@ -109,7 +137,7 @@ export class DbxPaymentService {
       });
     }
 
-    const duplicate = await this.repository.findBySignature(dto.transactionSignature);
+    const duplicate = await this.repository.findBySignature(transactionSignature);
     if (duplicate && duplicate.reference !== checked.reference) {
       throw new ConflictException({
         code: "DBX_SIGNATURE_ALREADY_USED",
@@ -118,8 +146,8 @@ export class DbxPaymentService {
     }
 
     const updated = await this.transition(checked, "submitted", {
-      transaction_signature: dto.transactionSignature.trim(),
-      sender_wallet: dto.senderWallet?.trim() || checked.sender_wallet,
+      transaction_signature: transactionSignature,
+      sender_wallet: this.wallets.optionalWallet(dto.senderWallet, "senderWallet") || checked.sender_wallet,
     });
 
     await this.repository.addEvent(updated.id, "intent_submitted", {
@@ -132,6 +160,8 @@ export class DbxPaymentService {
   }
 
   async confirmPayment(dto: ConfirmDbxPaymentDto): Promise<DbxPaymentIntentRecord> {
+    this.assertRuntimeConfigured();
+
     const normalizedLockReference = this.reference.normalizeForLookup(dto.intentReference);
     const lockKey = `dbx-payment-confirm:${normalizedLockReference}`;
     const lock = this.locks.acquire(lockKey, 30_000);
@@ -144,9 +174,10 @@ export class DbxPaymentService {
     }
 
     try {
+      const transactionSignature = this.extractTransactionSignature(dto);
       const submitted = await this.submitPayment({
         intentReference: dto.intentReference,
-        transactionSignature: dto.transactionSignature,
+        transactionSignature,
       });
 
       if (submitted.status === "completed") {
@@ -163,12 +194,12 @@ export class DbxPaymentService {
 
       await this.repository.addEvent(checked.id, "verification_requested", {
         reference: checked.reference,
-        signature: dto.transactionSignature,
+        signature: transactionSignature,
       });
 
       const verification = await this.verifier.verify({
         intentReference: checked.reference,
-        transactionSignature: dto.transactionSignature,
+        transactionSignature,
         expectedMint: checked.dbx_mint,
         expectedTreasuryWallet: checked.treasury_wallet,
         expectedAmountBaseUnits: checked.expected_dbx_base_units,
@@ -179,7 +210,7 @@ export class DbxPaymentService {
       await this.repository.createVerification({
         intentId: checked.id,
         reference: checked.reference,
-        transactionSignature: dto.transactionSignature,
+        transactionSignature,
         status: verification.verified ? "passed" : "failed",
         reason: verification.reason || null,
         rawResponse: this.toRecord(verification.raw || verification),
@@ -193,7 +224,7 @@ export class DbxPaymentService {
         await this.repository.addEvent(failed.id, "verification_failed", {
           reference: failed.reference,
           reason: verification.reason || null,
-          signature: dto.transactionSignature,
+          signature: transactionSignature,
         });
 
         return failed;
@@ -206,7 +237,7 @@ export class DbxPaymentService {
 
       await this.repository.addEvent(verified.id, "verification_succeeded", {
         reference: verified.reference,
-        signature: dto.transactionSignature,
+        signature: transactionSignature,
         amountBaseUnits: verification.amountBaseUnits,
         sender: verification.sender,
         receiver: verification.receiver,
@@ -229,6 +260,27 @@ export class DbxPaymentService {
     }
 
     return this.completeVerifiedPayment(intent);
+  }
+
+  private extractTransactionSignature(dto: {
+    transactionSignature?: string | null;
+    txHash?: string | null;
+  }): string {
+    const raw = dto.transactionSignature || dto.txHash || "";
+    return this.signatures.assertSignature(raw);
+  }
+
+  private normalizePositiveIntegerString(value: unknown, fieldName: string): string {
+    const normalized = String(value ?? "").trim();
+
+    if (!/^\d+$/.test(normalized) || BigInt(normalized || "0") <= 0n) {
+      throw new BadRequestException({
+        code: "DBX_EXPECTED_AMOUNT_REQUIRED",
+        message: `${fieldName} must be a positive integer base-unit amount.`,
+      });
+    }
+
+    return normalized;
   }
 
   private async findIntentByReferenceOrThrowCompat(
