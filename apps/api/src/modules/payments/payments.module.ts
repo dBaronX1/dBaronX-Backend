@@ -18,6 +18,8 @@ import { SupabaseService } from "../../shared/services/supabase.service";
 import { PaymentsAdminService } from "./payments-admin.service";
 import { StripeCheckoutController } from "./stripe-checkout.controller";
 import { StripeCheckoutService } from "./stripe-checkout.service";
+import { EconomicEventService } from "../../shared/services/economic-event.service";
+import { EconomicReadinessController } from "./economic-readiness.controller";
 
 @Module({
   imports: [ConfigModule, WalletModule],
@@ -26,6 +28,7 @@ import { StripeCheckoutService } from "./stripe-checkout.service";
     PaymentOrchestrationController,
     CheckoutSettlementController,
     StripeCheckoutController,
+    EconomicReadinessController,
   ],
   providers: [
     InternalRequestHeadersService,
@@ -41,6 +44,7 @@ import { StripeCheckoutService } from "./stripe-checkout.service";
     PaymentPreflightOrchestratorService,
     CheckoutSettlementService,
     StripeCheckoutService,
+    EconomicEventService,
   ],
   exports: [
     PaymentIntelligenceService,
@@ -48,6 +52,7 @@ import { StripeCheckoutService } from "./stripe-checkout.service";
     PaymentPreflightOrchestratorService,
     CheckoutSettlementService,
     StripeCheckoutService,
+    EconomicEventService,
   ],
 })
 export class PaymentsModule {}

@@ -280,3 +280,9 @@ node scripts/e2e-cj-live-probe-smoke.mjs
 The supplier readiness endpoint is `GET /api/suppliers/readiness`. It reports safe booleans and blockers without returning raw supplier secrets. Missing CJ env returns `cj_access_token_missing` or `cj_base_url_missing`; invalid/expired tokens return `cj_token_invalid_or_expired`; rate limits return `cj_rate_limited`; network/timeouts return `cj_live_probe_unreachable`. A successful CJ probe sets `cjConfigured: true` and removes the old no-live-probe blocker.
 
 For the first CJ product test, set `CJ_TEST_PRODUCT_ID` or `CJ_TEST_SKU` and call `POST /api/suppliers/cj/import-readiness` with explicit product metadata. The boundary normalizes CJ product metadata, requires minimum economics and shipping fields before `supplierImportReady: true`, does not create a Medusa product automatically, and must not bulk auto-import the CJ catalog.
+
+## Unified economic event contract for Stripe and DBX rails
+
+Stripe and DBX are payment rails in the dBaronX architecture. They verify or transport payment value, but they are not the cross-module settlement contract. The unified NestJS economic event layer is the canonical settlement contract used by e-commerce, ads, AI Stories, watch-to-earn, affiliate, wallet, rewards, subscriptions, dreams/crowdfunding, and payouts.
+
+Module-specific business logic requests economic events such as checkout payment requests, campaign funding, reward holds, affiliate commissions, wallet holds, refunds, and payout settlement requests. Only the NestJS payment/ledger layer may verify, settle, release, reverse, or mark those events as paid. Medusa remains the commerce engine and must not receive business settlement logic. FastAPI remains the fraud/risk/intelligence verifier, and verified or settled economic events must include verifier evidence before the contract accepts them.
