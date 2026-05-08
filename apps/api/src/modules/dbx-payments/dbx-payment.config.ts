@@ -59,13 +59,10 @@ export class DbxPaymentConfig {
     return value;
   }
 
-  get solanaRpcUrl(): string {
-    return this.first("DBX_SOLANA_RPC_URL", "SOLANA_RPC_URL");
-  }
 
   get runtimeBlockers(): string[] {
     return [
-      ...(this.first("DBX_PAYMENT_ADDRESS", "DBX_TREASURY_WALLET", "DBX_TREASURY_ADDRESS") ? [] : ["dbx_payment_address_missing"]),
+      ...(this.first("NEXT_PUBLIC_DBX_SOLANA_PAYMENT_ADDRESS", "DBX_PAYMENT_ADDRESS", "DBX_TREASURY_WALLET", "DBX_TREASURY_ADDRESS") ? [] : ["dbx_payment_address_missing"]),
       ...(this.solanaRpcUrl ? [] : ["solana_rpc_not_configured"]),
       ...(this.first("DBX_TOKEN_MINT", "DBX_MINT_ADDRESS") ? [] : ["dbx_token_mint_missing"]),
       ...(this.first("FASTAPI_BASE_URL", "fastapi.baseUrl") && this.first("INTERNAL_SERVICE_TOKEN", "fastapi.internalServiceToken") ? [] : ["fastapi_verifier_not_configured"]),

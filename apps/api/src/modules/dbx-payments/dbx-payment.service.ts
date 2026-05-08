@@ -45,6 +45,17 @@ export class DbxPaymentService {
     failed: [],
   };
 
+  private assertRuntimeConfigured(): void {
+    const blockers = this.config.runtimeBlockers;
+    if (blockers.length === 0) return;
+
+    throw new BadRequestException({
+      code: "DBX_RUNTIME_NOT_CONFIGURED",
+      message: "DBX payment confirmation requires complete runtime configuration.",
+      blockers,
+    });
+  }
+
   constructor(
     private readonly config: DbxPaymentConfig,
     private readonly repository: DbxPaymentRepository,

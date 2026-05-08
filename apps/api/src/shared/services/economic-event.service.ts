@@ -1,4 +1,4 @@
-import { BadRequestException, Injectable } from "@nestjs/common";
+import { BadRequestException, Inject, Injectable, Optional } from "@nestjs/common";
 import {
   ECONOMIC_ASSET_TYPES,
   ECONOMIC_DIRECTIONS,
@@ -21,9 +21,24 @@ import {
 const SECRET_FIELD_PATTERN = /(secret|token|password|private[_-]?key|seed[_-]?phrase|authorization|cookie|signature)/i;
 const SETTLEMENT_STATUSES = new Set<EconomicStatus>(["verified", "settled"]);
 
+type PersistEconomicEventInput = Omit<EconomicEventInput, "sourceRef" | "amountMinorUnits" | "assetType"> &
+  Partial<Pick<EconomicEventInput, "sourceRef" | "amountMinorUnits" | "assetType">> & {
+    amount?: number | string;
+    referenceId?: string;
+  };
+
+type PersistEconomicEventResult = EconomicEventValidationResult & {
+  ready: boolean;
+  persisted: boolean;
+};
+
 @Injectable()
 export class EconomicEventService {
-  constructor(private readonly repository?: EconomicEventRepository) {}
+  constructor(
+    @Optional()
+    @Inject("EconomicEventRepository")
+    private readonly repository?: EconomicEventRepository,
+  ) {}
 
   getSupportedModules(): EconomicSourceModule[] {
     return [...ECONOMIC_SOURCE_MODULES];
@@ -59,6 +74,56 @@ export class EconomicEventService {
       orderSyncReady,
       safeMode: true,
       timestamp: new Date().toISOString(),
+    };
+  }
+
+
+  async persist(input: PersistEconomicEventInput): Promise<PersistEconomicEventResult> {
+    const normalizedInput: EconomicEventInput = {
+      ...input,
+      sourceRef: input.sourceRef || input.referenceId || "",
+      amountMinorUnits: Number(input.amountMinorUnits ?? input.amount ?? 0),
+      assetType: input.assetType || "fiat",
+    };
+
+    const result = this.validate(normalizedInput);
+    if (!result.valid || !result.event) {
+      return {
+        ...result,
+        ready: false,
+        persisted: false,
+      };
+    }
+
+    if (!this.repository) {
+      return {
+        ...result,
+        ready: true,
+        persisted: false,
+        blockers: ["economic_event_persistence_pending"],
+      };
+    }
+
+    const existing = await this.repository.findByIdempotencyKey(result.event.idempotencyKey);
+    if (existing) {
+      return {
+        valid: true,
+        ready: true,
+        persisted: true,
+        blockers: [],
+        event: existing,
+        auditPayload: this.toAuditPayload(existing),
+      };
+    }
+
+    const saved = await this.repository.append(result.event);
+    return {
+      valid: true,
+      ready: true,
+      persisted: true,
+      blockers: [],
+      event: saved,
+      auditPayload: this.toAuditPayload(saved),
     };
   }
 
