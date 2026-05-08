@@ -8,7 +8,6 @@ import { StripeCheckoutService } from "./stripe-checkout.service";
 type RawBodyRequest = Request & { rawBody?: Buffer };
 
 @ApiTags("stripe-checkout")
-@Public()
 @Controller({ path: "checkout/stripe", version: VERSION_NEUTRAL })
 export class StripeCheckoutController {
   constructor(private readonly stripe: StripeCheckoutService) {}
@@ -30,6 +29,7 @@ export class StripeCheckoutController {
     return this.stripe.previewOrderSync(body);
   }
 
+  @Public()
   @Post("webhook")
   @HttpCode(HttpStatus.OK)
   async webhook(

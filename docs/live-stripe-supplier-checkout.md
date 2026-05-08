@@ -281,51 +281,24 @@ The supplier readiness endpoint is `GET /api/suppliers/readiness`. It reports sa
 
 For the first CJ product test, set `CJ_TEST_PRODUCT_ID` or `CJ_TEST_SKU` and call `POST /api/suppliers/cj/import-readiness` with explicit product metadata. The boundary normalizes CJ product metadata, requires minimum economics and shipping fields before `supplierImportReady: true`, does not create a Medusa product automatically, and must not bulk auto-import the CJ catalog.
 
-## Verified Stripe webhook settlement lifecycle
+## DBX token checkout readiness addendum
 
-Stripe Checkout is **checkout-ready** when the API can create a hosted `https://checkout.stripe.com/` Session and returns its `sessionId` and `checkoutUrl`. This state does not mean paid and must never write a paid flag from the frontend redirect.
+DBX Solana token checkout now has an explicit route contract alongside the live Stripe and supplier checkout readiness flow:
 
-A payment becomes **payment-verified** only inside `POST /api/checkout/stripe/webhook` after `Stripe.webhooks.constructEvent(...)` verifies the `stripe-signature` header against the server-only `STRIPE_WEBHOOK_SECRET`. Missing signatures and invalid signatures return `verified: false` and `paymentMarkedPaid: false`; unsigned webhook probes are expected safety checks and must not settle anything.
+- `POST /api/dbx-payments/intents` creates a pending DBX payment intent for a `cartId` or `orderRef`, returns the public DBX receiver address, expected base-unit amount, expiry, and idempotency reference, and never marks payment paid.
+- `POST /api/dbx-payments/submit` accepts `transactionSignature`/`txHash`, validates Solana signature shape, attaches it to the DBX intent, and returns verification-pending state only.
+- `POST /api/dbx-payments/confirm` requires server-side Solana/FastAPI verification before any confirmed transition. If `SOLANA_RPC_URL` is missing, the explicit blocker is `solana_rpc_not_configured`.
+- `POST /api/dbx-payments/:reference/retry-order-sync` is reserved for verified payments whose Medusa order sync is pending.
+- `GET /api/dbx-payments/:reference` exposes frontend-safe status for polling.
 
-For verified `checkout.session.completed`, the API extracts:
+Stripe remains the card-checkout path and supplier readiness remains independent. DBX does not weaken Stripe/Medusa behavior: Medusa order payment state is not trusted from frontend wallet confirmation, and DBX order completion is only attempted after server-side transaction verification.
 
-- Stripe event id, used as the durable idempotency key.
-- Checkout Session id.
-- Payment Intent id.
-- Amount and currency.
-- `metadata.cartId`, `metadata.orderRef`/`checkoutRef`/`orderIntentId`, and `metadata.source`.
+Frontend checkout should show Stripe, Paystack, and DBX as separate payment options. The DBX option must render `NEXT_PUBLIC_DBX_SOLANA_PAYMENT_ADDRESS`, a QR/address instruction, transaction signature submission, and pending/confirmed/failed UI states. The UI must not implement a frontend-paid state.
 
-The event id must be persisted in `app_public.stripe_webhook_events` before downstream settlement work is trusted. A duplicate verified Stripe event returns `settlementStatus: already_processed` and must not create a second economic event or second order-sync attempt. If the table/migration has not been applied, readiness and webhook responses include `stripe_event_idempotency_store_not_configured` and no final settlement is claimed.
+DBX readiness smoke:
 
-## Payment-verified vs order-settled
+```bash
+node scripts/e2e-dbx-token-checkout-readiness-smoke.mjs
+```
 
-`payment-verified` means Stripe cryptographically proved that `checkout.session.completed` was delivered and the API recorded the Stripe event id idempotency boundary. It still returns `paymentMarkedPaid: false` until durable settlement/order-ledger completion is implemented.
-
-`order-settled` means all of the following are durable and reconciled:
-
-1. Stripe event id is recorded exactly once.
-2. `commerce.checkout.payment_verified` economic event is persisted.
-3. Medusa cart/order reference resolves to a real Medusa order through configured admin credentials.
-4. Order ledger persistence is configured and updated.
-
-Pending states are explicit:
-
-- `economic_event_persistence_pending` — economic-event table or persistence is not available.
-- `payment_verified_order_sync_pending` — Stripe payment is verified, but the Medusa order does not exist yet or cannot be resolved from metadata.
-- `order_sync_not_configured` — Medusa backend/admin token configuration is missing.
-- `ledger_persistence_not_configured` — Supabase/order ledger persistence is not configured.
-
-## First Stripe Dashboard webhook test
-
-1. Configure API runtime secrets only on the server: `STRIPE_SECRET_KEY`, `STRIPE_WEBHOOK_SECRET`, `SUPABASE_SERVICE_ROLE_KEY`, and Medusa admin sync env (`MEDUSA_BASE_URL` or `MEDUSA_BACKEND_URL`, plus `MEDUSA_ADMIN_API_KEY` or `MEDUSA_ADMIN_TOKEN`).
-2. Apply the Supabase migration that creates `app_public.stripe_webhook_events` and `app_public.economic_events`.
-3. Run `API_URL=<api> node scripts/e2e-first-stripe-test-transaction-smoke.mjs` to confirm unsigned webhook safety and readiness fields.
-4. Open the returned Stripe-hosted Checkout URL and pay with a Stripe test card.
-5. In Stripe Dashboard, deliver or replay `checkout.session.completed` to `/api/checkout/stripe/webhook`.
-6. Confirm the webhook response or API logs show `verified: true`, `paymentMarkedPaid: false`, `idempotencyRecorded: true`, and either `payment_verified_order_sync_pending` or the next durable order-sync state.
-
-Local signed fixture testing is optional: set a local test `STRIPE_WEBHOOK_SECRET` and rerun `scripts/e2e-first-stripe-test-transaction-smoke.mjs`. The fixture signs a local event payload with Stripe's test header helper; it does not call Stripe APIs and does not fake a paid state.
-
-## No fake paid-state rule
-
-Frontend redirects, unsigned webhooks, invalid signatures, duplicate events, and missing persistence are never allowed to mark an order paid. The checkout redirect only proves the browser returned from Stripe; the signed webhook proves payment verification.
+The smoke confirms API health, pending intent creation, invalid/fake transaction rejection, no fake paid state, and explicit order-sync/Solana RPC blockers.

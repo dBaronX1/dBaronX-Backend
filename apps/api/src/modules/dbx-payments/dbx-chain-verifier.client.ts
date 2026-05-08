@@ -15,7 +15,21 @@ export class DbxChainVerifierClient {
   async verify(
     payload: DbxChainVerificationRequest,
   ): Promise<DbxChainVerificationResponse> {
-    const response = await fetch(`${this.config.fastApiBaseUrl}/internal/dbx/verify-payment`, {
+    if (!this.config.solanaRpcConfigured) {
+      return {
+        success: true,
+        verified: false,
+        status: "failed",
+        reason: "solana_rpc_not_configured",
+        signature: payload.transactionSignature,
+        raw: {
+          blocker: "solana_rpc_not_configured",
+          message: "SOLANA_RPC_URL or DBX_SOLANA_RPC_URL must be configured server-side before DBX payments can be confirmed.",
+        },
+      };
+    }
+
+    const response = await fetch(`${this.config.fastApiBaseUrl}/internal/dbx/verify-payment-v2`, {
       method: "POST",
       headers: {
         "content-type": "application/json",
@@ -32,6 +46,7 @@ export class DbxChainVerifierClient {
 
     const json = (await response.json().catch(() => null)) as
       | DbxChainVerificationResponse
+      | { detail?: unknown }
       | null;
 
     if (!response.ok || !json) {
@@ -43,6 +58,6 @@ export class DbxChainVerifierClient {
       });
     }
 
-    return json;
+    return json as DbxChainVerificationResponse;
   }
 }

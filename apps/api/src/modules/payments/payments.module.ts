@@ -16,9 +16,12 @@ import { IntelligenceAuditPipelineService } from "../../shared/services/intellig
 import { LaunchReadinessPersistenceService } from "../../shared/services/launch-readiness-persistence.service";
 import { SupabaseService } from "../../shared/services/supabase.service";
 import { PaymentsAdminService } from "./payments-admin.service";
+import { PaymentReadinessController } from "./payment-readiness.controller";
+import { PaymentReadinessService } from "./payment-readiness.service";
 import { StripeCheckoutController } from "./stripe-checkout.controller";
 import { StripeCheckoutService } from "./stripe-checkout.service";
-import { EconomicEventService } from "../../shared/services/economic-event.service";
+import { PaymentReadinessController } from "./payment-readiness.controller";
+import { PaymentReadinessService } from "./payment-readiness.service";
 
 @Module({
   imports: [ConfigModule, WalletModule],
@@ -27,6 +30,7 @@ import { EconomicEventService } from "../../shared/services/economic-event.servi
     PaymentOrchestrationController,
     CheckoutSettlementController,
     StripeCheckoutController,
+    PaymentReadinessController,
   ],
   providers: [
     InternalRequestHeadersService,
@@ -42,7 +46,7 @@ import { EconomicEventService } from "../../shared/services/economic-event.servi
     PaymentPreflightOrchestratorService,
     CheckoutSettlementService,
     StripeCheckoutService,
-    EconomicEventService,
+    PaymentReadinessService,
   ],
   exports: [
     PaymentIntelligenceService,
@@ -50,7 +54,7 @@ import { EconomicEventService } from "../../shared/services/economic-event.servi
     PaymentPreflightOrchestratorService,
     CheckoutSettlementService,
     StripeCheckoutService,
-    EconomicEventService,
+    PaymentReadinessService,
   ],
 })
 export class PaymentsModule {}
