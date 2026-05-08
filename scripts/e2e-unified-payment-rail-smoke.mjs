@@ -5,9 +5,12 @@ const MEDUSA_URL = (process.env.MEDUSA_URL || process.env.MEDUSA_BACKEND_URL || 
 const WEB_BASE_URL = (process.env.WEB_BASE_URL || process.env.NEXT_PUBLIC_WEB_BASE_URL || "https://dbaronx.com").replace(/\/+$/, "");
 const MEDUSA_PUBLISHABLE_KEY = (process.env.MEDUSA_PUBLISHABLE_KEY || process.env.NEXT_PUBLIC_MEDUSA_PUBLISHABLE_KEY || "").trim();
 const API_BEARER_TOKEN = (process.env.API_BEARER_TOKEN || process.env.SMOKE_API_BEARER_TOKEN || process.env.SMOKE_JWT || "").trim();
+const INTERNAL_SERVICE_TOKEN = (process.env.INTERNAL_SERVICE_TOKEN || "").trim();
 const SHIPPING_OPTION_ID = (process.env.SHIPPING_OPTION_ID || "").trim();
 const SNIPPET_LIMIT = 900;
+const CANONICAL_STRIPE_WEBHOOK_URL = "https://dbaronx-api-unified.onrender.com/api/checkout/stripe/webhook";
 const STRIPE_WEBHOOK_URL_EXPECTED = `${API_URL.endsWith("/api") ? API_URL.slice(0, -4) : API_URL}/api/checkout/stripe/webhook`;
+const ALLOW_LIVE_STRIPE_SMOKE = String(process.env.ALLOW_LIVE_STRIPE_SMOKE || "").trim().toLowerCase() === "true";
 const FAKE_DBX_SIGNATURE = `fake-smoke-signature-${Date.now()}`;
 
 const blockers = [];
@@ -28,11 +31,22 @@ const out = {
   lineItemAdded: false,
   shippingOptionReady: false,
   stripeReady: false,
+  stripeConfigured: false,
+  stripeSecretKeyMode: "missing",
+  stripeWebhookConfigured: false,
+  stripeWebhookUrlExpected: STRIPE_WEBHOOK_URL_EXPECTED,
+  canonicalStripeWebhookUrl: CANONICAL_STRIPE_WEBHOOK_URL,
   stripeSessionCreated: false,
+  checkoutSessionCreated: false,
+  sessionId: null,
+  checkoutUrl: null,
   stripeCheckoutUrlPresent: false,
+  checkoutUrlPresent: false,
+  stripeHostedCheckoutUrl: false,
   stripeSessionModeDetected: "unknown",
   stripeSessionModeAllowed: false,
   stripeUnsignedWebhookRejected: false,
+  unsignedWebhookRejected: false,
   dbxReady: false,
   dbxIntentCreated: false,
   dbxSubmitReady: false,
@@ -56,6 +70,7 @@ const out = {
     medusaUrl: MEDUSA_URL,
     medusaPublishableKeyPresent: Boolean(MEDUSA_PUBLISHABLE_KEY),
     apiBearerTokenPresent: Boolean(API_BEARER_TOKEN),
+    internalServiceTokenPresent: Boolean(INTERNAL_SERVICE_TOKEN),
   },
 };
 
@@ -63,9 +78,14 @@ const medusaHeaders = {
   "content-type": "application/json",
   ...(MEDUSA_PUBLISHABLE_KEY ? { "x-publishable-api-key": MEDUSA_PUBLISHABLE_KEY } : {}),
 };
+const publicJsonHeaders = { "content-type": "application/json" };
 const apiHeaders = {
   "content-type": "application/json",
   ...(API_BEARER_TOKEN ? { authorization: `Bearer ${API_BEARER_TOKEN}` } : {}),
+};
+const internalHeaders = {
+  "content-type": "application/json",
+  ...(INTERNAL_SERVICE_TOKEN ? { authorization: `Bearer ${INTERNAL_SERVICE_TOKEN}` } : {}),
 };
 
 function api(path) {
@@ -171,7 +191,11 @@ function detectStripeSessionMode(sessionId) {
 }
 
 function liveSessionTestModeWarning() {
-  return "Do not open/pay this live session for test-card validation. Configure STRIPE_SECRET_KEY=sk_test_... and STRIPE_WEBHOOK_SECRET from a test webhook endpoint, redeploy, and rerun.";
+  return "Do not open/pay this live session for test-card validation. Configure STRIPE_SECRET_KEY=sk_test_... and STRIPE_WEBHOOK_SECRET from a test webhook endpoint, redeploy, and rerun. Only set ALLOW_LIVE_STRIPE_SMOKE=true for an explicitly approved live smoke.";
+}
+
+function normalizeStripeKeyMode(value) {
+  return ["test", "live", "missing", "unknown"].includes(value) ? value : "unknown";
 }
 
 async function firstReadyHealthPath(paths) {
@@ -205,8 +229,14 @@ out.checks.paymentReadinessHttp = readiness.probe.status;
 out.checks.paymentReadiness = readinessData;
 if (readiness.probe.status === 404) addBlockerOnce("payments_readiness_route_missing");
 if (readiness.probe.ok) {
+  out.stripeConfigured = readinessData.stripeConfigured === true;
+  out.stripeWebhookConfigured = readinessData.stripeWebhookConfigured === true;
+  out.stripeSecretKeyMode = normalizeStripeKeyMode(readinessData.stripeSecretKeyMode || out.stripeSecretKeyMode);
+  out.stripeWebhookUrlExpected = readinessData.stripeWebhookUrlExpected ? `${API_URL.endsWith("/api") ? API_URL.slice(0, -4) : API_URL}${String(readinessData.stripeWebhookUrlExpected).startsWith("/") ? readinessData.stripeWebhookUrlExpected : `/${readinessData.stripeWebhookUrlExpected}`}` : out.stripeWebhookUrlExpected;
   if (readinessData.stripeConfigured === false) addBlockerOnce("stripe_secret_key_missing");
   if (readinessData.stripeWebhookConfigured === false) addBlockerOnce("stripe_webhook_secret_missing");
+  if (out.stripeSecretKeyMode === "live" && !ALLOW_LIVE_STRIPE_SMOKE) addBlockerOnce("stripe_live_mode_blocked_for_controlled_test_smoke");
+  if (out.stripeSecretKeyMode !== "test" && !(out.stripeSecretKeyMode === "live" && ALLOW_LIVE_STRIPE_SMOKE)) addBlockerOnce(`stripe_test_mode_required_current_${out.stripeSecretKeyMode}`);
   if (readinessData.stripeSecretKeyMode) out.checks.stripeSecretKeyMode = readinessData.stripeSecretKeyMode;
   if (readinessData.liveCheckoutExplicitlyAllowed !== undefined) out.checks.liveCheckoutExplicitlyAllowed = readinessData.liveCheckoutExplicitlyAllowed;
   if (readinessData.stripeWebhookUrlExpected) out.stripeWebhookUrlExpected = `${API_URL.endsWith("/api") ? API_URL.slice(0, -4) : API_URL}${String(readinessData.stripeWebhookUrlExpected).startsWith("/") ? readinessData.stripeWebhookUrlExpected : `/${readinessData.stripeWebhookUrlExpected}`}`;
@@ -315,14 +345,18 @@ const sessionBody = {
   productName: "dBaronX unified payment rail smoke",
   checkoutMode: "test",
 };
-const stripeSession = await postApi("/api/checkout/stripe/session", "/api/v1/checkout/stripe/session", sessionBody, { "content-type": "application/json" });
+const stripeSession = await postApi("/api/checkout/stripe/session", "/api/v1/checkout/stripe/session", sessionBody, publicJsonHeaders);
 stripeRoutesUsed.checkoutSession = stripeSession.pathUsed;
 const stripeSessionData = stripeSession.probe.data || {};
 out.stripeReady = stripeSession.probe.status !== 404;
+out.stripeSecretKeyMode = normalizeStripeKeyMode(stripeSessionData.stripeSecretKeyMode || stripeSessionData.mode || stripeSessionData.metadata?.stripeSecretKeyMode || stripeSessionData.metadata?.stripeKeyMode || out.stripeSecretKeyMode);
 out.stripeSessionCreated = stripeSessionData.success === true && Boolean(stripeSessionData.sessionId) && Boolean(stripeSessionData.checkoutUrl);
+out.checkoutSessionCreated = out.stripeSessionCreated;
 out.stripeCheckoutUrlPresent = Boolean(stripeSessionData.checkoutUrl);
+out.checkoutUrlPresent = out.stripeCheckoutUrlPresent;
 out.sessionId = typeof stripeSessionData.sessionId === "string" ? stripeSessionData.sessionId : null;
 out.checkoutUrl = typeof stripeSessionData.checkoutUrl === "string" ? stripeSessionData.checkoutUrl : null;
+out.stripeHostedCheckoutUrl = Boolean(out.checkoutUrl && /^https:\/\/checkout\.stripe\.com\//.test(out.checkoutUrl));
 out.stripeSessionModeDetected = detectStripeSessionMode(out.sessionId);
 out.stripeSessionModeAllowed = sessionBody.checkoutMode !== "test" || out.stripeSessionModeDetected !== "live";
 out.checks.stripeSessionHttp = stripeSession.probe.status;
@@ -331,23 +365,26 @@ out.checks.stripeSessionModeAllowed = out.stripeSessionModeAllowed;
 out.checks.stripeResponseMode = stripeSessionData.mode || stripeSessionData.metadata?.stripeKeyMode || null;
 out.checks.requestedCheckoutMode = stripeSessionData.requestedCheckoutMode || stripeSessionData.metadata?.requestedCheckoutMode || sessionBody.checkoutMode;
 out.checks.stripeConfigured = stripeSessionData.configured ?? readinessData.stripeConfigured ?? null;
-if (sessionBody.checkoutMode === "test" && out.stripeSessionModeDetected === "live") addBlockerOnce("stripe_live_session_returned_for_test_smoke");
+if (sessionBody.checkoutMode === "test" && out.stripeSessionModeDetected === "live" && !ALLOW_LIVE_STRIPE_SMOKE) addBlockerOnce("stripe_live_session_returned_for_test_smoke");
 if (firstArray(stripeSessionData.blockers).includes("stripe_live_key_used_for_test_checkout")) addBlockerOnce("stripe_live_key_used_for_test_checkout");
 if (!out.stripeReady) addBlockerOnce("stripe_session_route_missing");
 if (stripeSessionData.configured === false) addBlockerOnce("stripe_secret_key_missing");
 if (firstArray(stripeSessionData.blockers).includes("stripe_live_key_used_for_test_checkout")) addBlockerOnce("stripe_live_key_used_for_test_checkout");
-if (out.stripeSessionModeDetected === "live") {
+if (out.stripeSessionModeDetected === "live" && !ALLOW_LIVE_STRIPE_SMOKE) {
   out.stripeSessionModeAllowed = false;
   addBlockerOnce("stripe_live_session_returned_for_test_smoke");
 }
+if (out.stripeSecretKeyMode === "live" && !ALLOW_LIVE_STRIPE_SMOKE) addBlockerOnce("stripe_live_mode_blocked_for_controlled_test_smoke");
+if (out.stripeSecretKeyMode !== "test" && !(out.stripeSecretKeyMode === "live" && ALLOW_LIVE_STRIPE_SMOKE)) addBlockerOnce(`stripe_test_mode_required_current_${out.stripeSecretKeyMode}`);
 if (stripeSessionData.configured === false && (stripeSessionData.sessionId || stripeSessionData.checkoutUrl)) addBlockerOnce("stripe_returned_checkout_artifacts_while_unconfigured");
 if (stripeSessionData.configured === true && !out.stripeSessionCreated) addBlockerOnce("stripe_configured_session_not_created");
 if (out.stripeCheckoutUrlPresent && !String(stripeSessionData.checkoutUrl).startsWith("https://checkout.stripe.com/")) addBlockerOnce("stripe_checkout_url_not_stripe_hosted");
 
-const webhook = await postApi("/api/checkout/stripe/webhook", "/api/v1/checkout/stripe/webhook", {}, { "content-type": "application/json" });
+const webhook = await postApi("/api/checkout/stripe/webhook", "/api/v1/checkout/stripe/webhook", {}, publicJsonHeaders);
 stripeRoutesUsed.unsignedWebhook = webhook.pathUsed;
 const webhookData = webhook.probe.data || {};
 out.stripeUnsignedWebhookRejected = webhook.probe.ok && webhookData.verified === false && webhookData.paymentMarkedPaid === false;
+out.unsignedWebhookRejected = out.stripeUnsignedWebhookRejected;
 out.checks.stripeWebhookHttp = webhook.probe.status;
 out.paymentMarkedPaid = Boolean(webhookData.paymentMarkedPaid);
 if (webhook.probe.status === 404) addBlockerOnce("stripe_webhook_route_missing");
@@ -423,7 +460,7 @@ if (out.paymentMarkedPaid) addBlockerOnce("fake_payment_marked_paid");
 out.settlementBlockers = blockers.filter((blocker) => /webhook|paid|settlement|order_sync|economic|idempotency|solana/i.test(blocker));
 out.nextManualStep = blockers.length === 0
   ? (out.stripeSessionModeDetected === "test"
-    ? "Run a controlled Stripe test-card checkout and a real DBX token transfer, then verify only signed Stripe webhooks or verified Solana transactions advance paid/order-sync state."
+    ? `Run a controlled Stripe test-card checkout only against ${CANONICAL_STRIPE_WEBHOOK_URL}, and a real DBX token transfer, then verify only signed Stripe webhooks or verified Solana transactions advance paid/order-sync state.`
     : out.stripeSessionModeDetected === "live"
       ? liveSessionTestModeWarning()
       : "Resolve unknown Stripe session mode before attempting controlled test-card validation.")
