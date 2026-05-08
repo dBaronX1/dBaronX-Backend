@@ -99,11 +99,15 @@ function addWarning(warning) {
   addUnique(warnings, warning);
 }
 
-function stripeSessionModeFromId(sessionId) {
+function detectStripeSessionMode(sessionId) {
   if (typeof sessionId !== "string") return "unknown";
   if (sessionId.startsWith("cs_test_")) return "test";
   if (sessionId.startsWith("cs_live_")) return "live";
-  return sessionId ? "unknown" : "missing";
+  return "unknown";
+}
+
+function liveSessionTestModeWarning() {
+  return "Do not open/pay this live session for test-card validation. Configure STRIPE_SECRET_KEY=sk_test_... and STRIPE_WEBHOOK_SECRET from a test webhook endpoint, redeploy, and rerun.";
 }
 
 async function requestJson(label, url, init = {}) {
@@ -210,6 +214,8 @@ const out = {
   checkoutUrl: null,
   checkoutUrlPresent: false,
   stripeHostedCheckoutUrl: false,
+  stripeSessionModeDetected: "unknown",
+  stripeSessionModeAllowed: false,
   unsignedWebhookRejected: false,
   paymentMarkedPaid: false,
   orderSyncReady: false,
@@ -368,7 +374,7 @@ if (out.cartId) {
   out.shippingOptionReady = shippingProbe.ok && Boolean(shippingOptionId);
   shippingRoutesUsed.shippingOptions = { method: "GET", path: shippingPath, headers: { "x-publishable-api-key": Boolean(MEDUSA_KEY) } };
   if (!shippingProbe.ok) addBlocker(`shipping_options_http_${shippingProbe.status}`);
-  if (shippingProbe.ok && !shippingOptionId) addBlocker("shipping_option_missing");
+  if (shippingProbe.ok && !shippingOptionId) addBlocker("shipping_option_store_visibility_missing");
 }
 
 if (out.cartId && shippingOptionId) {
@@ -435,6 +441,14 @@ out.stripeSessionModeAllowed = out.stripeSessionModeDetected === "test" || out.s
 out.checkoutUrlPresent = Boolean(out.checkoutUrl);
 out.stripeHostedCheckoutUrl = Boolean(out.checkoutUrl && /^https:\/\/checkout\.stripe\.com\//.test(out.checkoutUrl));
 out.checkoutSessionCreated = session.success === true && Boolean(out.sessionId) && out.stripeHostedCheckoutUrl;
+out.stripeSessionModeDetected = detectStripeSessionMode(out.sessionId);
+out.stripeSessionModeAllowed = sessionPayload.checkoutMode !== "test" || out.stripeSessionModeDetected !== "live";
+checks.stripeSessionModeDetected = out.stripeSessionModeDetected;
+checks.stripeSessionModeAllowed = out.stripeSessionModeAllowed;
+checks.stripeResponseMode = session.mode || session.metadata?.stripeKeyMode || null;
+checks.requestedCheckoutMode = session.requestedCheckoutMode || session.metadata?.requestedCheckoutMode || sessionPayload.checkoutMode;
+if (sessionPayload.checkoutMode === "test" && out.stripeSessionModeDetected === "live") addBlocker("stripe_live_session_returned_for_test_smoke");
+if (array(session.blockers).includes("stripe_live_key_used_for_test_checkout")) addBlocker("stripe_live_key_used_for_test_checkout");
 if (sessionProbe.status === 404) addBlocker("stripe_session_route_missing");
 if (!sessionProbe.ok) addBlocker(`stripe_session_http_${sessionProbe.status}`);
 if (array(session.blockers).includes("stripe_secret_key_missing") || session.configured === false) addBlocker("stripe_secret_key_missing");
@@ -512,11 +526,13 @@ if (dryRun.paymentMarkedPaid === true || dryRun.orderCompleted === true) addBloc
 
 out.settlementBlockers = blockers.filter((blocker) => /webhook|paid|settlement|order_sync|economic|idempotency/i.test(blocker));
 out.success = blockers.length === 0;
-out.nextManualStep = out.checkoutSessionCreated && out.stripeSessionModeDetected === "test"
-  ? `Open ${out.checkoutUrl}; use Stripe test card 4242 4242 4242 4242 with any future expiry, any CVC, and any postal code; then confirm checkout.session.completed in Stripe Dashboard and verify only a signed webhook can move paid/order sync state at ${out.stripeWebhookUrlExpected}.`
-  : out.checkoutSessionCreated && out.stripeSessionModeDetected === "live"
-    ? `Do not use Stripe test cards for live session ${out.sessionId}. Replace Render STRIPE_SECRET_KEY with sk_test_*, confirm STRIPE_WEBHOOK_SECRET is the matching whsec_* test endpoint secret, and rerun this controlled smoke before opening Checkout.`
-    : "Resolve checkout blockers before opening Stripe Checkout. No checkoutUrl/sessionId should be used unless Stripe returns real hosted artifacts.";
+out.nextManualStep = out.checkoutSessionCreated
+  ? (out.stripeSessionModeDetected === "test"
+    ? `Open ${out.checkoutUrl}; use Stripe test card 4242 4242 4242 4242 with any future expiry, any CVC, and any postal code; then confirm checkout.session.completed in Stripe Dashboard and verify only a signed webhook can move paid/order sync state.`
+    : out.stripeSessionModeDetected === "live"
+      ? liveSessionTestModeWarning()
+      : "Stripe returned a hosted checkout URL with an unknown session mode. Do not use a test card until a cs_test_* session is produced for controlled test validation.")
+  : (out.stripeSessionModeDetected === "live" ? liveSessionTestModeWarning() : "Resolve checkout blockers before opening Stripe Checkout. No checkoutUrl/sessionId should be used unless Stripe returns real hosted artifacts.");
 
 console.log(JSON.stringify(out, null, 2));
 process.exit(out.success ? 0 : 1);
