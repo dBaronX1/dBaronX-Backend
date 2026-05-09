@@ -22,12 +22,18 @@ export class StripeCheckoutController {
   @Get("settlement-status")
   async settlementStatus(
     @Query("sessionId") sessionId?: string,
+    @Query("stripeEventId") stripeEventId?: string,
+    @Query("paymentIntentId") paymentIntentId?: string,
+    @Query("chargeId") chargeId?: string,
     @Query("cartId") cartId?: string,
     @Query("orderRef") orderRef?: string,
     @Query("checkoutRef") checkoutRef?: string,
   ) {
     return this.stripe.settlementStatus({
       sessionId,
+      stripeEventId,
+      paymentIntentId,
+      chargeId,
       cartId,
       orderRef,
       checkoutRef,
