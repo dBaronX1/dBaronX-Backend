@@ -67,6 +67,35 @@ type StripeSettlementStatusResult = {
   paymentMarkedPaid: boolean;
   orderSyncReady: boolean;
   duplicateWebhookSafe: boolean;
+  durableLookupAttempted: boolean;
+  durableLookupSource: string | null;
+  matchedWebhookEventId: string | null;
+  matchedCheckoutSessionId: string | null;
+  matchedPaymentIntentId: string | null;
+  matchedCartId: string | null;
+  matchedOrderRef: string | null;
+  matchedCheckoutRef: string | null;
+  migrationTableAvailable: boolean;
+  webhookEvidenceTableAvailable: boolean;
+};
+
+type VerifiedPaymentRecordLookupResult = {
+  ready: boolean;
+  stripeEventId: string | null;
+  sessionId: string | null;
+  paymentIntentId: string | null;
+  cartId: string | null;
+  orderRef: string | null;
+  checkoutRef: string | null;
+  settlementStatus: string | null;
+  medusaOrderId: string | null;
+  orderSyncStatus: string | null;
+  amountMinorUnits: number | null;
+  currency: string | null;
+  durableLookupAttempted: boolean;
+  durableLookupSource: string | null;
+  webhookEvidenceTableAvailable: boolean;
+  lookupBlockers: string[];
 };
 
 type StripePaymentReadinessResult = {
@@ -623,7 +652,9 @@ export class StripeCheckoutService {
 
     if (
       !mapping.sessionId &&
-      !(mapping.cartId && (mapping.orderRef || mapping.checkoutRef)) &&
+      !mapping.cartId &&
+      !mapping.orderRef &&
+      !mapping.checkoutRef &&
       !mapping.paymentIntentId &&
       !mapping.stripeEventId &&
       !mapping.chargeId
@@ -633,22 +664,16 @@ export class StripeCheckoutService {
 
     const hasLookupEvidence = Boolean(
       mapping.sessionId ||
-        (mapping.cartId && (mapping.orderRef || mapping.checkoutRef)) ||
+        mapping.cartId ||
+        mapping.orderRef ||
+        mapping.checkoutRef ||
         mapping.paymentIntentId ||
         mapping.stripeEventId ||
         mapping.chargeId,
     );
 
     const paymentRecord = !hasLookupEvidence
-      ? {
-          ready: false,
-          stripeEventId: null,
-          settlementStatus: null,
-          medusaOrderId: null,
-          orderSyncStatus: null,
-          amountMinorUnits: null,
-          currency: null,
-        }
+      ? this.emptyVerifiedPaymentRecord(false, null, true)
       : await this.findVerifiedPaymentRecord(mapping);
     const economicEventVerified = paymentRecord.ready
       ? await this.findVerifiedEconomicEvent(
@@ -658,6 +683,7 @@ export class StripeCheckoutService {
         )
       : false;
     const idempotency = await this.idempotencyRecorder.readiness();
+    const migration = await this.checkSettlementMigrationTables();
 
     const medusaOrderCompletionReady = Boolean(
       paymentRecord.medusaOrderId || paymentRecord.orderSyncStatus === "completed",
@@ -672,7 +698,9 @@ export class StripeCheckoutService {
     );
     const duplicateWebhookSafe = Boolean(paymentRecord.ready && idempotency.ready);
 
-    blockers.push(...idempotency.blockers);
+    blockers.push(...idempotency.blockers, ...paymentRecord.lookupBlockers);
+    if (!migration.migrationTableAvailable)
+      blockers.push("stripe_settlement_migration_tables_unavailable");
     if (!paymentRecordReady) blockers.push("payment_record_lookup_pending");
     if (!verifiedStripeEventReady) blockers.push("verified_stripe_event_missing");
     if (paymentRecordReady && !economicEventVerified)
@@ -700,6 +728,17 @@ export class StripeCheckoutService {
       paymentMarkedPaid,
       orderSyncReady: medusaOrderCompletionReady,
       duplicateWebhookSafe,
+      durableLookupAttempted: paymentRecord.durableLookupAttempted,
+      durableLookupSource: paymentRecord.durableLookupSource,
+      matchedWebhookEventId: paymentRecord.stripeEventId,
+      matchedCheckoutSessionId: paymentRecord.sessionId,
+      matchedPaymentIntentId: paymentRecord.paymentIntentId,
+      matchedCartId: paymentRecord.cartId,
+      matchedOrderRef: paymentRecord.orderRef,
+      matchedCheckoutRef: paymentRecord.checkoutRef,
+      migrationTableAvailable: migration.migrationTableAvailable,
+      webhookEvidenceTableAvailable:
+        paymentRecord.webhookEvidenceTableAvailable && idempotency.ready,
     };
   }
 
@@ -1172,95 +1211,171 @@ export class StripeCheckoutService {
     }
   }
 
+  private emptyVerifiedPaymentRecord(
+    attempted: boolean,
+    source: string | null,
+    webhookEvidenceTableAvailable: boolean,
+    lookupBlockers: string[] = [],
+  ): VerifiedPaymentRecordLookupResult {
+    return {
+      ready: false,
+      stripeEventId: null,
+      sessionId: null,
+      paymentIntentId: null,
+      cartId: null,
+      orderRef: null,
+      checkoutRef: null,
+      settlementStatus: null,
+      medusaOrderId: null,
+      orderSyncStatus: null,
+      amountMinorUnits: null,
+      currency: null,
+      durableLookupAttempted: attempted,
+      durableLookupSource: source,
+      webhookEvidenceTableAvailable,
+      lookupBlockers,
+    };
+  }
+
+  private async checkSettlementMigrationTables(): Promise<{
+    migrationTableAvailable: boolean;
+    webhookEvidenceTableAvailable: boolean;
+  }> {
+    const webhookEvidence = await this.idempotencyRecorder.readiness();
+    const economicEvents = await this.checkEconomicEventPersistence();
+    return {
+      migrationTableAvailable: webhookEvidence.ready && economicEvents.ready,
+      webhookEvidenceTableAvailable: webhookEvidence.ready,
+    };
+  }
+
   private async findVerifiedPaymentRecord(
     mapping: Record<string, string | null>,
-  ): Promise<{
-    ready: boolean;
-    stripeEventId: string | null;
-    settlementStatus: string | null;
-    medusaOrderId: string | null;
-    orderSyncStatus: string | null;
-    amountMinorUnits: number | null;
-    currency: string | null;
-  }> {
-    try {
-      let query = this.supabase
-        .getClient()
-        .schema("app_public")
-        .from("stripe_webhook_events")
-        .select(
-          "event_id,stripe_event_id,payment_intent_id,stripe_payment_intent_id,settlement_status,medusa_order_id,order_sync_status,amount_minor_units,currency",
-        )
-        .eq("event_type", "checkout.session.completed")
-        .eq("verification_status", "verified")
-        .order("created_at", { ascending: false })
-        .limit(1);
+  ): Promise<VerifiedPaymentRecordLookupResult> {
+    const lookups: Array<{ source: string; apply: (query: any) => any }> = [];
 
-      if (mapping.sessionId)
-        query = query.or(
-          `session_id.eq.${mapping.sessionId},stripe_session_id.eq.${mapping.sessionId}`,
-        );
-      else if (mapping.cartId && mapping.orderRef)
-        query = query
-          .eq("cart_id", mapping.cartId)
-          .eq("order_ref", mapping.orderRef);
-      else if (mapping.cartId && mapping.checkoutRef)
-        query = query
-          .eq("cart_id", mapping.cartId)
-          .eq("checkout_ref", mapping.checkoutRef);
-      else if (mapping.paymentIntentId)
-        query = query.or(
-          `payment_intent_id.eq.${mapping.paymentIntentId},stripe_payment_intent_id.eq.${mapping.paymentIntentId}`,
-        );
-      else if (mapping.stripeEventId)
-        query = query.or(
-          `event_id.eq.${mapping.stripeEventId},stripe_event_id.eq.${mapping.stripeEventId},idempotency_key.eq.${mapping.stripeEventId}`,
-        );
-      else if (mapping.chargeId)
-        query = query.eq("raw_metadata_safe->>chargeId", mapping.chargeId);
-      else
-        return {
-          ready: false,
-          stripeEventId: null,
-          settlementStatus: null,
-          medusaOrderId: null,
-          orderSyncStatus: null,
-          amountMinorUnits: null,
-          currency: null,
-        };
+    if (mapping.sessionId)
+      lookups.push({
+        source: "sessionId",
+        apply: (query) =>
+          query.or(
+            `session_id.eq.${mapping.sessionId},stripe_session_id.eq.${mapping.sessionId}`,
+          ),
+      });
+    if (mapping.cartId && mapping.orderRef)
+      lookups.push({
+        source: "cartId+orderRef",
+        apply: (query) =>
+          query.eq("cart_id", mapping.cartId).eq("order_ref", mapping.orderRef),
+      });
+    if (mapping.cartId && mapping.checkoutRef)
+      lookups.push({
+        source: "cartId+checkoutRef",
+        apply: (query) =>
+          query
+            .eq("cart_id", mapping.cartId)
+            .eq("checkout_ref", mapping.checkoutRef),
+      });
+    if (mapping.cartId)
+      lookups.push({
+        source: "cartId",
+        apply: (query) => query.eq("cart_id", mapping.cartId),
+      });
+    if (mapping.orderRef)
+      lookups.push({
+        source: "orderRef",
+        apply: (query) => query.eq("order_ref", mapping.orderRef),
+      });
+    if (mapping.checkoutRef)
+      lookups.push({
+        source: "checkoutRef",
+        apply: (query) => query.eq("checkout_ref", mapping.checkoutRef),
+      });
+    if (mapping.paymentIntentId)
+      lookups.push({
+        source: "paymentIntentId",
+        apply: (query) =>
+          query.or(
+            `payment_intent_id.eq.${mapping.paymentIntentId},stripe_payment_intent_id.eq.${mapping.paymentIntentId}`,
+          ),
+      });
+    if (mapping.stripeEventId)
+      lookups.push({
+        source: "stripeEventId",
+        apply: (query) =>
+          query.or(
+            `event_id.eq.${mapping.stripeEventId},stripe_event_id.eq.${mapping.stripeEventId},idempotency_key.eq.${mapping.stripeEventId}`,
+          ),
+      });
+    if (mapping.chargeId)
+      lookups.push({
+        source: "chargeId",
+        apply: (query) => query.eq("raw_metadata_safe->>chargeId", mapping.chargeId),
+      });
 
-      const { data, error } = await query.maybeSingle();
-      if (error || !data)
+    if (lookups.length === 0) return this.emptyVerifiedPaymentRecord(false, null, true);
+
+    for (const lookup of lookups) {
+      try {
+        const query = lookup.apply(
+          this.supabase
+            .getClient()
+            .schema("app_public")
+            .from("stripe_webhook_events")
+            .select(
+              "event_id,stripe_event_id,session_id,stripe_session_id,payment_intent_id,stripe_payment_intent_id,cart_id,order_ref,checkout_ref,settlement_status,medusa_order_id,order_sync_status,amount_minor_units,currency",
+            )
+            .eq("event_type", "checkout.session.completed")
+            .eq("verification_status", "verified")
+            .order("created_at", { ascending: false })
+            .limit(1),
+        );
+
+        const { data, error } = await query.maybeSingle();
+        if (error) {
+          if (isMissingPersistenceError(error))
+            return this.emptyVerifiedPaymentRecord(true, lookup.source, false, [
+              "stripe_event_idempotency_store_not_configured",
+            ]);
+          this.logger.warn(
+            `stripe_settlement_lookup_failed source=${lookup.source} code=${error.code || "unknown"} message=${error.message}`,
+          );
+          continue;
+        }
+        if (!data) continue;
+
+        const row = data as Record<string, string | number | null>;
         return {
-          ready: false,
-          stripeEventId: null,
-          settlementStatus: null,
-          medusaOrderId: null,
-          orderSyncStatus: null,
-          amountMinorUnits: null,
-          currency: null,
+          ready: true,
+          stripeEventId: String(row.stripe_event_id || row.event_id || "") || null,
+          sessionId:
+            String(row.stripe_session_id || row.session_id || "") || null,
+          paymentIntentId:
+            String(
+              row.stripe_payment_intent_id || row.payment_intent_id || "",
+            ) || null,
+          cartId: String(row.cart_id || "") || null,
+          orderRef: String(row.order_ref || "") || null,
+          checkoutRef: String(row.checkout_ref || "") || null,
+          settlementStatus: String(row.settlement_status || "") || null,
+          medusaOrderId: String(row.medusa_order_id || "") || null,
+          orderSyncStatus: String(row.order_sync_status || "") || null,
+          amountMinorUnits: Number(row.amount_minor_units || 0) || null,
+          currency: String(row.currency || "") || null,
+          durableLookupAttempted: true,
+          durableLookupSource: lookup.source,
+          webhookEvidenceTableAvailable: true,
+          lookupBlockers: [],
         };
-      const row = data as Record<string, string | null>;
-      return {
-        ready: true,
-        stripeEventId: row.stripe_event_id || row.event_id || null,
-        settlementStatus: row.settlement_status || null,
-        medusaOrderId: row.medusa_order_id || null,
-        orderSyncStatus: row.order_sync_status || null,
-        amountMinorUnits: Number(row.amount_minor_units || 0) || null,
-        currency: row.currency || null,
-      };
-    } catch {
-      return {
-        ready: false,
-        stripeEventId: null,
-        settlementStatus: null,
-        medusaOrderId: null,
-        orderSyncStatus: null,
-        amountMinorUnits: null,
-        currency: null,
-      };
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error);
+        this.logger.warn(
+          `stripe_settlement_lookup_exception source=${lookup.source} ${message}`,
+        );
+      }
     }
+
+    return this.emptyVerifiedPaymentRecord(true, lookups[0]?.source || null, true);
   }
 
   private cleanLookupValue(value?: string | null): string | null {

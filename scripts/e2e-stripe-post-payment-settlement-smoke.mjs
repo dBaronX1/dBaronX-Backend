@@ -198,10 +198,9 @@ if (CHECKOUT_REF)
 const hasCheckoutSessionId = acceptedLookupKeys.some(
   (key) => key.queryParam === "sessionId",
 );
-const hasCartOrderLookup = Boolean(CART_ID && (ORDER_REF || CHECKOUT_REF));
 const hasAnyAcceptedLookupKey = acceptedLookupKeys.length > 0;
 
-if (!hasCheckoutSessionId && !hasCartOrderLookup)
+if (!hasCheckoutSessionId && !hasAnyAcceptedLookupKey)
   addBlocker("checkout_session_id_required", "smoke_inputs");
 
 const out = {
@@ -217,6 +216,16 @@ const out = {
   duplicateWebhookSafe: false,
   settlementStatus: null,
   settlementLookupPath: null,
+  durableLookupAttempted: false,
+  durableLookupSource: null,
+  matchedWebhookEventId: null,
+  matchedCheckoutSessionId: null,
+  matchedPaymentIntentId: null,
+  matchedCartId: null,
+  matchedOrderRef: null,
+  matchedCheckoutRef: null,
+  migrationTableAvailable: false,
+  webhookEvidenceTableAvailable: false,
   inputs: {
     checkoutSessionIdPresent: Boolean(CHECKOUT_SESSION_ID_INPUT),
     stripeSessionIdPresent: Boolean(STRIPE_SESSION_ID_INPUT),
@@ -275,6 +284,21 @@ if (hasAnyAcceptedLookupKey) {
   out.orderSyncReady = preview.orderSyncReady === true;
   out.duplicateWebhookSafe = preview.duplicateWebhookSafe === true;
   out.settlementStatus = preview.settlementStatus || null;
+  out.durableLookupAttempted = preview.durableLookupAttempted === true;
+  out.durableLookupSource = preview.durableLookupSource || null;
+  out.matchedWebhookEventId = preview.matchedWebhookEventId || null;
+  out.matchedCheckoutSessionId = preview.matchedCheckoutSessionId || null;
+  out.matchedPaymentIntentId = preview.matchedPaymentIntentId || null;
+  out.matchedCartId = preview.matchedCartId || null;
+  out.matchedOrderRef = preview.matchedOrderRef || null;
+  out.matchedCheckoutRef = preview.matchedCheckoutRef || null;
+  out.migrationTableAvailable = preview.migrationTableAvailable === true;
+  out.webhookEvidenceTableAvailable =
+    preview.webhookEvidenceTableAvailable === true;
+  checks.durableLookupAttempted = out.durableLookupAttempted;
+  checks.durableLookupSource = out.durableLookupSource;
+  checks.migrationTableAvailable = out.migrationTableAvailable;
+  checks.webhookEvidenceTableAvailable = out.webhookEvidenceTableAvailable;
 
   for (const blocker of Array.isArray(preview.blockers) ? preview.blockers : [])
     addBlocker(blocker, route.path);

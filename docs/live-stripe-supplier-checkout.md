@@ -246,16 +246,16 @@ node scripts/e2e-stripe-checkout-session-smoke.mjs
    node scripts/e2e-stripe-post-payment-settlement-smoke.mjs
    ```
 
-   `CHECKOUT_SESSION_ID` may be used instead of `STRIPE_SESSION_ID`. If only the session ID is available, the smoke can still look up settlement by `STRIPE_SESSION_ID`; if the session ID is unavailable, provide `CART_ID` plus either `ORDER_REF` or `CHECKOUT_REF`.
+   `CHECKOUT_SESSION_ID` may be used instead of `STRIPE_SESSION_ID`. If only the session ID is available, the smoke can still look up settlement by `STRIPE_SESSION_ID`; if the session ID is unavailable, provide any durable local key that was stored from the signed webhook evidence, including `CART_ID`, `ORDER_REF`, `CHECKOUT_REF`, `PAYMENT_INTENT_ID`, or `STRIPE_EVENT_ID`. Supplying multiple keys is preferred because the response reports exactly which key matched.
 
    Stripe lookup ID meanings are strict:
    - `cs_test_*` is the correct controlled test Checkout Session ID for `STRIPE_SESSION_ID`, `CHECKOUT_SESSION_ID`, or the settlement-status `sessionId` query parameter; production live-mode sessions use `cs_live_*`.
    - `evt_*` is a Stripe Event ID, not a Checkout Session ID. Pass it as `STRIPE_EVENT_ID` or `stripeEventId` for diagnostic durable-record lookup.
    - `pi_*` is a Stripe Payment Intent ID. Pass it as `PAYMENT_INTENT_ID` or `paymentIntentId` when the Checkout Session ID is unavailable.
    - `ch_*` or `py_*` is a charge-like ID. Pass it as `CHARGE_ID` or `chargeId`; it is only useful if the API already stored that charge ID in safe local metadata/payment evidence.
-   - Cart/order/checkout refs from Checkout metadata can also be used: pass `CART_ID` plus `ORDER_REF` and/or `CHECKOUT_REF`. Metadata refs are lookup keys only; they do not prove payment without signed `checkout.session.completed` evidence.
+   - Cart/order/checkout refs from Checkout metadata can also be used: pass `CART_ID`, `ORDER_REF`, and/or `CHECKOUT_REF`. Metadata refs are lookup keys only; they do not prove payment without signed `checkout.session.completed` evidence.
 
-   Wrong ID types in `STRIPE_SESSION_ID` or `CHECKOUT_SESSION_ID` are never silently treated as a Checkout Session. The smoke emits `idClassification`, `acceptedLookupKeys`, `rejectedLookupKeys`, `lookupAdvice`, and `exactExpectedIdFormat: "cs_test_* or cs_live_*"`. Misrouted values produce explicit blockers such as `received_stripe_event_id_not_checkout_session_id`, `received_payment_intent_id_not_checkout_session_id`, `received_charge_id_not_checkout_session_id`, and `checkout_session_id_required`.
+   Wrong ID types in `STRIPE_SESSION_ID` or `CHECKOUT_SESSION_ID` are never silently treated as a Checkout Session. The smoke emits `idClassification`, `acceptedLookupKeys`, `rejectedLookupKeys`, `lookupAdvice`, and `exactExpectedIdFormat: "cs_test_* or cs_live_*"`. Misrouted values produce explicit blockers such as `received_stripe_event_id_not_checkout_session_id`, `received_payment_intent_id_not_checkout_session_id`, `received_charge_id_not_checkout_session_id`, and `checkout_session_id_required`. Settlement-status then performs durable local lookup only against signed-webhook evidence and reports `durableLookupAttempted`, `durableLookupSource`, `matchedWebhookEventId`, `matchedCheckoutSessionId`, `matchedPaymentIntentId`, `matchedCartId`, `matchedOrderRef`, `matchedCheckoutRef`, `migrationTableAvailable`, and `webhookEvidenceTableAvailable` so the first settlement proof shows exactly which local evidence row was matched.
 
    Example post-payment lookup commands:
 
@@ -560,15 +560,19 @@ node scripts/e2e-first-stripe-test-transaction-smoke.mjs
 
 ### What counts as success
 
-A signed `checkout.session.completed` webhook must be verified with `Stripe.webhooks.constructEvent(rawBody, stripeSignatureHeader, STRIPE_WEBHOOK_SECRET)`. Only after that verification may NestJS persist durable payment evidence in `app_public.stripe_webhook_events` with the Stripe event/session/payment-intent IDs, cart/order/checkout references, amount, currency, `verification_status: "verified"`, settlement status, idempotency key, and safe metadata. Duplicate Stripe event IDs are treated as idempotent duplicates and must return `duplicate: true` without creating a second economic event or attempting double settlement.
+A signed `checkout.session.completed` webhook must be verified with `Stripe.webhooks.constructEvent(rawBody, stripeSignatureHeader, STRIPE_WEBHOOK_SECRET)`. Only after that verification may NestJS persist durable payment evidence in `app_public.stripe_webhook_events` with the Stripe event/session/payment-intent IDs, cart/order/checkout references, amount, currency, `verification_status: "verified"`, settlement status, idempotency key, and safe metadata. Settlement lookup is deterministic and local: it does not call Stripe, it tries session ID, cart/order ref, cart/checkout ref, cart ID, order ref, checkout ref, payment intent ID, Stripe event ID, and stored charge metadata in that order, and it reports the matched durable row diagnostics. Duplicate Stripe event IDs are treated as idempotent duplicates and must return `duplicate: true` without creating a second economic event or attempting double settlement.
 
 The post-payment smoke should report:
 
 - `verifiedStripeEventReady: true`
 - `paymentRecordReady: true`
 - `economicEventVerified: true`
-- `paymentMarkedPaid: false`
+- `paymentMarkedPaid: true` only after signed durable webhook evidence includes amount and currency
 - `duplicateWebhookSafe: true`
+- `durableLookupAttempted: true`
+- `durableLookupSource` set to the matching local key, such as `sessionId`, `cartId+orderRef`, `cartId+checkoutRef`, `cartId`, `orderRef`, `checkoutRef`, `paymentIntentId`, or `stripeEventId`
+- `matchedWebhookEventId` plus any stored matched checkout session, payment intent, cart, order, and checkout refs
+- `migrationTableAvailable: true` and `webhookEvidenceTableAvailable: true`
 
 `medusaOrderCompletionReady: true`, `medusaOrderId`, and `orderSyncReady: true` are required before claiming Medusa order completion. If Medusa Store API completion requires a payment-provider/payment-session setup that is not yet present on the cart, the safe blocker is `medusa_cart_completion_requires_payment_provider_session`; this is not a paid-state substitute.
 
