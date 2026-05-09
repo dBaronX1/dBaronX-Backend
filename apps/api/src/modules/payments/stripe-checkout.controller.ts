@@ -1,4 +1,4 @@
-import { Body, Controller, Get, Headers, HttpCode, HttpStatus, Post, Req, SetMetadata, UseGuards, VERSION_NEUTRAL } from "@nestjs/common";
+import { Body, Controller, Get, Headers, HttpCode, HttpStatus, Post, Query, Req, SetMetadata, UseGuards, VERSION_NEUTRAL } from "@nestjs/common";
 import { ApiTags } from "@nestjs/swagger";
 import { Request } from "express";
 import { Public } from "../../shared/decorators/public.decorator";
@@ -16,6 +16,22 @@ export class StripeCheckoutController {
   @Get("readiness")
   async readiness() {
     return this.stripe.readiness();
+  }
+
+  @Public()
+  @Get("settlement-status")
+  async settlementStatus(
+    @Query("sessionId") sessionId?: string,
+    @Query("cartId") cartId?: string,
+    @Query("orderRef") orderRef?: string,
+    @Query("checkoutRef") checkoutRef?: string,
+  ) {
+    return this.stripe.settlementStatus({
+      sessionId,
+      cartId,
+      orderRef,
+      checkoutRef,
+    });
   }
 
   @Public()

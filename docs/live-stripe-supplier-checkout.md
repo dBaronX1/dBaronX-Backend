@@ -72,7 +72,7 @@ The NestJS endpoint verifies the raw body and `stripe-signature` header with `St
 - If `STRIPE_SECRET_KEY` is missing, NestJS returns `stripe_secret_key_missing` with `checkoutUrl: null` and `sessionId: null`.
 - Browser redirects are not trusted as payment proof.
 - Paid/settled state can only be attached after a verified Stripe webhook event.
-- Verified `checkout.session.completed` currently returns `paymentMarkedPaid: false` with `settlement_pending` until durable order/payment settlement is connected.
+- Verified `checkout.session.completed` writes durable signed-webhook payment evidence to `app_public.stripe_webhook_events`, persists a verified `commerce.checkout.payment_verified` economic event, and only reports `paymentMarkedPaid: true` from the settlement lookup after that signed webhook evidence exists. Browser redirects never mark paid state.
 
 
 ## Canonical live API route paths
@@ -220,18 +220,45 @@ node scripts/e2e-stripe-checkout-session-smoke.mjs
 
 `orderSyncReady` remains `false` until durable DBX payment-record lookup and Medusa order completion settlement are connected. That is intentional: the smoke proves the mapping boundary and prevents fake paid/order-complete state.
 
-## First controlled manual Stripe test checkout
-1. Confirm the smoke returns `checkoutSessionCreated: true`, `checkoutUrlPresent: true`, `stripeSecretKeyMode: "test"`, `shippingOptionReady: true`, `unsignedWebhookRejected: true`, `paymentMarkedPaid: false`, and no checkout blockers.
-2. Open the returned Stripe hosted `checkoutUrl` only when `blockers` is empty, or the only remaining blockers are documented non-live settlement blockers that do not affect hosted checkout creation or webhook safety (for example order-sync/idempotency persistence readiness).
-3. Only for `cs_test_*` sessions, use Stripe test card `4242 4242 4242 4242`, any future expiry, any CVC, and a valid billing ZIP. For `cs_live_*`, stop and reconfigure test-mode Stripe secrets.
-4. After the hosted checkout succeeds, open Stripe Dashboard → Developers → Webhooks → the configured endpoint.
-5. Confirm a `checkout.session.completed` delivery reached `POST /api/checkout/stripe/webhook`.
-6. Confirm the API response for the verified event is `verified: true`, `paymentMarkedPaid: false`, and includes `settlement_pending` until durable settlement is implemented.
+## First controlled manual Stripe test checkout and post-payment settlement proof
+1. Run the first Stripe smoke and save its `cartId`, `orderRef`, `checkoutRef`, `sessionId`, and `checkoutUrl`:
+
+   ```bash
+   MEDUSA_URL=https://dbaronx-medusa.onrender.com \
+   API_URL=https://dbaronx-api-unified.onrender.com \
+   WEB_BASE_URL=https://dbaronx.com \
+   INTERNAL_SERVICE_TOKEN= \
+   node scripts/e2e-first-stripe-test-transaction-smoke.mjs
+   ```
+
+2. Confirm the smoke returns `checkoutSessionCreated: true`, `checkoutUrlPresent: true`, `stripeSecretKeyMode: "test"`, a `cs_test_*` session ID, `shippingOptionReady: true`, `unsignedWebhookRejected: true`, `paymentMarkedPaid: false`, and no checkout blockers.
+3. Open only the returned `cs_test_*` Stripe hosted `checkoutUrl`. If the session is `cs_live_*`, stop and reconfigure test-mode Stripe secrets.
+4. Pay with Stripe test card `4242 4242 4242 4242`, any future expiry, any CVC, and a valid billing ZIP.
+5. Open Stripe Dashboard with **Test mode** enabled, then go to **Developers → Webhooks → the configured endpoint** and confirm a `checkout.session.completed` delivery reached `POST /api/checkout/stripe/webhook`. The API must reject unsigned webhook calls and must only write paid evidence after Stripe signature verification succeeds.
+6. Run the post-payment settlement smoke against the read-only settlement lookup endpoint:
+
+   ```bash
+   API_URL=https://dbaronx-api-unified.onrender.com \
+   STRIPE_SESSION_ID=cs_test_... \
+   CART_ID=cart_... \
+   ORDER_REF=stripe-controlled-... \
+   CHECKOUT_REF=stripe-controlled-... \
+   node scripts/e2e-stripe-post-payment-settlement-smoke.mjs
+   ```
+
+   `CHECKOUT_SESSION_ID` may be used instead of `STRIPE_SESSION_ID`. If only the session ID is available, the smoke can still look up settlement by `STRIPE_SESSION_ID`; if the session ID is unavailable, provide `CART_ID` plus either `ORDER_REF` or `CHECKOUT_REF`.
+
+7. Interpret blockers from `blockerSources`:
+   - No blockers means signed webhook evidence, the durable Stripe payment record, the verified economic event, duplicate webhook idempotency, and Medusa order completion are all ready.
+   - `payment_record_lookup_pending` or `verified_stripe_event_missing` means Stripe has not delivered a valid signed `checkout.session.completed` webhook to the API yet, or the webhook persistence migration/env is missing.
+   - `economic_event_verified_missing` means the signed webhook record exists but the verified economic event was not persisted.
+   - `medusa_cart_completion_requires_payment_provider_session` means the signed Stripe payment is proven, but Medusa cart completion still requires a real Medusa payment provider/session setup; do not fake a Medusa order ID.
+   - `medusa_order_completion_pending_verified_webhook` means no Medusa order completion was confirmed yet.
+
+The settlement lookup endpoint is `GET /api/checkout/stripe/settlement-status?sessionId=cs_test_...&cartId=cart_...&orderRef=...&checkoutRef=...`. It returns only booleans, statuses, blockers, and a Medusa order ID when Medusa actually returns one; it never returns raw Stripe secrets, webhook secrets, Supabase service keys, or internal tokens.
 
 ## Remaining steps before live mode
-- Replace webhook idempotency placeholder logging with durable event-id storage before any paid-state mutation.
-- Attach verified Stripe sessions/payment intents to DBX payment records and the corresponding Medusa cart/order intent.
-- Implement idempotent order/payment settlement from verified webhooks only.
+- Complete and document real Medusa payment-provider/session setup if settlement reports `medusa_cart_completion_requires_payment_provider_session`.
 - Add replay/refund/cancel operational procedures and monitoring.
 - Run a controlled refund and supplier dry-run after the first test payment.
 - Switch to Stripe live keys only after controlled test order, supplier dry run, refund path, monitoring, and live webhook endpoint approval.
