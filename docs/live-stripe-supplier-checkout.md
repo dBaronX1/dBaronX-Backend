@@ -441,3 +441,74 @@ This checkout runbook must be operated with the repository-level ownership and s
 - [Security policy](../SECURITY.md) defines private vulnerability reporting and secret-leak response.
 
 These references do not change Stripe, supplier, or settlement behavior. They add operational controls around the existing no-fake-paid-state and signed-webhook requirements.
+
+## Signed webhook payment record and post-payment order-sync verification
+
+The canonical Stripe webhook URL for both the API implementation and Stripe Dashboard test endpoint is:
+
+```text
+https://dbaronx-api-unified.onrender.com/api/checkout/stripe/webhook
+```
+
+### Stripe Dashboard test webhook setup
+
+1. Open Stripe Dashboard with **Test mode** enabled.
+2. Navigate to **Developers → Webhooks → Add endpoint**.
+3. Use exactly `https://dbaronx-api-unified.onrender.com/api/checkout/stripe/webhook` as the endpoint URL.
+4. Select only `checkout.session.completed` for this phase.
+5. Save the endpoint and copy the endpoint signing secret that begins with `whsec_`.
+6. Set that value as `STRIPE_WEBHOOK_SECRET` on the NestJS/API Render service only, then redeploy the API.
+7. Do not put `STRIPE_WEBHOOK_SECRET`, `STRIPE_SECRET_KEY`, `INTERNAL_SERVICE_TOKEN`, or `SUPABASE_SERVICE_ROLE_KEY` in the web app or docs with real values.
+
+### Manual test-card steps
+
+1. Run the first Stripe smoke and confirm `checkoutBlockers: []`, `stripeSecretKeyMode: "test"`, `checkoutSessionCreated: true`, `stripeHostedCheckoutUrl: true`, `unsignedWebhookRejected: true`, and `paymentMarkedPaid: false`.
+2. Open the returned Stripe hosted Checkout URL only when the session ID starts with `cs_test_`.
+3. Pay with Stripe test card `4242 4242 4242 4242`, any future expiry, any CVC, and any postal code.
+4. Wait for Stripe Dashboard to show a delivered `checkout.session.completed` event to the canonical webhook URL.
+5. Rerun post-payment verification with the returned session/cart/order references.
+
+### Post-payment verification command
+
+Use either the dedicated post-payment smoke or rerun the first smoke with the paid Stripe session ID:
+
+```bash
+STRIPE_SESSION_ID=cs_test_... \
+CART_ID=cart_... \
+ORDER_REF=... \
+INTERNAL_SERVICE_TOKEN=... \
+node scripts/e2e-stripe-post-payment-settlement-smoke.mjs
+```
+
+Alternative:
+
+```bash
+STRIPE_SESSION_ID=cs_test_... \
+INTERNAL_SERVICE_TOKEN=... \
+node scripts/e2e-first-stripe-test-transaction-smoke.mjs
+```
+
+### What counts as success
+
+A signed `checkout.session.completed` webhook must be verified with `Stripe.webhooks.constructEvent(rawBody, stripeSignatureHeader, STRIPE_WEBHOOK_SECRET)`. Only after that verification may NestJS persist durable payment evidence in `app_public.stripe_webhook_events` with the Stripe event/session/payment-intent IDs, cart/order/checkout references, amount, currency, `verification_status: "verified"`, settlement status, idempotency key, and safe metadata. Duplicate Stripe event IDs are treated as idempotent duplicates and must return `duplicate: true` without creating a second economic event or attempting double settlement.
+
+The post-payment smoke should report:
+
+- `verifiedStripeEventReady: true`
+- `paymentRecordReady: true`
+- `economicEventVerified: true`
+- `paymentMarkedPaid: false`
+- `duplicateWebhookSafe: true`
+
+`medusaOrderCompletionReady: true`, `medusaOrderId`, and `orderSyncReady: true` are required before claiming Medusa order completion. If Medusa Store API completion requires a payment-provider/payment-session setup that is not yet present on the cart, the safe blocker is `medusa_cart_completion_requires_payment_provider_session`; this is not a paid-state substitute.
+
+### Live-money blockers
+
+Do not enable live Stripe money mode until all of these are true in test mode:
+
+- Signed webhook delivery is green and unsigned webhook calls remain rejected.
+- Durable Stripe payment evidence exists for the paid `cs_test_*` session.
+- The economic event `commerce.checkout.payment_verified` is persisted with verifier evidence.
+- Duplicate Stripe event delivery is idempotent and does not double-settle.
+- Medusa order/cart completion produces a real Medusa order ID or another durable sync proof.
+- No secrets are exposed in web env, logs, smoke output, docs, or committed files.
