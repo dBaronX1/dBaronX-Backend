@@ -3,7 +3,12 @@
 const API_URL = (process.env.API_URL || process.env.NESTJS_API_URL || "https://dbaronx-api-unified.onrender.com").replace(/\/+$/, "");
 const MEDUSA_URL = (process.env.MEDUSA_URL || process.env.MEDUSA_BACKEND_URL || process.env.NEXT_PUBLIC_MEDUSA_BACKEND_URL || "https://dbaronx-medusa.onrender.com").replace(/\/+$/, "");
 const WEB_BASE_URL = (process.env.WEB_BASE_URL || process.env.NEXT_PUBLIC_WEB_BASE_URL || "https://dbaronx.com").replace(/\/+$/, "");
-const MEDUSA_PUBLISHABLE_KEY = (process.env.MEDUSA_PUBLISHABLE_KEY || process.env.NEXT_PUBLIC_MEDUSA_PUBLISHABLE_KEY || "").trim();
+const MEDUSA_PUBLISHABLE_KEY_CANDIDATES = [
+  ["MEDUSA_PUBLISHABLE_KEY", process.env.MEDUSA_PUBLISHABLE_KEY],
+  ["NEXT_PUBLIC_MEDUSA_PUBLISHABLE_KEY", process.env.NEXT_PUBLIC_MEDUSA_PUBLISHABLE_KEY],
+];
+const [MEDUSA_PUBLISHABLE_KEY_SOURCE, MEDUSA_PUBLISHABLE_KEY_RAW] = MEDUSA_PUBLISHABLE_KEY_CANDIDATES.find(([, value]) => String(value || "").trim()) || ["missing", ""];
+const MEDUSA_PUBLISHABLE_KEY = String(MEDUSA_PUBLISHABLE_KEY_RAW || "").trim();
 const API_BEARER_TOKEN = (process.env.API_BEARER_TOKEN || process.env.SMOKE_API_BEARER_TOKEN || process.env.SMOKE_JWT || "").trim();
 const INTERNAL_SERVICE_TOKEN = (process.env.INTERNAL_SERVICE_TOKEN || "").trim();
 const SHIPPING_OPTION_ID = (process.env.SHIPPING_OPTION_ID || "").trim();
@@ -24,7 +29,14 @@ const economicRoutesUsed = {};
 const shippingRoutesUsed = {};
 
 function medusaPublishableKeyLooksLikeStripeKey() {
-  return /^(pk_test_|pk_live_)/.test(MEDUSA_PUBLISHABLE_KEY);
+  return /(pk_test_|pk_live_|sk_test_|sk_live_|rk_test_|rk_live_|whsec_)/i.test(MEDUSA_PUBLISHABLE_KEY);
+}
+
+function medusaPublishableKeyShape() {
+  if (!MEDUSA_PUBLISHABLE_KEY) return "missing";
+  if (MEDUSA_PUBLISHABLE_KEY === "<MEDUSA_PUBLISHABLE_KEY>" || /[<>]/.test(MEDUSA_PUBLISHABLE_KEY)) return "placeholder";
+  if (medusaPublishableKeyLooksLikeStripeKey()) return "stripe_key_fragment";
+  return "medusa_candidate";
 }
 
 const out = {
@@ -70,10 +82,18 @@ const out = {
   shippingRoutesUsed,
   shippingOptionsCount: 0,
   shippingOptionIds: [],
+  shippingOptions: [],
+  medusaPublishableKeyPresent: Boolean(MEDUSA_PUBLISHABLE_KEY),
+  medusaPublishableKeySource: MEDUSA_PUBLISHABLE_KEY_SOURCE,
+  medusaPublishableKeyShape: medusaPublishableKeyShape(),
+  medusaPublishableKeyRejectedByStoreApi: false,
+  shippingOptionProofBlockerReason: null,
   checks: {
     apiUrl: API_URL,
     medusaUrl: MEDUSA_URL,
     medusaPublishableKeyPresent: Boolean(MEDUSA_PUBLISHABLE_KEY),
+    medusaPublishableKeySource: MEDUSA_PUBLISHABLE_KEY_SOURCE,
+    medusaPublishableKeyShape: medusaPublishableKeyShape(),
     apiBearerTokenPresent: Boolean(API_BEARER_TOKEN),
     internalServiceTokenPresent: Boolean(INTERNAL_SERVICE_TOKEN),
   },
@@ -81,7 +101,7 @@ const out = {
 
 const medusaHeaders = {
   "content-type": "application/json",
-  ...(MEDUSA_PUBLISHABLE_KEY ? { "x-publishable-api-key": MEDUSA_PUBLISHABLE_KEY } : {}),
+  ...(MEDUSA_PUBLISHABLE_KEY && medusaPublishableKeyShape() === "medusa_candidate" ? { "x-publishable-api-key": MEDUSA_PUBLISHABLE_KEY } : {}),
 };
 const publicJsonHeaders = { "content-type": "application/json" };
 const apiHeaders = {
@@ -119,11 +139,15 @@ function safeHeadersUsed(headers) {
 
 function medusaPublishableKeyInvalid(probe) {
   const text = `${probe?.text || ""} ${JSON.stringify(probe?.body || {})}`.toLowerCase();
-  return probe?.status === 400 && text.includes("a valid publishable key is required");
+  return text.includes("a valid publishable key is required");
 }
 
 function guardMedusaPublishableKeyProbe(probe) {
-  if (medusaPublishableKeyInvalid(probe)) addBlockerOnce("medusa_publishable_key_invalid");
+  if (medusaPublishableKeyInvalid(probe)) {
+    out.medusaPublishableKeyRejectedByStoreApi = true;
+    out.checks.medusaPublishableKeyRejectedByStoreApi = true;
+    addBlockerOnce("medusa_publishable_key_invalid");
+  }
 }
 
 function errorPayload(error, request) {
@@ -197,9 +221,8 @@ function addBlockerOnce(blocker) {
   if (blocker && !blockers.includes(blocker)) blockers.push(blocker);
 }
 
-if (MEDUSA_PUBLISHABLE_KEY && medusaPublishableKeyLooksLikeStripeKey()) {
-  addBlockerOnce("medusa_publishable_key_looks_like_stripe_key");
-}
+if (out.medusaPublishableKeyShape === "placeholder") addBlockerOnce("medusa_publishable_key_placeholder_not_replaced");
+if (out.medusaPublishableKeyShape === "stripe_key_fragment") addBlockerOnce("medusa_publishable_key_looks_like_stripe_key");
 
 function stripeSessionModeFromId(sessionId) {
   if (typeof sessionId !== "string" || sessionId.trim() === "") return "missing";
@@ -347,13 +370,27 @@ if (cart?.id && variantId) {
   out.shippingOptionReady = shipping.ok && options.length > 0;
   out.shippingOptionsCount = options.length;
   out.shippingOptionIds = options.map((option) => option?.id).filter(Boolean);
+  out.shippingOptions = options.map((option) => ({ id: option?.id || null, name: option?.name || option?.title || null }));
   out.checks.shippingOptionsHttp = shipping.status;
   out.checks.shippingOptionsCount = options.length;
   out.checks.shippingOptionIds = out.shippingOptionIds;
   out.checks.expectedShippingOptionAvailable = SHIPPING_OPTION_ID ? options.some((option) => option?.id === SHIPPING_OPTION_ID) : null;
-  shippingRoutesUsed.shippingOptions = { method: "GET", path: shippingPath, headers: { "x-publishable-api-key": Boolean(MEDUSA_PUBLISHABLE_KEY) } };
+  shippingRoutesUsed.shippingOptions = {
+    method: "GET",
+    path: shippingPath,
+    headers: { "x-publishable-api-key": Boolean(medusaHeaders["x-publishable-api-key"]) },
+    proof: {
+      targetSalesChannelId: salesChannelId,
+      countryCode: "us",
+      requiresRealShippingOptionId: true,
+    },
+  };
   if (!shipping.ok) addBlockerOnce(`shipping_options_http_${shipping.status}`);
-  if (shipping.ok && options.length === 0) addBlockerOnce("shipping_option_store_visibility_missing");
+  if (shipping.ok && options.length === 0) {
+    out.shippingOptionProofBlockerReason = `shipping_option_store_visibility_missing: Store API returned HTTP ${shipping.status} with an empty shipping_options array for cart ${cart.id}; proof used target sales channel ${salesChannelId}, US address country_code=us, and requires a real shipping option ID.`;
+    out.checks.shippingOptionProofBlockerReason = out.shippingOptionProofBlockerReason;
+    addBlockerOnce("shipping_option_store_visibility_missing");
+  }
 }
 
 const checkoutAmount = Number.isInteger(Number(cart?.total ?? cart?.subtotal)) && Number(cart?.total ?? cart?.subtotal) > 0 ? Number(cart?.total ?? cart?.subtotal) : 100;
@@ -487,14 +524,16 @@ out.paymentMarkedPaid = out.paymentMarkedPaid || out.dbxPaymentMarkedPaid;
 if (out.paymentMarkedPaid) addBlockerOnce("fake_payment_marked_paid");
 
 out.settlementBlockers = blockers.filter((blocker) => /webhook|paid|settlement|order_sync|economic|idempotency|solana/i.test(blocker));
-if (out.stripeSessionModeDetected === "live" && !ALLOW_LIVE_STRIPE_SMOKE) {
+if (blockers.includes("medusa_publishable_key_placeholder_not_replaced") || blockers.includes("medusa_publishable_key_looks_like_stripe_key") || blockers.includes("medusa_publishable_key_invalid")) {
+  out.nextManualStep = "Replace MEDUSA_PUBLISHABLE_KEY/NEXT_PUBLIC_MEDUSA_PUBLISHABLE_KEY with the real Medusa publishable API key from Medusa, not a Stripe key or placeholder, then rerun the smoke before opening Stripe Checkout.";
+} else if (out.stripeSessionModeDetected === "live" && !ALLOW_LIVE_STRIPE_SMOKE) {
   out.nextManualStep = liveSessionTestModeWarning();
 } else if (out.checkoutSessionCreated && out.stripeHostedCheckoutUrl && out.stripeSessionModeDetected === "test" && !out.shippingOptionReady) {
   out.nextManualStep = "Stripe test checkout is ready, but do not open it until Medusa Store API returns a real shipping option.";
 } else if (out.checkoutSessionCreated && out.stripeHostedCheckoutUrl && out.stripeSessionModeDetected === "unknown") {
   out.nextManualStep = "Resolve unknown Stripe session mode before attempting controlled test-card validation.";
 } else if (blockers.length === 0 && out.stripeSessionModeDetected === "test") {
-  out.nextManualStep = `Run a controlled Stripe test-card checkout only against ${CANONICAL_STRIPE_WEBHOOK_URL}, and a real DBX token transfer, then verify only signed Stripe webhooks or verified Solana transactions advance paid/order-sync state.`;
+  out.nextManualStep = `Open only the cs_test_* Stripe Checkout URL (${out.checkoutUrl}) against ${CANONICAL_STRIPE_WEBHOOK_URL}, and run a real DBX token transfer only after confirming Store API shipping options are visible; then verify only signed Stripe webhooks or verified Solana transactions advance paid/order-sync state.`;
 } else {
   out.nextManualStep = "Resolve blockers, then rerun node scripts/e2e-unified-payment-rail-smoke.mjs before attempting controlled payment orders.";
 }
