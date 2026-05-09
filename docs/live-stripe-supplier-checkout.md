@@ -102,7 +102,7 @@ Medusa shipping visibility uses the Store API with the publishable key present w
 
 The smoke does not mark `shippingOptionReady` unless Medusa returns a real shipping option ID. If Medusa returns zero options, the result remains the real blocker `shipping_option_store_visibility_missing` rather than a fabricated shipping success.
 
-Stripe order-sync preview authorization is reported without exposing the token. Both the first Stripe smoke and unified payment rail smoke emit `internalTokenPresent`, `internalAuthHeaderUsed`, `internalTokenAccepted`, `orderSyncPreviewAuthorized`, `orderSyncPreviewStatus`, and `orderSyncPreviewBlockers`. A `401` or `403` with `INTERNAL_SERVICE_TOKEN` present reports `internal_token_present_but_rejected`; the same status without a token reports `protected_route_requires_internal_token`. `orderSyncReady` remains false unless the protected preview succeeds and proves durable order-sync prerequisites with no preview blockers; preview never marks a payment paid or completes an order.
+Stripe order-sync preview authorization is reported without exposing the token. Both the first Stripe smoke and unified payment rail smoke emit `smokeContractVersion`/`scriptVersion` as `2026-05-09.internal-token-preview-v1` plus `internalTokenPresent`, `internalAuthHeaderUsed`, `internalTokenAccepted`, `orderSyncPreviewAuthorized`, `orderSyncPreviewStatus`, and `orderSyncPreviewBlockers`. The only internal-token transport is the canonical `x-internal-token: <INTERNAL_SERVICE_TOKEN>` header; the scripts never send the token in a body, query string, `Authorization`, or any alternate header. A `401` or `403` with `INTERNAL_SERVICE_TOKEN` present reports `internal_token_present_but_rejected`; the same status without a token reports `protected_route_requires_internal_token`. `orderSyncReady` remains false unless the protected preview succeeds and proves durable order-sync prerequisites with no preview blockers; preview never marks a payment paid or completes an order.
 
 The Medusa shipping ensure scripts now prove the same Store API visibility inputs that the Store route uses: target sales channel `sc_01KQNM6EQZ19Y1BCSRVF9XV61H`, its linked stock location/fulfillment set, `enabled_in_store: true`, `is_return: false`, and the US smoke address (`country_code: "us"`). If the target shipping option is not returned by that fulfillment context, the ensure output reports `shipping_option_store_visibility_unverified:<reason>` instead of claiming Store API visibility. The Stripe smoke creates the cart with the target sales channel first so `GET /store/shipping-options?cart_id=:cart_id` evaluates the dBaronX stock location fulfillment set.
 
@@ -211,7 +211,10 @@ node scripts/e2e-stripe-checkout-session-smoke.mjs
   "unsignedWebhookRejected": true,
   "paymentMarkedPaid": false,
   "orderSyncReady": false,
-  "nextManualStep": "Open https://checkout.stripe.com/... only when sessionId starts with cs_test_; complete Stripe Checkout with test card 4242 4242 4242 4242; verify checkout.session.completed reaches https://dbaronx-api-unified.onrender.com/api/checkout/stripe/webhook."
+  "smokeContractVersion": "2026-05-09.internal-token-preview-v1",
+  "scriptVersion": "2026-05-09.internal-token-preview-v1",
+  "internalAuthHeaderUsed": "x-internal-token",
+  "nextManualStep": "Checkout test URL is safe to open for Stripe test-card validation, but do not treat order as settled until signed webhook and order sync prove completion."
 }
 ```
 
