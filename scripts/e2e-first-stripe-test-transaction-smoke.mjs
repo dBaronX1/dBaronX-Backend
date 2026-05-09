@@ -15,6 +15,7 @@ const MEDUSA_KEY_CANDIDATES = [
 const [MEDUSA_KEY_SOURCE, MEDUSA_KEY_RAW] = MEDUSA_KEY_CANDIDATES.find(([, value]) => String(value || "").trim()) || ["missing", ""];
 const MEDUSA_KEY = String(MEDUSA_KEY_RAW || "").trim();
 const INTERNAL_SERVICE_TOKEN = (process.env.INTERNAL_SERVICE_TOKEN || "").trim();
+const INTERNAL_AUTH_HEADER_NAME = "x-internal-token";
 const WEB_BASE_URL = (process.env.WEB_BASE_URL || process.env.NEXT_PUBLIC_WEB_BASE_URL || "https://dbaronx.com").replace(/\/+$/, "");
 const TARGET_REGION_ID = "reg_01KQSEKK6A9T86NJ0AG05XPK3H";
 const SNIPPET_LIMIT = 900;
@@ -44,7 +45,7 @@ const medusaHeaders = {
 const jsonHeaders = { "content-type": "application/json" };
 const internalHeaders = {
   ...jsonHeaders,
-  ...(INTERNAL_SERVICE_TOKEN ? { authorization: `Bearer ${INTERNAL_SERVICE_TOKEN}` } : {}),
+  ...(INTERNAL_SERVICE_TOKEN ? { [INTERNAL_AUTH_HEADER_NAME]: INTERNAL_SERVICE_TOKEN } : {}),
 };
 
 function api(path) {
@@ -269,6 +270,12 @@ const out = {
   unsignedWebhookRejected: false,
   paymentMarkedPaid: false,
   orderSyncReady: false,
+  internalTokenPresent: Boolean(INTERNAL_SERVICE_TOKEN),
+  internalAuthHeaderUsed: INTERNAL_SERVICE_TOKEN ? INTERNAL_AUTH_HEADER_NAME : null,
+  internalTokenAccepted: false,
+  orderSyncPreviewAuthorized: false,
+  orderSyncPreviewStatus: null,
+  orderSyncPreviewBlockers: [],
   nextManualStep: "Resolve checkout blockers before opening Stripe Checkout.",
   responseSnippets,
   fetchErrors,
@@ -610,11 +617,16 @@ stripeRoutesUsed.orderSyncPreview = previewRoute.path;
 checks.orderSyncPreviewHttp = previewProbe.status;
 checks.orderSyncPreviewPath = previewRoute.path;
 checks.orderSyncPreviewBlockers = preview.blockers || [];
-out.orderSyncReady = preview.orderSyncReady === true;
+out.orderSyncPreviewStatus = previewProbe.status;
+out.orderSyncPreviewBlockers = array(preview.blockers);
+out.orderSyncPreviewAuthorized = previewProbe.ok;
+out.internalTokenAccepted = Boolean(INTERNAL_SERVICE_TOKEN && previewProbe.ok);
+out.orderSyncReady = previewProbe.ok && preview.orderSyncReady === true && out.orderSyncPreviewBlockers.length === 0;
 if (previewProbe.status === 404) addBlocker("order_sync_preview_route_missing", "settlement");
-else if (previewProbe.status === 401) addBlocker("protected_route_requires_internal_token", "settlement");
-else if (!previewProbe.ok) addBlocker(`order_sync_preview_http_${previewProbe.status}`, "settlement");
-if (array(preview.blockers).includes("payment_record_lookup_pending")) addBlocker("payment_verified_order_sync_pending", "settlement");
+else if ([401, 403].includes(previewProbe.status)) {
+  addBlocker(INTERNAL_SERVICE_TOKEN ? "internal_token_present_but_rejected" : "protected_route_requires_internal_token", "settlement");
+} else if (!previewProbe.ok) addBlocker(`order_sync_preview_http_${previewProbe.status}`, "settlement");
+if (out.orderSyncPreviewBlockers.includes("payment_record_lookup_pending")) addBlocker("payment_verified_order_sync_pending", "settlement");
 if (array(readinessBody.orderSyncBlockers).length > 0) {
   for (const blocker of readinessBody.orderSyncBlockers) addBlocker(blocker, "settlement");
 }

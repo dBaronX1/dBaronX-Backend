@@ -102,6 +102,8 @@ Medusa shipping visibility uses the Store API with the publishable key present w
 
 The smoke does not mark `shippingOptionReady` unless Medusa returns a real shipping option ID. If Medusa returns zero options, the result remains the real blocker `shipping_option_store_visibility_missing` rather than a fabricated shipping success.
 
+Stripe order-sync preview authorization is reported without exposing the token. Both the first Stripe smoke and unified payment rail smoke emit `internalTokenPresent`, `internalAuthHeaderUsed`, `internalTokenAccepted`, `orderSyncPreviewAuthorized`, `orderSyncPreviewStatus`, and `orderSyncPreviewBlockers`. A `401` or `403` with `INTERNAL_SERVICE_TOKEN` present reports `internal_token_present_but_rejected`; the same status without a token reports `protected_route_requires_internal_token`. `orderSyncReady` remains false unless the protected preview succeeds and proves durable order-sync prerequisites with no preview blockers; preview never marks a payment paid or completes an order.
+
 The Medusa shipping ensure scripts now prove the same Store API visibility inputs that the Store route uses: target sales channel `sc_01KQNM6EQZ19Y1BCSRVF9XV61H`, its linked stock location/fulfillment set, `enabled_in_store: true`, `is_return: false`, and the US smoke address (`country_code: "us"`). If the target shipping option is not returned by that fulfillment context, the ensure output reports `shipping_option_store_visibility_unverified:<reason>` instead of claiming Store API visibility. The Stripe smoke creates the cart with the target sales channel first so `GET /store/shipping-options?cart_id=:cart_id` evaluates the dBaronX stock location fulfillment set.
 
 If `MEDUSA_PUBLISHABLE_KEY` or `NEXT_PUBLIC_MEDUSA_PUBLISHABLE_KEY` is still `<MEDUSA_PUBLISHABLE_KEY>` or contains angle brackets, the smoke reports `medusa_publishable_key_placeholder_not_replaced`. If the value starts with or contains Stripe key material such as `pk_test_`, `pk_live_`, `sk_test_`, `sk_live_`, or `whsec_`, the smoke reports `medusa_publishable_key_looks_like_stripe_key`. If Medusa responds with `A valid publishable key is required`, the smoke reports `medusa_publishable_key_invalid`. The key is never printed; the only key diagnostics are `medusaPublishableKeyPresent`, `medusaPublishableKeySource`, `medusaPublishableKeyShape`, and `medusaPublishableKeyRejectedByStoreApi`.
@@ -113,6 +115,7 @@ $env:API_URL="https://dbaronx-api-unified.onrender.com"
 $env:MEDUSA_URL="https://dbaronx-medusa.onrender.com"
 $env:MEDUSA_PUBLISHABLE_KEY="<publishable-key>"
 $env:NEXT_PUBLIC_MEDUSA_PUBLISHABLE_KEY="<publishable-key>"
+$env:INTERNAL_SERVICE_TOKEN = "<internal-service-token>"
 ```
 
 PowerShell live smoke commands:
@@ -357,10 +360,11 @@ The smoke confirms API health, pending intent creation, invalid/fake transaction
 
 Run this smoke before opening any hosted Checkout URL:
 
-```bash
-API_URL=https://dbaronx-api-unified.onrender.com \
-MEDUSA_URL=https://dbaronx-medusa.onrender.com \
-NEXT_PUBLIC_MEDUSA_PUBLISHABLE_KEY=<publishable-key> \
+```powershell
+$env:API_URL = "https://dbaronx-api-unified.onrender.com"
+$env:MEDUSA_URL = "https://dbaronx-medusa.onrender.com"
+$env:NEXT_PUBLIC_MEDUSA_PUBLISHABLE_KEY = "<publishable-key>"
+$env:INTERNAL_SERVICE_TOKEN = "<internal-service-token>"
 node scripts/e2e-first-stripe-test-transaction-smoke.mjs
 ```
 
@@ -371,7 +375,7 @@ Route contract used by the smoke:
 - Economic readiness uses `GET /api/payments/economic-readiness` first and only falls back to `GET /api/v1/payments/economic-readiness` after a canonical 404.
 - Stripe session creation uses `POST /api/checkout/stripe/session` first and only falls back to `POST /api/v1/checkout/stripe/session` after a canonical 404.
 - Unsigned webhook safety uses `POST /api/checkout/stripe/webhook` first and only falls back to `POST /api/v1/checkout/stripe/webhook` after a canonical 404.
-- Order sync preview uses `POST /api/checkout/stripe/order-sync-preview` first and only falls back to `POST /api/v1/checkout/stripe/order-sync-preview` after a canonical 404.
+- Order sync preview uses `POST /api/checkout/stripe/order-sync-preview` first and only falls back to `POST /api/v1/checkout/stripe/order-sync-preview` after a canonical 404. This route is protected by the API internal-token contract and must send `INTERNAL_SERVICE_TOKEN` in the canonical `x-internal-token` header; it does not accept the internal token through a request body or query string, and smoke output only reports whether the token/header was present, accepted, and which sanitized status/blockers came back.
 - Economic dry run uses `POST /api/payments/economic-events/dry-run` first and only falls back to `POST /api/v1/payments/economic-events/dry-run` after a canonical 404.
 
 `POST /api/checkout/stripe/session` is a public-safe customer checkout route. It uses the existing NestJS `@Public()` metadata so guest buyers can start hosted Stripe Checkout, while the global DTO validation pipe, request size middleware, and rate limit guard still apply. The route may create a real Stripe Checkout Session through `stripe.checkout.sessions.create(...)`, but it must not expose secrets, mark an order paid, complete an order, or mutate settlement state. Admin, order mutation, settlement, DBX confirmation, and webhook-paid-state routes remain protected by their existing safety rules.
