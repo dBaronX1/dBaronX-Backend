@@ -29,6 +29,7 @@ const CHECKOUT_REF = String(
 ).trim();
 
 const blockers = [];
+const blockerSources = {};
 const checks = {};
 const responseSnippets = {};
 
@@ -36,8 +37,9 @@ function api(path) {
   return `${API_BASE_URL}${path}`;
 }
 
-function addBlocker(blocker) {
+function addBlocker(blocker, source = "smoke") {
   if (blocker && !blockers.includes(blocker)) blockers.push(blocker);
+  if (blocker) blockerSources[blocker] = blockerSources[blocker] || source;
 }
 
 function snippet(value) {
@@ -79,26 +81,14 @@ async function requestJson(label, url, init = {}) {
   }
 }
 
-async function postApiWithFallback(
-  label,
-  canonicalPath,
-  legacyPath,
-  body,
-  headers,
-) {
-  const init = { method: "POST", headers, body: JSON.stringify(body) };
+async function getApiWithFallback(label, canonicalPath, legacyPath) {
   const canonical = await requestJson(
     `${label} ${canonicalPath}`,
     api(canonicalPath),
-    init,
   );
   if (canonical.status !== 404)
     return { probe: canonical, path: canonicalPath };
-  const legacy = await requestJson(
-    `${label} ${legacyPath}`,
-    api(legacyPath),
-    init,
-  );
+  const legacy = await requestJson(`${label} ${legacyPath}`, api(legacyPath));
   return { probe: legacy, path: legacyPath };
 }
 
@@ -114,6 +104,7 @@ const out = {
   orderSyncReady: false,
   duplicateWebhookSafe: false,
   settlementStatus: null,
+  settlementLookupPath: null,
   inputs: {
     stripeSessionIdPresent: Boolean(STRIPE_SESSION_ID),
     cartIdPresent: Boolean(CART_ID),
@@ -122,52 +113,40 @@ const out = {
     internalTokenPresent: Boolean(INTERNAL_SERVICE_TOKEN),
   },
   checks,
+  blockerSources,
   responseSnippets,
 };
 
-if (!INTERNAL_SERVICE_TOKEN) addBlocker("internal_service_token_missing");
 if (!STRIPE_SESSION_ID && !(CART_ID && (ORDER_REF || CHECKOUT_REF))) {
-  addBlocker("stripe_session_id_or_cart_order_ref_required");
+  addBlocker("stripe_session_id_or_cart_order_ref_required", "smoke_inputs");
 }
 
-const headers = {
-  "content-type": "application/json",
-  ...(INTERNAL_SERVICE_TOKEN
-    ? { "x-internal-token": INTERNAL_SERVICE_TOKEN }
-    : {}),
-};
-
 if (blockers.length === 0) {
-  const route = await postApiWithFallback(
-    "order sync preview",
-    "/api/checkout/stripe/order-sync-preview",
-    "/api/v1/checkout/stripe/order-sync-preview",
-    {
-      cartId: CART_ID || "post-payment-cart-lookup-by-session",
-      orderRef:
-        ORDER_REF || CHECKOUT_REF || "post-payment-order-lookup-by-session",
-      checkoutRef:
-        CHECKOUT_REF || ORDER_REF || "post-payment-checkout-lookup-by-session",
-      amount: Number(process.env.STRIPE_TEST_AMOUNT_MINOR || 100),
-      currency: process.env.STRIPE_TEST_CURRENCY || "usd",
-      successUrl: "https://dbaronx.com/checkout/success",
-      cancelUrl: "https://dbaronx.com/checkout/cancel",
-      sessionId: STRIPE_SESSION_ID || undefined,
-    },
-    headers,
+  const query = new URLSearchParams();
+  if (STRIPE_SESSION_ID) query.set("sessionId", STRIPE_SESSION_ID);
+  if (CART_ID) query.set("cartId", CART_ID);
+  if (ORDER_REF) query.set("orderRef", ORDER_REF);
+  if (CHECKOUT_REF) query.set("checkoutRef", CHECKOUT_REF);
+  const suffix = query.toString() ? `?${query.toString()}` : "";
+  const route = await getApiWithFallback(
+    "settlement status",
+    `/api/checkout/stripe/settlement-status${suffix}`,
+    `/api/v1/checkout/stripe/settlement-status${suffix}`,
   );
 
-  checks.orderSyncPreviewHttp = route.probe.status;
-  checks.orderSyncPreviewPath = route.path;
+  checks.settlementStatusHttp = route.probe.status;
+  checks.settlementStatusPath = route.path;
+  out.settlementLookupPath = route.path;
   const preview = route.probe.data || {};
 
   if ([401, 403].includes(route.probe.status))
-    addBlocker("internal_token_present_but_rejected");
+    addBlocker("settlement_status_route_requires_unexpected_auth", route.path);
   else if (!route.probe.ok)
     addBlocker(
       route.probe.status === 404
-        ? "order_sync_preview_route_missing"
-        : `order_sync_preview_http_${route.probe.status}`,
+        ? "settlement_status_route_missing"
+        : `settlement_status_http_${route.probe.status}`,
+      route.path,
     );
 
   out.verifiedStripeEventReady = preview.verifiedStripeEventReady === true;
@@ -181,16 +160,26 @@ if (blockers.length === 0) {
   out.settlementStatus = preview.settlementStatus || null;
 
   for (const blocker of Array.isArray(preview.blockers) ? preview.blockers : [])
-    addBlocker(blocker);
+    addBlocker(blocker, route.path);
 }
 
 if (out.paymentMarkedPaid)
-  addBlocker("payment_marked_paid_without_dbx_intent_contract");
-if (!out.paymentRecordReady) addBlocker("payment_record_lookup_pending");
-if (!out.verifiedStripeEventReady) addBlocker("verified_stripe_event_missing");
-if (!out.economicEventVerified) addBlocker("economic_event_verified_missing");
+  checks.paymentMarkedPaidFromVerifiedStripeWebhookEvidence = true;
+if (!out.paymentRecordReady)
+  addBlocker("payment_record_lookup_pending", "settlement_status_result");
+if (!out.verifiedStripeEventReady)
+  addBlocker("verified_stripe_event_missing", "settlement_status_result");
+if (!out.economicEventVerified)
+  addBlocker("economic_event_verified_missing", "settlement_status_result");
 if (!out.medusaOrderCompletionReady)
-  addBlocker("medusa_order_completion_pending_verified_webhook");
+  addBlocker(
+    out.blockers.includes(
+      "medusa_cart_completion_requires_payment_provider_session",
+    )
+      ? "medusa_cart_completion_requires_payment_provider_session"
+      : "medusa_order_completion_pending_verified_webhook",
+    "settlement_status_result",
+  );
 
 out.success = blockers.length === 0;
 console.log(JSON.stringify(out, null, 2));
