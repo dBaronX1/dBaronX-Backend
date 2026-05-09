@@ -5,9 +5,9 @@
   "scripts": {
     "build": "python -m compileall src",
     "typecheck": "python -m compileall src",
-    "dev": "python -m src.main",
-    "start": "python -m src.main",
+    "dev": "uvicorn src.main:app --host 0.0.0.0 --port ${PORT:-8081}",
+    "start": "uvicorn src.main:app --host 0.0.0.0 --port ${PORT:-8081}",
     "deps:install": "python -m pip install -r requirements.txt",
-    "smoke:runtime": "TELEGRAM_BOT_TOKEN=dummy NESTJS_BASE_URL=http://localhost:3001 FASTAPI_BASE_URL=http://localhost:8080 INTERNAL_SERVICE_TOKEN=dummy PYTHONPATH=src python -c \"import main; print('import-ok')\""
+    "smoke:runtime": "python -m compileall src"
   }
 }

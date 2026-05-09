@@ -22,6 +22,7 @@ from handlers.affiliate_handler import (
 from handlers.callback_fallback_handler import callback_fallback_handler
 from handlers.command_manifest_handler import command_manifest_handler
 from handlers.commerce_admin_handler import commerce_admin_handler
+from handlers.control_surface_handler import control_surface_handler
 from handlers.commerce_handler import (
     commerce_ops_handler,
     commerce_reconciliation_help_handler,
@@ -74,6 +75,20 @@ from handlers.watch_handler import (
 
 
 def register_handlers(application: Application) -> None:
+
+    control_commands = [
+        "start", "help", "commands", "status", "health", "runtime", "launch", "routes", "env_check",
+        "commerce_status", "medusa_status", "shipping_status", "catalog_status", "orders_status",
+        "payments_status", "stripe_status", "stripe_storage", "stripe_settlement", "dbx_status", "dbx_payment", "economic_status",
+        "suppliers_status", "cj_status", "cj_import_ready", "aliexpress_status",
+        "ads_status", "watch_status", "affiliate_status", "payouts_status", "wallet_status",
+        "ai_status", "ai_stories_status", "story_campaigns_status",
+        "dreams_status", "rewards_status", "subscriptions_status", "airdrop_status", "giftcards_status", "ebooks_status", "idcard_status",
+        "debug_status",
+    ]
+    for command in control_commands:
+        application.add_handler(CommandHandler(command, control_surface_handler))
+
     application.add_handler(CommandHandler("start", start_handler))
     application.add_handler(CommandHandler("help", help_handler))
     application.add_handler(CommandHandler("commands", command_manifest_handler))
