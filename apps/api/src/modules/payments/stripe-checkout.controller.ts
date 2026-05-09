@@ -19,6 +19,14 @@ export class StripeCheckoutController {
   }
 
   @Public()
+  @UseGuards(InternalAuthGuard)
+  @SetMetadata(INTERNAL_AUTH_REQUIRED_KEY, true)
+  @Get("settlement-storage-readiness")
+  async settlementStorageReadiness() {
+    return this.stripe.settlementStorageReadiness();
+  }
+
+  @Public()
   @Get("settlement-status")
   async settlementStatus(
     @Query("sessionId") sessionId?: string,

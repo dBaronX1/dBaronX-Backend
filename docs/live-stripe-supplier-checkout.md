@@ -300,6 +300,46 @@ node scripts/e2e-stripe-checkout-session-smoke.mjs
 
 The settlement lookup endpoint is `GET /api/checkout/stripe/settlement-status` and accepts `sessionId`, `stripeEventId`, `paymentIntentId`, `chargeId`, `cartId`, `orderRef`, and `checkoutRef`. Lookup priority is `sessionId`, then cart/order/checkout refs, then `paymentIntentId`, then `stripeEventId`, then `chargeId` only when safely stored in local metadata/payment evidence. It returns only booleans, statuses, blockers, and a Medusa order ID when Medusa actually returns one; it never returns raw Stripe secrets, webhook secrets, Supabase service keys, or internal tokens.
 
+The settlement storage readiness endpoint is `GET /api/checkout/stripe/settlement-storage-readiness`. It is internal-token protected; send `x-internal-token: <INTERNAL_SERVICE_TOKEN>` and never expose that token to the browser. The response is public-safe diagnostics only: `success`, `blockers`, `migrationTableAvailable`, `webhookEvidenceTableAvailable`, `idempotencyTableAvailable`, `paymentRecordTableAvailable`, `economicEventTableAvailable`, `requiredTables`, `missingTables`, `schemaNameUsed`, `supabaseConfigured`, `serviceRoleConfigured`, and `timestamp`. The required Supabase tables are exactly `app_public.stripe_webhook_events` for signed Stripe webhook/idempotency/payment-record evidence and `app_public.economic_events` for verified DBX economic events.
+
+### Supabase settlement migration verification and manual SQL action
+
+Before repeating paid Stripe tests, prove storage readiness from an operator shell:
+
+```bash
+API_URL=https://dbaronx-api-unified.onrender.com INTERNAL_SERVICE_TOKEN=... node scripts/e2e-stripe-post-payment-settlement-smoke.mjs
+```
+
+If the smoke reports `settlementStorageReady: false`, `migrationActionRequired: true`, or non-empty `missingSettlementTables`, perform the SQL migration manually:
+
+1. Open the Supabase project that backs the API deployment.
+2. Go to **SQL Editor → New query**.
+3. Open this repository file: `supabase/migrations/202605080001_stripe_verified_settlement_events.sql`.
+4. Paste the entire file into the SQL Editor without adding secrets or replacing placeholders with keys.
+5. Click **Run** and confirm the transaction completes successfully.
+6. Redeploy or restart the API service so schema-cache-dependent clients start cleanly.
+7. Rerun the post-payment smoke. The readiness response should show `missingTables: []`, `migrationTableAvailable: true`, `webhookEvidenceTableAvailable: true`, `idempotencyTableAvailable: true`, `paymentRecordTableAvailable: true`, and `economicEventTableAvailable: true` before another payment proof is attempted.
+
+If tables are missing, the required action is: **Apply `supabase/migrations/202605080001_stripe_verified_settlement_events.sql`, redeploy/restart API, then create a fresh Stripe test checkout or replay `checkout.session.completed`.** Old completed payments may not appear in settlement lookup because the signed webhook could not be persisted before the migration existed. Browser redirect history is not enough; settlement proof requires a signed Stripe webhook delivery that the API verifies and stores after storage is ready.
+
+### Stripe `checkout.session.completed` replay after migration
+
+Use replay only after the Supabase storage readiness endpoint reports no missing tables:
+
+1. Open Stripe Dashboard with **Test mode** enabled for a `cs_test_*` proof.
+2. Navigate to **Developers → Events**.
+3. Search for the completed Checkout Session or event. Use the saved `cs_test_*` session ID, `pi_*` payment intent ID, or the original `evt_*` event ID if you have it.
+4. Open the `checkout.session.completed` event.
+5. Use Stripe Dashboard's replay/resend control for the event, choose the webhook endpoint configured as `https://dbaronx-api-unified.onrender.com/api/checkout/stripe/webhook`, and send it again.
+6. Confirm the endpoint delivery returns HTTP 2xx.
+7. Rerun:
+
+```bash
+API_URL=https://dbaronx-api-unified.onrender.com INTERNAL_SERVICE_TOKEN=... STRIPE_SESSION_ID=cs_test_... CART_ID=cart_... ORDER_REF=stripe-controlled-... CHECKOUT_REF=stripe-controlled-... node scripts/e2e-stripe-post-payment-settlement-smoke.mjs
+```
+
+A fresh checkout is also valid after migration. Do not mark paid from the frontend success redirect, do not mark paid from an unsigned webhook, and do not mark paid while the storage readiness endpoint reports missing tables. `paymentMarkedPaid` can become `true` only when the API has verified the Stripe signature for `checkout.session.completed`, persisted the durable row in `app_public.stripe_webhook_events`, and stored the matching verified economic event in `app_public.economic_events`. This signed evidence requirement protects against forged client redirects, replay ambiguity before idempotency storage exists, and double-settlement.
+
 ## Remaining steps before live mode
 - Complete and document real Medusa payment-provider/session setup if settlement reports `medusa_cart_completion_requires_payment_provider_session`.
 - Add replay/refund/cancel operational procedures and monitoring.

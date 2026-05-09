@@ -10,6 +10,39 @@ import {
   type StripeSecretKeyMode,
 } from "./stripe-secret-key-mode";
 
+
+const STRIPE_SETTLEMENT_SCHEMA = "app_public";
+const STRIPE_SETTLEMENT_WEBHOOK_EVENTS_TABLE = "stripe_webhook_events";
+const STRIPE_SETTLEMENT_ECONOMIC_EVENTS_TABLE = "economic_events";
+const STRIPE_SETTLEMENT_REQUIRED_TABLES = [
+  `${STRIPE_SETTLEMENT_SCHEMA}.${STRIPE_SETTLEMENT_WEBHOOK_EVENTS_TABLE}`,
+  `${STRIPE_SETTLEMENT_SCHEMA}.${STRIPE_SETTLEMENT_ECONOMIC_EVENTS_TABLE}`,
+];
+const STRIPE_WEBHOOK_EVENT_READINESS_COLUMNS =
+  "event_id,stripe_event_id,event_type,session_id,stripe_session_id,payment_intent_id,stripe_payment_intent_id,cart_id,order_ref,checkout_ref,amount_minor_units,currency,verification_status,settlement_status,idempotency_key,raw_metadata_safe,medusa_order_id,order_sync_status,livemode,received_at,created_at,updated_at";
+
+type SettlementStorageReadinessResult = {
+  success: boolean;
+  blockers: string[];
+  migrationTableAvailable: boolean;
+  webhookEvidenceTableAvailable: boolean;
+  idempotencyTableAvailable: boolean;
+  paymentRecordTableAvailable: boolean;
+  economicEventTableAvailable: boolean;
+  requiredTables: string[];
+  missingTables: string[];
+  schemaNameUsed: string;
+  supabaseConfigured: boolean;
+  serviceRoleConfigured: boolean;
+  timestamp: string;
+};
+
+type SettlementStorageTableProbe = {
+  table: string;
+  available: boolean;
+  blocker: string | null;
+};
+
 type StripeCheckoutMode = "test" | "live" | "unknown";
 type RequestedCheckoutMode = "test" | "live";
 type SettlementStatus =
@@ -164,12 +197,19 @@ interface StripeWebhookIdempotencyRecorder {
 
 function isMissingPersistenceError(
   error: { code?: string; message?: string } | null | undefined,
+  tableName?: string,
 ): boolean {
   const code = String(error?.code || "");
   const message = String(error?.message || "").toLowerCase();
+  const table = String(tableName || "").toLowerCase();
   return (
-    ["42P01", "PGRST205", "PGRST106"].includes(code) ||
-    message.includes("stripe_webhook_events")
+    ["42P01", "42703", "PGRST200", "PGRST204", "PGRST205", "PGRST106"].includes(code) ||
+    (table ? message.includes(table) : false) ||
+    message.includes("stripe_webhook_events") ||
+    message.includes("economic_events") ||
+    message.includes("does not exist") ||
+    message.includes("schema cache") ||
+    message.includes("could not find")
   );
 }
 
@@ -373,6 +413,53 @@ export class StripeCheckoutService {
         economicEventPersistence.ready,
       orderSyncConfigured,
       blockers: [...new Set(blockers)],
+    };
+  }
+
+  async settlementStorageReadiness(): Promise<SettlementStorageReadinessResult> {
+    const webhookEvidence = await this.probeSettlementTable(
+      STRIPE_SETTLEMENT_WEBHOOK_EVENTS_TABLE,
+      STRIPE_WEBHOOK_EVENT_READINESS_COLUMNS,
+      "stripe_webhook_events_missing_or_incomplete",
+    );
+    const economicEvents = await this.probeSettlementTable(
+      STRIPE_SETTLEMENT_ECONOMIC_EVENTS_TABLE,
+      "id,event_type,status,reference_id,idempotency_key,created_at",
+      "economic_events_missing_or_incomplete",
+    );
+    const missingTables = [webhookEvidence, economicEvents]
+      .filter((probe) => !probe.available)
+      .map((probe) => `${STRIPE_SETTLEMENT_SCHEMA}.${probe.table}`);
+    const blockers = [
+      ...(this.isSupabaseUrlConfigured() ? [] : ["supabase_url_missing"]),
+      ...(this.isSupabaseServiceRoleConfigured()
+        ? []
+        : ["supabase_service_role_key_missing"]),
+      ...(webhookEvidence.available
+        ? []
+        : [webhookEvidence.blocker || "stripe_webhook_events_unavailable"]),
+      ...(economicEvents.available
+        ? []
+        : [economicEvents.blocker || "economic_events_unavailable"]),
+    ];
+    const webhookEvidenceTableAvailable = webhookEvidence.available;
+    const economicEventTableAvailable = economicEvents.available;
+
+    return {
+      success: blockers.length === 0,
+      blockers: [...new Set(blockers)],
+      migrationTableAvailable:
+        webhookEvidenceTableAvailable && economicEventTableAvailable,
+      webhookEvidenceTableAvailable,
+      idempotencyTableAvailable: webhookEvidenceTableAvailable,
+      paymentRecordTableAvailable: webhookEvidenceTableAvailable,
+      economicEventTableAvailable,
+      requiredTables: [...STRIPE_SETTLEMENT_REQUIRED_TABLES],
+      missingTables,
+      schemaNameUsed: STRIPE_SETTLEMENT_SCHEMA,
+      supabaseConfigured: this.isSupabaseUrlConfigured(),
+      serviceRoleConfigured: this.isSupabaseServiceRoleConfigured(),
+      timestamp: new Date().toISOString(),
     };
   }
 
@@ -1241,12 +1328,49 @@ export class StripeCheckoutService {
     migrationTableAvailable: boolean;
     webhookEvidenceTableAvailable: boolean;
   }> {
-    const webhookEvidence = await this.idempotencyRecorder.readiness();
-    const economicEvents = await this.checkEconomicEventPersistence();
+    const storage = await this.settlementStorageReadiness();
     return {
-      migrationTableAvailable: webhookEvidence.ready && economicEvents.ready,
-      webhookEvidenceTableAvailable: webhookEvidence.ready,
+      migrationTableAvailable: storage.migrationTableAvailable,
+      webhookEvidenceTableAvailable: storage.webhookEvidenceTableAvailable,
     };
+  }
+
+  private async probeSettlementTable(
+    table: string,
+    columns: string,
+    missingBlocker: string,
+  ): Promise<SettlementStorageTableProbe> {
+    try {
+      const { error } = await this.supabase
+        .getClient()
+        .schema(STRIPE_SETTLEMENT_SCHEMA)
+        .from(table)
+        .select(columns)
+        .limit(1);
+
+      if (!error) return { table, available: true, blocker: null };
+      if (isMissingPersistenceError(error, table)) {
+        return { table, available: false, blocker: missingBlocker };
+      }
+      this.logger.warn(
+        `stripe_settlement_storage_probe_failed table=${table} code=${error.code || "unknown"} message=${error.message}`,
+      );
+      return {
+        table,
+        available: false,
+        blocker: `${table}_unhealthy_or_schema_mismatch`,
+      };
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      this.logger.warn(
+        `stripe_settlement_storage_probe_exception table=${table} ${message}`,
+      );
+      return {
+        table,
+        available: false,
+        blocker: `${table}_unhealthy_or_schema_mismatch`,
+      };
+    }
   }
 
   private async findVerifiedPaymentRecord(
@@ -1376,6 +1500,24 @@ export class StripeCheckoutService {
     }
 
     return this.emptyVerifiedPaymentRecord(true, lookups[0]?.source || null, true);
+  }
+
+  private isSupabaseUrlConfigured(): boolean {
+    return Boolean(
+      String(
+        this.config.get<string>("SUPABASE_URL") || process.env.SUPABASE_URL || "",
+      ).trim(),
+    );
+  }
+
+  private isSupabaseServiceRoleConfigured(): boolean {
+    return Boolean(
+      String(
+        this.config.get<string>("SUPABASE_SERVICE_ROLE_KEY") ||
+          process.env.SUPABASE_SERVICE_ROLE_KEY ||
+          "",
+      ).trim(),
+    );
   }
 
   private cleanLookupValue(value?: string | null): string | null {
