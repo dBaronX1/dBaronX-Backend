@@ -5,6 +5,7 @@ import {
   isRedisUnavailableOrQuotaError,
   REDIS_UNAVAILABLE_BLOCKER,
   serializeProviderLinkRepairError,
+  TARGET_SALES_CHANNEL_ID,
 } from "./shipping-readiness";
 
 export default async function ensureShipping({ container }: ExecArgs) {
@@ -29,10 +30,16 @@ export default async function ensureShipping({ container }: ExecArgs) {
           storeApiVisibilityProofReady: readiness.storeApiVisibilityProofReady,
           storeApiVisibilityProofReason:
             readiness.storeApiVisibilityProofReason,
+          salesChannelId: TARGET_SALES_CHANNEL_ID,
+          stockLocationId: readiness.stockLocationId,
+          fulfillmentSetIdsFromStockLocation:
+            readiness.fulfillmentSetIdsFromStockLocation,
           salesChannelStockLocationLinked:
             readiness.salesChannelStockLocationLinked,
           salesChannelFulfillmentSetIds:
             readiness.salesChannelFulfillmentSetIds,
+          fulfillmentSetReachableFromSalesChannel:
+            readiness.fulfillmentSetReachableFromSalesChannel,
           shippingOptionIdsVisibleToStoreContext:
             readiness.shippingOptionIdsVisibleToStoreContext,
           duplicateShippingOptionIds: readiness.duplicateShippingOptionIds,
@@ -93,8 +100,12 @@ export default async function ensureShipping({ container }: ExecArgs) {
           providerEnabledForServiceLocation: false,
           storeApiVisibilityProofReady: false,
           storeApiVisibilityProofReason: null,
+          salesChannelId: TARGET_SALES_CHANNEL_ID,
+          stockLocationId: null,
+          fulfillmentSetIdsFromStockLocation: [],
           salesChannelStockLocationLinked: false,
           salesChannelFulfillmentSetIds: [],
+          fulfillmentSetReachableFromSalesChannel: false,
           stockLocationProviderIds: [],
           serviceZoneProviderIds: [],
           attemptedProviderLink: false,
