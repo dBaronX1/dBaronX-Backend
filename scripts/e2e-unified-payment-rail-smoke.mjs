@@ -11,6 +11,7 @@ const [MEDUSA_PUBLISHABLE_KEY_SOURCE, MEDUSA_PUBLISHABLE_KEY_RAW] = MEDUSA_PUBLI
 const MEDUSA_PUBLISHABLE_KEY = String(MEDUSA_PUBLISHABLE_KEY_RAW || "").trim();
 const API_BEARER_TOKEN = (process.env.API_BEARER_TOKEN || process.env.SMOKE_API_BEARER_TOKEN || process.env.SMOKE_JWT || "").trim();
 const INTERNAL_SERVICE_TOKEN = (process.env.INTERNAL_SERVICE_TOKEN || "").trim();
+const INTERNAL_AUTH_HEADER_NAME = "x-internal-token";
 const SHIPPING_OPTION_ID = (process.env.SHIPPING_OPTION_ID || "").trim();
 const TARGET_SALES_CHANNEL_ID = "sc_01KQNM6EQZ19Y1BCSRVF9XV61H";
 const SNIPPET_LIMIT = 900;
@@ -72,6 +73,12 @@ const out = {
   dbxPaymentMarkedPaid: false,
   paymentMarkedPaid: false,
   orderSyncReady: false,
+  internalTokenPresent: Boolean(INTERNAL_SERVICE_TOKEN),
+  internalAuthHeaderUsed: INTERNAL_SERVICE_TOKEN ? INTERNAL_AUTH_HEADER_NAME : null,
+  internalTokenAccepted: false,
+  orderSyncPreviewAuthorized: false,
+  orderSyncPreviewStatus: null,
+  orderSyncPreviewBlockers: [],
   nextManualStep: null,
   responseSnippets,
   fetchErrors,
@@ -101,6 +108,7 @@ const out = {
     medusaPublishableKeyShape: medusaPublishableKeyShape(),
     apiBearerTokenPresent: Boolean(API_BEARER_TOKEN),
     internalServiceTokenPresent: Boolean(INTERNAL_SERVICE_TOKEN),
+    internalAuthHeaderUsed: INTERNAL_SERVICE_TOKEN ? INTERNAL_AUTH_HEADER_NAME : null,
   },
 };
 
@@ -115,7 +123,7 @@ const apiHeaders = {
 };
 const internalHeaders = {
   "content-type": "application/json",
-  ...(INTERNAL_SERVICE_TOKEN ? { authorization: `Bearer ${INTERNAL_SERVICE_TOKEN}` } : {}),
+  ...(INTERNAL_SERVICE_TOKEN ? { [INTERNAL_AUTH_HEADER_NAME]: INTERNAL_SERVICE_TOKEN } : {}),
 };
 
 function api(path) {
@@ -288,8 +296,8 @@ if (readiness.probe.ok) {
   if (readinessData.stripeWebhookUrlExpected) out.stripeWebhookUrlExpected = `${API_URL.endsWith("/api") ? API_URL.slice(0, -4) : API_URL}${String(readinessData.stripeWebhookUrlExpected).startsWith("/") ? readinessData.stripeWebhookUrlExpected : `/${readinessData.stripeWebhookUrlExpected}`}`;
   if (firstArray(readinessData.blockers).includes("stripe_live_key_present_without_live_checkout_allowance")) addBlockerOnce("stripe_live_key_present_without_live_checkout_allowance");
   if (readinessData.solanaRpcConfigured === false) addBlockerOnce("solana_rpc_not_configured");
-  out.orderSyncReady = readinessData.orderSyncConfigured === true;
-  if (!out.orderSyncReady) addBlockerOnce("order_sync_not_configured");
+  out.checks.orderSyncConfigured = readinessData.orderSyncConfigured === true;
+  if (readinessData.orderSyncConfigured !== true) addBlockerOnce("order_sync_not_configured");
 }
 
 const products = await requestJson(`${MEDUSA_URL}/store/products?limit=20`, { headers: medusaHeaders }, "/store/products");
@@ -477,6 +485,26 @@ if (webhook.probe.status === 404) addBlockerOnce("stripe_webhook_route_missing")
 if (webhookData.verified === true) addBlockerOnce("unsigned_webhook_marked_verified");
 if (webhookData.paymentMarkedPaid === true) addBlockerOnce("unsigned_webhook_marked_paid");
 if (!out.stripeUnsignedWebhookRejected) addBlockerOnce("stripe_unsigned_webhook_not_safely_rejected");
+
+const preview = await postApi("/api/checkout/stripe/order-sync-preview", "/api/v1/checkout/stripe/order-sync-preview", {
+  ...sessionBody,
+  sessionId: out.sessionId || undefined,
+}, internalHeaders);
+stripeRoutesUsed.orderSyncPreview = preview.pathUsed;
+const previewData = preview.probe.data || {};
+out.orderSyncPreviewStatus = preview.probe.status;
+out.orderSyncPreviewBlockers = firstArray(previewData.blockers);
+out.orderSyncPreviewAuthorized = preview.probe.ok;
+out.internalTokenAccepted = Boolean(INTERNAL_SERVICE_TOKEN && preview.probe.ok);
+out.orderSyncReady = preview.probe.ok && previewData.orderSyncReady === true && out.orderSyncPreviewBlockers.length === 0;
+out.checks.orderSyncPreviewHttp = preview.probe.status;
+out.checks.orderSyncPreviewPath = preview.pathUsed;
+out.checks.orderSyncPreviewBlockers = out.orderSyncPreviewBlockers;
+if (preview.probe.status === 404) addBlockerOnce("order_sync_preview_route_missing");
+else if ([401, 403].includes(preview.probe.status)) addBlockerOnce(INTERNAL_SERVICE_TOKEN ? "internal_token_present_but_rejected" : "protected_route_requires_internal_token");
+else if (!preview.probe.ok) addBlockerOnce(`order_sync_preview_http_${preview.probe.status}`);
+if (out.orderSyncPreviewBlockers.includes("payment_record_lookup_pending")) addBlockerOnce("payment_verified_order_sync_pending");
+if (!out.orderSyncReady) addBlockerOnce("order_sync_not_configured");
 
 const dbxIntentBody = {
   cartId: cart?.id || `smoke-cart-${Date.now()}`,

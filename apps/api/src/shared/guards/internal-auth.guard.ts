@@ -9,6 +9,8 @@ import { timingSafeEqual } from "crypto";
 import { IS_PUBLIC_KEY } from "../decorators/public.decorator";
 import { EnvUtil } from "../utils/env.util";
 
+export const INTERNAL_AUTH_REQUIRED_KEY = "dbx:internal_auth_required";
+
 @Injectable()
 export class InternalAuthGuard implements CanActivate {
   constructor(private readonly reflector: Reflector) {}
@@ -18,8 +20,12 @@ export class InternalAuthGuard implements CanActivate {
       context.getHandler(),
       context.getClass(),
     ]);
+    const internalAuthRequired = this.reflector.getAllAndOverride<boolean>(
+      INTERNAL_AUTH_REQUIRED_KEY,
+      [context.getHandler(), context.getClass()],
+    );
 
-    if (isPublic) {
+    if (isPublic && !internalAuthRequired) {
       return true;
     }
 

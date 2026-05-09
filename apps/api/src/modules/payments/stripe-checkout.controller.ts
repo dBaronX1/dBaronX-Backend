@@ -1,7 +1,8 @@
-import { Body, Controller, Get, Headers, HttpCode, HttpStatus, Post, Req, VERSION_NEUTRAL } from "@nestjs/common";
+import { Body, Controller, Get, Headers, HttpCode, HttpStatus, Post, Req, SetMetadata, UseGuards, VERSION_NEUTRAL } from "@nestjs/common";
 import { ApiTags } from "@nestjs/swagger";
 import { Request } from "express";
 import { Public } from "../../shared/decorators/public.decorator";
+import { InternalAuthGuard, INTERNAL_AUTH_REQUIRED_KEY } from "../../shared/guards/internal-auth.guard";
 import { CreateStripeCheckoutSessionDto } from "./dto/create-stripe-checkout-session.dto";
 import { StripeCheckoutService } from "./stripe-checkout.service";
 
@@ -24,6 +25,9 @@ export class StripeCheckoutController {
     return this.stripe.createSession(body);
   }
 
+  @Public()
+  @UseGuards(InternalAuthGuard)
+  @SetMetadata(INTERNAL_AUTH_REQUIRED_KEY, true)
   @Post("order-sync-preview")
   @HttpCode(HttpStatus.OK)
   async orderSyncPreview(@Body() body: CreateStripeCheckoutSessionDto & { sessionId?: string; paymentIntentId?: string }) {

@@ -119,6 +119,7 @@ async function bootstrap() {
       "authorization",
       "content-type",
       "x-request-id",
+      "x-internal-token",
       "x-internal-service-token",
       "x-idempotency-key",
       "x-telegram-init-data",
@@ -196,7 +197,7 @@ async function bootstrap() {
       .addApiKey(
         {
           type: "apiKey",
-          name: "x-internal-service-token",
+          name: "x-internal-token",
           in: "header",
         },
         "internal-service-token",
