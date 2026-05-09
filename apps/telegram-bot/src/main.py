@@ -22,6 +22,9 @@ async def _ensure_telegram_runtime_started() -> None:
     global telegram_app_started
     if telegram_app_started:
         return
+    if not settings.TELEGRAM_BOT_TOKEN:
+        logger.warning("Telegram runtime not started because TELEGRAM_BOT_TOKEN_missing")
+        return
 
     await telegram_app.initialize()
     await telegram_app.start()
@@ -31,9 +34,11 @@ async def _ensure_telegram_runtime_started() -> None:
 @asynccontextmanager
 async def lifespan(_app: FastAPI):
     await _ensure_telegram_runtime_started()
+    blockers = settings.startup_blockers()
     logger.info(
-        "Route status: webhook path=/webhook health path=/health ready path=/ready telegramRuntimeStarted=%s",
+        "Route status: webhook path=/webhook health path=/health ready path=/ready telegramRuntimeStarted=%s startupBlockers=%s",
         telegram_app_started,
+        blockers,
     )
     try:
         yield
@@ -57,6 +62,7 @@ async def health() -> dict[str, object]:
         "service": settings.APP_NAME,
         "environment": settings.ENVIRONMENT,
         "telegramRuntimeStarted": telegram_app_started,
+        "blockers": settings.startup_blockers(),
     }
 
 

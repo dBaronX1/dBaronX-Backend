@@ -9,7 +9,7 @@ from shared.http.http_client import InternalHttpClient
 class NestJsClient:
     def __init__(self) -> None:
         self._http = InternalHttpClient()
-        self._base_url = get_settings().NESTJS_BASE_URL.rstrip("/")
+        self._base_url = get_settings().api_base_url
 
     async def get_system_admin_pack(
         self,
