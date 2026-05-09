@@ -22,6 +22,7 @@ import { EconomicReadinessController } from "./economic-readiness.controller";
 import { StripeCheckoutController } from "./stripe-checkout.controller";
 import { StripeCheckoutService } from "./stripe-checkout.service";
 import { EconomicEventService } from "../../shared/services/economic-event.service";
+import { SupabaseEconomicEventRepository } from "../../shared/services/supabase-economic-event.repository";
 
 @Module({
   imports: [ConfigModule, WalletModule],
@@ -49,6 +50,11 @@ import { EconomicEventService } from "../../shared/services/economic-event.servi
     StripeCheckoutService,
     PaymentReadinessService,
     EconomicEventService,
+    SupabaseEconomicEventRepository,
+    {
+      provide: "EconomicEventRepository",
+      useExisting: SupabaseEconomicEventRepository,
+    },
   ],
   exports: [
     PaymentIntelligenceService,
@@ -58,6 +64,11 @@ import { EconomicEventService } from "../../shared/services/economic-event.servi
     StripeCheckoutService,
     PaymentReadinessService,
     EconomicEventService,
+    SupabaseEconomicEventRepository,
+    {
+      provide: "EconomicEventRepository",
+      useExisting: SupabaseEconomicEventRepository,
+    },
   ],
 })
 export class PaymentsModule {}
