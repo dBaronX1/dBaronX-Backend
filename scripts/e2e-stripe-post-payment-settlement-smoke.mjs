@@ -125,6 +125,25 @@ async function getApiWithFallback(label, canonicalPath, legacyPath) {
   return { probe: legacy, path: legacyPath };
 }
 
+async function getInternalApiWithFallback(label, canonicalPath, legacyPath) {
+  const init = INTERNAL_SERVICE_TOKEN
+    ? { headers: { "x-internal-token": INTERNAL_SERVICE_TOKEN } }
+    : {};
+  const canonical = await requestJson(
+    `${label} ${canonicalPath}`,
+    api(canonicalPath),
+    init,
+  );
+  if (canonical.status !== 404)
+    return { probe: canonical, path: canonicalPath };
+  const legacy = await requestJson(
+    `${label} ${legacyPath}`,
+    api(legacyPath),
+    init,
+  );
+  return { probe: legacy, path: legacyPath };
+}
+
 const idClassification = {
   CHECKOUT_SESSION_ID: classifyStripeLookupId(CHECKOUT_SESSION_ID_INPUT),
   STRIPE_SESSION_ID: classifyStripeLookupId(STRIPE_SESSION_ID_INPUT),
@@ -214,6 +233,11 @@ const out = {
   paymentMarkedPaid: false,
   orderSyncReady: false,
   duplicateWebhookSafe: false,
+  settlementStorageReady: false,
+  settlementStorageReadinessHttp: null,
+  missingSettlementTables: [],
+  migrationActionRequired: false,
+  replayRequiredAfterMigration: false,
   settlementStatus: null,
   settlementLookupPath: null,
   durableLookupAttempted: false,
@@ -243,10 +267,53 @@ const out = {
   lookupAdvice:
     "Use a Checkout Session ID (cs_test_* or cs_live_*) from the Stripe Checkout completion, or provide CART_ID plus ORDER_REF/CHECKOUT_REF from checkout metadata. evt_* is an event ID, pi_* is a PaymentIntent ID, and ch_*/py_* is a charge-like ID; these are diagnostic lookup keys, not sessionId values.",
   exactExpectedIdFormat: "cs_test_* or cs_live_*",
+  migrationReplayInstruction:
+    "Apply supabase/migrations/202605080001_stripe_verified_settlement_events.sql, redeploy/restart API, then create a fresh Stripe test checkout or replay checkout.session.completed.",
   checks,
   blockerSources,
   responseSnippets,
 };
+
+const storageRoute = await getInternalApiWithFallback(
+  "settlement storage readiness",
+  "/api/checkout/stripe/settlement-storage-readiness",
+  "/api/v1/checkout/stripe/settlement-storage-readiness",
+);
+checks.settlementStorageReadinessHttp = storageRoute.probe.status;
+checks.settlementStorageReadinessPath = storageRoute.path;
+out.settlementStorageReadinessHttp = storageRoute.probe.status;
+const storageReadiness = storageRoute.probe.data || {};
+out.settlementStorageReady = storageReadiness.success === true;
+out.missingSettlementTables = Array.isArray(storageReadiness.missingTables)
+  ? storageReadiness.missingTables
+  : [];
+out.migrationActionRequired = out.missingSettlementTables.length > 0;
+out.replayRequiredAfterMigration = out.migrationActionRequired;
+checks.settlementStorageReady = out.settlementStorageReady;
+checks.missingSettlementTables = out.missingSettlementTables;
+checks.migrationActionRequired = out.migrationActionRequired;
+checks.replayRequiredAfterMigration = out.replayRequiredAfterMigration;
+
+if ([401, 403].includes(storageRoute.probe.status))
+  addBlocker("settlement_storage_readiness_requires_internal_token", storageRoute.path);
+else if (!storageRoute.probe.ok)
+  addBlocker(
+    storageRoute.probe.status === 404
+      ? "settlement_storage_readiness_route_missing"
+      : `settlement_storage_readiness_http_${storageRoute.probe.status}`,
+    storageRoute.path,
+  );
+
+for (const blocker of Array.isArray(storageReadiness.blockers)
+  ? storageReadiness.blockers
+  : [])
+  addBlocker(blocker, storageRoute.path);
+
+if (out.migrationActionRequired) {
+  addBlocker("stripe_settlement_migration_tables_unavailable", storageRoute.path);
+  checks.migrationManualAction =
+    "Apply supabase/migrations/202605080001_stripe_verified_settlement_events.sql, redeploy/restart API, then create a fresh Stripe test checkout or replay checkout.session.completed.";
+}
 
 if (hasAnyAcceptedLookupKey) {
   const query = new URLSearchParams();
