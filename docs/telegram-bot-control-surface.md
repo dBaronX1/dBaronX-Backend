@@ -51,13 +51,63 @@ Recommended production URLs:
 
 1. Deploy the bot with the env vars above.
 2. Confirm `GET /health` reports no startup blockers.
-3. Register the Telegram webhook to `https://<bot-public-host>/webhook/telegram`.
-4. Use `TELEGRAM_WEBHOOK_SECRET` as Telegram's `secret_token` so Telegram sends `x-telegram-bot-api-secret-token`.
-5. Keep `ENABLE_WEBHOOK_SIGNATURE_CHECK=true` in production.
+3. Confirm `GET /ready` is green after the Telegram runtime starts.
+4. Register the Telegram webhook to `https://<bot-public-host>/webhook/telegram`.
+5. Use `TELEGRAM_WEBHOOK_SECRET` as Telegram's `secret_token` so Telegram sends `x-telegram-bot-api-secret-token`.
+6. Keep `ENABLE_WEBHOOK_SIGNATURE_CHECK=true` in production.
+
+### Safe helper scripts
+
+Use the repository helper when possible so the bot token is never printed:
+
+```bash
+export TELEGRAM_BOT_TOKEN
+export TELEGRAM_WEBHOOK_SECRET
+BOT_PUBLIC_BASE_URL=https://<bot-public-host> node scripts/telegram-set-webhook.mjs
+node scripts/telegram-webhook-info.mjs
+```
+
+`BOT_PUBLIC_BASE_URL` may be replaced with `TELEGRAM_BOT_PUBLIC_BASE_URL`. The helper sends Telegram the webhook URL `https://<bot-public-host>/webhook/telegram` and the `secret_token` value, but it prints only `https://api.telegram.org/bot<redacted>/...` for Telegram API calls.
+
+### Raw Telegram API commands
+
+If a manual setup is required, use these exact URL formats. Do not paste the bot token into logs, tickets, screenshots, or committed files.
+
+Set the webhook:
+
+```bash
+curl -sS -X POST "https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/setWebhook" \
+  -H "Content-Type: application/json" \
+  -d '{"url":"https://<bot-public-host>/webhook/telegram","secret_token":"'"${TELEGRAM_WEBHOOK_SECRET}"'","allowed_updates":["message","callback_query"],"drop_pending_updates":false}'
+```
+
+Delete the webhook:
+
+```bash
+curl -sS -X POST "https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/deleteWebhook" \
+  -H "Content-Type: application/json" \
+  -d '{"drop_pending_updates":false}'
+```
+
+Inspect webhook info:
+
+```bash
+curl -sS "https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/getWebhookInfo"
+```
+
+`TELEGRAM_WEBHOOK_SECRET` must be a high-entropy value stored only in the runtime secret store. Telegram stores it during `setWebhook` and includes the same value in the `x-telegram-bot-api-secret-token` header on webhook deliveries. The bot rejects webhook requests when `ENABLE_WEBHOOK_SIGNATURE_CHECK=true` and the header does not match.
 
 ## Admin authorization
 
 Only Telegram user IDs listed in `TELEGRAM_ALLOWED_ADMIN_IDS` are allowed. Unauthorized users receive a safe denial message. The bot logs only audit-safe data: command name, hashed Telegram user ID, timestamp, and result.
+
+To get a numeric Telegram user ID safely:
+
+1. In Telegram, send a message to `@userinfobot`, `@RawDataBot`, or another trusted ID utility bot and copy only the numeric `id` field.
+2. Alternatively, temporarily inspect a sanitized Telegram update in a private development environment and copy `message.from.id`. Do not log message text, bot tokens, webhook secrets, or production customer data.
+3. Store the IDs as a comma-separated runtime secret, for example `TELEGRAM_ALLOWED_ADMIN_IDS=123456789,987654321`.
+4. Optionally set explicit roles with `TELEGRAM_ADMIN_ROLES=123456789:OWNER,987654321:OPS`. IDs without an explicit role default to `OWNER`.
+5. Redeploy the bot and run `node scripts/e2e-telegram-bot-live-readiness-smoke.mjs` with `BOT_BASE_URL`, backend base URLs, and boolean-checkable secrets in the environment.
 
 The bot never echoes:
 
@@ -213,6 +263,10 @@ pnpm --filter @dbaronx/medusa typecheck
 python -m compileall apps/services-fastapi/src apps/telegram-bot/src || true
 node --check scripts/e2e-telegram-bot-command-contract-smoke.mjs
 node scripts/e2e-telegram-bot-command-contract-smoke.mjs
+node --check scripts/e2e-telegram-bot-live-readiness-smoke.mjs
+BOT_BASE_URL=https://<bot-public-host> API_BASE_URL=https://<api-host> MEDUSA_BASE_URL=https://<medusa-host> node scripts/e2e-telegram-bot-live-readiness-smoke.mjs
+node --check scripts/telegram-set-webhook.mjs
+node --check scripts/telegram-webhook-info.mjs
 ```
 
 ## Remaining gaps before full admin operations
