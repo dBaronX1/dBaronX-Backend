@@ -88,6 +88,11 @@ const out = {
   medusaPublishableKeyShape: medusaPublishableKeyShape(),
   medusaPublishableKeyRejectedByStoreApi: false,
   shippingOptionProofBlockerReason: null,
+  storeShippingOptionsEndpoint: null,
+  cartRegionId: null,
+  cartSalesChannelId: null,
+  cartShippingCountry: null,
+  medusaPublishableKeyAccepted: false,
   checks: {
     apiUrl: API_URL,
     medusaUrl: MEDUSA_URL,
@@ -322,6 +327,8 @@ if (regionId) {
     }, "POST /store/carts");
     guardMedusaPublishableKeyProbe(cartProbe);
     cart = cartFrom(cartProbe.data);
+    out.cartRegionId = cart?.region_id || out.cartRegionId;
+    out.cartSalesChannelId = cart?.sales_channel_id || out.cartSalesChannelId;
     if (cartProbe.ok && cart?.id) break;
   }
   out.cartReady = Boolean(cart?.id);
@@ -362,10 +369,16 @@ if (cart?.id && variantId) {
   guardMedusaPublishableKeyProbe(address);
   shippingRoutesUsed.cartAddress = { method: "POST", path: `/store/carts/${cart.id}`, body: addressBody };
   if (address.ok) cart = cartFrom(address.data) || cart;
+  out.cartRegionId = cart?.region_id || out.cartRegionId;
+  out.cartSalesChannelId = cart?.sales_channel_id || out.cartSalesChannelId;
+  out.cartShippingCountry = cart?.shipping_address?.country_code || addressBody.shipping_address.country_code;
 
   const shippingPath = `/store/shipping-options?cart_id=${encodeURIComponent(cart.id)}`;
-  const shipping = await requestJson(`${MEDUSA_URL}${shippingPath}`, { headers: medusaHeaders }, shippingPath);
+  const storeShippingOptionsEndpoint = `${MEDUSA_URL}${shippingPath}`;
+  out.storeShippingOptionsEndpoint = storeShippingOptionsEndpoint;
+  const shipping = await requestJson(storeShippingOptionsEndpoint, { headers: medusaHeaders }, shippingPath);
   guardMedusaPublishableKeyProbe(shipping);
+  if (shipping.ok && !out.medusaPublishableKeyRejectedByStoreApi) out.medusaPublishableKeyAccepted = true;
   const options = firstArray(shipping.data?.shipping_options);
   out.shippingOptionReady = shipping.ok && options.length > 0;
   out.shippingOptionsCount = options.length;
@@ -389,6 +402,13 @@ if (cart?.id && variantId) {
   if (shipping.ok && options.length === 0) {
     out.shippingOptionProofBlockerReason = `shipping_option_store_visibility_missing: Store API returned HTTP ${shipping.status} with an empty shipping_options array for cart ${cart.id}; proof used target sales channel ${salesChannelId}, US address country_code=us, and requires a real shipping option ID.`;
     out.checks.shippingOptionProofBlockerReason = out.shippingOptionProofBlockerReason;
+    out.checks.shippingVisibilityDiagnostics = {
+      storeShippingOptionsEndpoint,
+      cartRegionId: out.cartRegionId,
+      cartSalesChannelId: out.cartSalesChannelId,
+      cartShippingCountry: out.cartShippingCountry,
+      medusaPublishableKeyAccepted: out.medusaPublishableKeyAccepted,
+    };
     addBlockerOnce("shipping_option_store_visibility_missing");
   }
 }

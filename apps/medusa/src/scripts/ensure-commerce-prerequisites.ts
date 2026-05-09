@@ -111,6 +111,17 @@ async function runEnsureCommercePrerequisites({ container }: ExecArgs) {
     shippingReadiness.storeApiVisibilityProofReason;
   const salesChannelFulfillmentSetIds =
     shippingReadiness.salesChannelFulfillmentSetIds;
+  const shippingOptionIdsVisibleToStoreContext =
+    shippingReadiness.shippingOptionIdsVisibleToStoreContext;
+  const targetShippingOptionId = shippingReadiness.shippingOptionId;
+  const storeShippingOptionProofReady =
+    shippingReadiness.storeApiVisibilityProofReady;
+  const storeShippingOptionProofReason =
+    shippingReadiness.storeApiVisibilityProofReason;
+  const storeShippingOptionReady = Boolean(
+    shippingReadiness.shippingOptionReady &&
+      shippingReadiness.visibleToStoreApiExpected,
+  );
 
   const productsRes = await query.graph({
     entity: "product",
@@ -252,6 +263,11 @@ async function runEnsureCommercePrerequisites({ container }: ExecArgs) {
         targetRegionId: TARGET_REGION_ID,
         shippingOptionId,
         shippingOptionReady,
+        storeShippingOptionReady,
+        storeShippingOptionProofReady,
+        storeShippingOptionProofReason,
+        shippingOptionIdsVisibleToStoreContext,
+        targetShippingOptionId,
         shippingPriceReady: shippingReadiness.priceReady,
         shippingRulesReady: shippingReadiness.rulesReady,
         shippingVisibleToStoreApiExpected:

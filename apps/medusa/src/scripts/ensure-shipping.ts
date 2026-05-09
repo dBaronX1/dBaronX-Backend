@@ -33,6 +33,9 @@ export default async function ensureShipping({ container }: ExecArgs) {
             readiness.salesChannelStockLocationLinked,
           salesChannelFulfillmentSetIds:
             readiness.salesChannelFulfillmentSetIds,
+          shippingOptionIdsVisibleToStoreContext:
+            readiness.shippingOptionIdsVisibleToStoreContext,
+          duplicateShippingOptionIds: readiness.duplicateShippingOptionIds,
           fulfillmentProviderReady: readiness.fulfillmentProviderReady,
           fulfillmentProviderId: readiness.fulfillmentProviderId,
           selectedFulfillmentProviderId:
