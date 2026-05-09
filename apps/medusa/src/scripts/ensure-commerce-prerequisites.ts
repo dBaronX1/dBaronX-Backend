@@ -1,7 +1,6 @@
 import { ExecArgs } from "@medusajs/framework/types";
 import {
   createRegionsWorkflow,
-  linkSalesChannelsToStockLocationWorkflow,
   updateStoresWorkflow,
 } from "@medusajs/medusa/core-flows";
 
@@ -109,8 +108,12 @@ async function runEnsureCommercePrerequisites({ container }: ExecArgs) {
     shippingReadiness.storeApiVisibilityProofReady;
   const storeApiVisibilityProofReason =
     shippingReadiness.storeApiVisibilityProofReason;
+  const fulfillmentSetIdsFromStockLocation =
+    shippingReadiness.fulfillmentSetIdsFromStockLocation;
   const salesChannelFulfillmentSetIds =
     shippingReadiness.salesChannelFulfillmentSetIds;
+  const fulfillmentSetReachableFromSalesChannel =
+    shippingReadiness.fulfillmentSetReachableFromSalesChannel;
   const shippingOptionIdsVisibleToStoreContext =
     shippingReadiness.shippingOptionIdsVisibleToStoreContext;
   const targetShippingOptionId = shippingReadiness.shippingOptionId;
@@ -225,21 +228,10 @@ async function runEnsureCommercePrerequisites({ container }: ExecArgs) {
   for (const item of variantLink.existing) pushUnique(existing, item);
   for (const blocker of variantLink.blockers) pushUnique(blockers, blocker);
 
-  let salesChannelStockLocationLinked = false;
-  if (salesChannelId && stockLocationId) {
-    const linked = asArray(
-      isRecord(salesChannel) ? salesChannel.stock_locations : undefined,
-    ).some((loc) => isRecord(loc) && loc.id === stockLocationId);
-    if (linked) {
-      pushUnique(existing, "sales_channel_stock_location_link");
-      salesChannelStockLocationLinked = true;
-    } else {
-      await linkSalesChannelsToStockLocationWorkflow(container).run({
-        input: { id: salesChannelId, add: [stockLocationId] },
-      });
-      pushUnique(created, "sales_channel_stock_location_link");
-      salesChannelStockLocationLinked = true;
-    }
+  const salesChannelStockLocationLinked =
+    shippingReadiness.salesChannelStockLocationLinked;
+  if (salesChannelStockLocationLinked) {
+    pushUnique(existing, "sales_channel_stock_location_link");
   }
 
   if (!salesChannelStockLocationLinked)
@@ -255,10 +247,13 @@ async function runEnsureCommercePrerequisites({ container }: ExecArgs) {
         blockers,
         salesChannelId,
         stockLocationId,
+        fulfillmentSetIdsFromStockLocation,
+        salesChannelFulfillmentSetIds,
+        salesChannelStockLocationLinked,
+        fulfillmentSetReachableFromSalesChannel,
         variantId,
         inventoryItemId,
         inventoryLevelReady,
-        salesChannelStockLocationLinked,
         regionId,
         targetRegionId: TARGET_REGION_ID,
         shippingOptionId,
@@ -274,7 +269,6 @@ async function runEnsureCommercePrerequisites({ container }: ExecArgs) {
           shippingReadiness.visibleToStoreApiExpected,
         storeApiVisibilityProofReady,
         storeApiVisibilityProofReason,
-        salesChannelFulfillmentSetIds,
         serviceZoneId,
         serviceZoneReady,
         fulfillmentProviderReady,

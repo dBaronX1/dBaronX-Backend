@@ -16,7 +16,9 @@ type StoreShippingOptionsProof = {
   regionId: string | null;
   salesChannelId: string | null;
   stockLocationId: string | null;
-  fulfillmentSetIds: string[];
+  fulfillmentSetIdsFromStockLocation: string[];
+  salesChannelFulfillmentSetIds: string[];
+  fulfillmentSetReachableFromSalesChannel: boolean;
   serviceZoneId: string | null;
   shippingOptionId: string | null;
   enabledInStore: boolean;
@@ -162,7 +164,7 @@ export default async function verifyStoreShippingOptions({ container }: ExecArgs
   const salesChannel = (
     await safeGraph(
       query,
-      "sales_channel",
+      "sales_channels",
       [
         "id",
         "name",
@@ -206,32 +208,49 @@ export default async function verifyStoreShippingOptions({ container }: ExecArgs
     pushUnique(blockers, "sales_channel_stock_location_link_missing");
   }
 
-  const fulfillmentSetIds = Array.from(
+  const fulfillmentSetIdsFromStockLocation = Array.from(
     new Set(
       asArray<Record<string, unknown>>(stockLocation?.fulfillment_sets)
         .map(getId)
         .filter((id): id is string => Boolean(id)),
     ),
   );
-  if (fulfillmentSetIds.length === 0) pushUnique(blockers, "fulfillment_set_missing");
+  if (fulfillmentSetIdsFromStockLocation.length === 0)
+    pushUnique(blockers, "stock_location_fulfillment_sets_missing");
 
   const salesChannelFulfillmentSetIds = Array.from(
     new Set(
       salesChannelStockLocations
-        .flatMap((location) => asArray<Record<string, unknown>>(location.fulfillment_sets))
+        .flatMap((location) =>
+          asArray<Record<string, unknown>>(location.fulfillment_sets),
+        )
         .map(getId)
         .filter((id): id is string => Boolean(id)),
     ),
   );
-  const fulfillmentSetLinkedToStoreContext = fulfillmentSetIds.some((id) =>
-    salesChannelFulfillmentSetIds.includes(id),
-  );
-  if (!fulfillmentSetLinkedToStoreContext) {
+  if (
+    salesChannelStockLocationLinked &&
+    salesChannelFulfillmentSetIds.length === 0
+  ) {
+    pushUnique(
+      blockers,
+      "sales_channel_fulfillment_sets_missing_for_store_api_filter",
+    );
+  }
+  const fulfillmentSetReachableFromSalesChannel =
+    fulfillmentSetIdsFromStockLocation.some((id) =>
+      salesChannelFulfillmentSetIds.includes(id),
+    );
+  if (!fulfillmentSetReachableFromSalesChannel) {
     pushUnique(blockers, "fulfillment_set_not_reachable_from_sales_channel");
   }
 
-  const serviceZones = asArray<Record<string, unknown>>(stockLocation?.fulfillment_sets)
-    .flatMap((fulfillmentSet) => asArray<Record<string, unknown>>(fulfillmentSet.service_zones))
+  const serviceZones = asArray<Record<string, unknown>>(
+    stockLocation?.fulfillment_sets,
+  )
+    .flatMap((fulfillmentSet) =>
+      asArray<Record<string, unknown>>(fulfillmentSet.service_zones),
+    )
     .filter(isRecord);
   const serviceZone =
     serviceZones.find((zone) => getId(zone) === TARGET_SERVICE_ZONE_ID) ||
@@ -240,7 +259,8 @@ export default async function verifyStoreShippingOptions({ container }: ExecArgs
   const serviceZoneId = getId(serviceZone);
   const usServiceZoneReady = Boolean(serviceZoneId && hasUsGeoZone(serviceZone));
   if (!serviceZoneId) pushUnique(blockers, "service_zone_missing");
-  if (serviceZoneId && !usServiceZoneReady) pushUnique(blockers, "service_zone_us_missing");
+  if (serviceZoneId && !usServiceZoneReady)
+    pushUnique(blockers, "service_zone_us_missing");
 
   const shippingOptions = (
     await safeGraph(
@@ -272,7 +292,10 @@ export default async function verifyStoreShippingOptions({ container }: ExecArgs
       typeof option.service_zone_id === "string"
         ? option.service_zone_id
         : getId(option.service_zone);
-    return option.name === DEFAULT_SHIPPING_OPTION_NAME && optionServiceZoneId === serviceZoneId;
+    return (
+      option.name === DEFAULT_SHIPPING_OPTION_NAME &&
+      optionServiceZoneId === serviceZoneId
+    );
   });
   const shippingOption = [...shippingOptions].sort(
     (left, right) => scoreShippingOption(right) - scoreShippingOption(left),
@@ -282,14 +305,18 @@ export default async function verifyStoreShippingOptions({ container }: ExecArgs
     .map(getId)
     .filter((id): id is string => Boolean(id && id !== shippingOptionId));
   if (!shippingOptionId) pushUnique(blockers, "shipping_option_missing");
-  if (duplicateShippingOptionIds.length > 0) pushUnique(blockers, "duplicate_shipping_options_present");
+  if (duplicateShippingOptionIds.length > 0)
+    pushUnique(blockers, "duplicate_shipping_options_present");
 
   const enabledInStore = optionEnabledInStore(shippingOption);
   const nonReturnReady = optionIsNonReturn(shippingOption);
   const priceReady = priceReadyForUsdOrRegion(shippingOption);
-  if (shippingOptionId && !enabledInStore) pushUnique(blockers, "shipping_option_enabled_in_store_missing");
-  if (shippingOptionId && !nonReturnReady) pushUnique(blockers, "shipping_option_non_return_rule_missing");
-  if (shippingOptionId && !priceReady) pushUnique(blockers, "shipping_option_usd_region_price_missing");
+  if (shippingOptionId && !enabledInStore)
+    pushUnique(blockers, "shipping_option_enabled_in_store_missing");
+  if (shippingOptionId && !nonReturnReady)
+    pushUnique(blockers, "shipping_option_non_return_rule_missing");
+  if (shippingOptionId && !priceReady)
+    pushUnique(blockers, "shipping_option_usd_region_price_missing");
 
   let shippingOptionIdsVisibleToStoreContext: string[] = [];
   try {
@@ -311,10 +338,13 @@ export default async function verifyStoreShippingOptions({ container }: ExecArgs
       priceReady &&
       usServiceZoneReady &&
       salesChannelStockLocationLinked &&
-      fulfillmentSetLinkedToStoreContext &&
+      fulfillmentSetReachableFromSalesChannel &&
       shippingOptionIdsVisibleToStoreContext.includes(shippingOptionId),
   );
-  if (shippingOptionId && !shippingOptionIdsVisibleToStoreContext.includes(shippingOptionId)) {
+  if (
+    shippingOptionId &&
+    !shippingOptionIdsVisibleToStoreContext.includes(shippingOptionId)
+  ) {
     pushUnique(blockers, "shipping_option_store_visibility_missing");
   }
 
@@ -328,7 +358,9 @@ export default async function verifyStoreShippingOptions({ container }: ExecArgs
     regionId,
     salesChannelId,
     stockLocationId,
-    fulfillmentSetIds,
+    fulfillmentSetIdsFromStockLocation,
+    salesChannelFulfillmentSetIds,
+    fulfillmentSetReachableFromSalesChannel,
     serviceZoneId,
     shippingOptionId,
     enabledInStore,

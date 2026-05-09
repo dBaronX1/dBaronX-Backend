@@ -48,7 +48,9 @@ export type EnsureShippingReadinessResult = {
   storeApiVisibilityProofReady: boolean;
   storeApiVisibilityProofReason: string | null;
   salesChannelStockLocationLinked: boolean;
+  fulfillmentSetIdsFromStockLocation: string[];
   salesChannelFulfillmentSetIds: string[];
+  fulfillmentSetReachableFromSalesChannel: boolean;
   providerEnabledForServiceLocation: boolean;
   stockLocationProviderIds: string[];
   serviceZoneProviderIds: string[];
@@ -249,6 +251,54 @@ function selectFulfillmentProviderId(
   };
 }
 
+async function readSalesChannelStoreApiContext(
+  query: any,
+  stockLocationId: string | null,
+): Promise<{
+  salesChannelId: string | null;
+  salesChannelStockLocationLinked: boolean;
+  salesChannelFulfillmentSetIds: string[];
+}> {
+  const salesChannel = (
+    await safeGraph(
+      query,
+      "sales_channels",
+      [
+        "id",
+        "name",
+        "stock_locations.id",
+        "stock_locations.fulfillment_sets.id",
+      ],
+      { id: TARGET_SALES_CHANNEL_ID },
+      1,
+    )
+  )[0];
+  const salesChannelId = getId(salesChannel);
+  const stockLocations = asArray<Record<string, unknown>>(
+    salesChannel?.stock_locations,
+  ).filter(isRecord);
+  const salesChannelStockLocationLinked = Boolean(
+    stockLocationId &&
+      stockLocations.some((location) => getId(location) === stockLocationId),
+  );
+  const salesChannelFulfillmentSetIds = Array.from(
+    new Set(
+      stockLocations
+        .flatMap((location) =>
+          asArray<Record<string, unknown>>(location.fulfillment_sets),
+        )
+        .map(getId)
+        .filter((id): id is string => Boolean(id)),
+    ),
+  );
+
+  return {
+    salesChannelId,
+    salesChannelStockLocationLinked,
+    salesChannelFulfillmentSetIds,
+  };
+}
+
 async function ensureSalesChannelStockLocationLink(
   container: any,
   query: any,
@@ -268,24 +318,11 @@ async function ensureSalesChannelStockLocationLink(
     };
   }
 
-  const readSalesChannel = async () =>
-    (
-      await safeGraph(
-        query,
-        "sales_channel",
-        [
-          "id",
-          "name",
-          "stock_locations.id",
-          "stock_locations.fulfillment_sets.id",
-        ],
-        { id: TARGET_SALES_CHANNEL_ID },
-        1,
-      )
-    )[0];
-
-  let salesChannel = await readSalesChannel();
-  if (!getId(salesChannel)) {
+  let storeApiContext = await readSalesChannelStoreApiContext(
+    query,
+    stockLocationId,
+  );
+  if (!storeApiContext.salesChannelId) {
     pushUnique(blockers, "sales_channel_missing");
     return {
       salesChannelStockLocationLinked: false,
@@ -293,25 +330,15 @@ async function ensureSalesChannelStockLocationLink(
     };
   }
 
-  let stockLocations = asArray<Record<string, unknown>>(
-    salesChannel.stock_locations,
-  ).filter(isRecord);
-  let linkedLocation = stockLocations.find(
-    (location) => getId(location) === stockLocationId,
-  );
-
-  if (!linkedLocation && repair) {
+  if (!storeApiContext.salesChannelStockLocationLinked && repair) {
     try {
       await linkSalesChannelsToStockLocationWorkflow(container).run({
-        input: { id: TARGET_SALES_CHANNEL_ID, add: [stockLocationId] },
+        input: { id: stockLocationId, add: [TARGET_SALES_CHANNEL_ID] },
       });
       pushUnique(created, "sales_channel_stock_location_link");
-      salesChannel = await readSalesChannel();
-      stockLocations = asArray<Record<string, unknown>>(
-        salesChannel?.stock_locations,
-      ).filter(isRecord);
-      linkedLocation = stockLocations.find(
-        (location) => getId(location) === stockLocationId,
+      storeApiContext = await readSalesChannelStoreApiContext(
+        query,
+        stockLocationId,
       );
     } catch (error) {
       addWorkflowErrorBlocker(
@@ -322,8 +349,7 @@ async function ensureSalesChannelStockLocationLink(
     }
   }
 
-  const salesChannelStockLocationLinked = Boolean(linkedLocation);
-  if (salesChannelStockLocationLinked) {
+  if (storeApiContext.salesChannelStockLocationLinked) {
     pushUnique(
       created.includes("sales_channel_stock_location_link")
         ? created
@@ -334,18 +360,36 @@ async function ensureSalesChannelStockLocationLink(
     pushUnique(blockers, "sales_channel_stock_location_link_missing");
   }
 
-  const salesChannelFulfillmentSetIds = Array.from(
+  return {
+    salesChannelStockLocationLinked:
+      storeApiContext.salesChannelStockLocationLinked,
+    salesChannelFulfillmentSetIds: storeApiContext.salesChannelFulfillmentSetIds,
+  };
+}
+
+async function findStockLocationFulfillmentSetIds(
+  query: any,
+  stockLocationId: string | null,
+): Promise<string[]> {
+  if (!stockLocationId) return [];
+
+  const stockLocation = (
+    await safeGraph(
+      query,
+      "stock_location",
+      ["id", "fulfillment_sets.id"],
+      { id: stockLocationId },
+      1,
+    )
+  )[0];
+
+  return Array.from(
     new Set(
-      stockLocations
-        .flatMap((location) =>
-          asArray<Record<string, unknown>>(location.fulfillment_sets),
-        )
+      asArray<Record<string, unknown>>(stockLocation?.fulfillment_sets)
         .map(getId)
         .filter((id): id is string => Boolean(id)),
     ),
   );
-
-  return { salesChannelStockLocationLinked, salesChannelFulfillmentSetIds };
 }
 
 async function proveStoreApiShippingOptionContext(
@@ -906,7 +950,9 @@ export async function ensureShippingReadiness(
   let providerLinkWorkflowUsed: string | null = null;
   let providerLinkInputPreview: Record<string, unknown> | null = null;
   let salesChannelStockLocationLinked = false;
+  let fulfillmentSetIdsFromStockLocation: string[] = [];
   let salesChannelFulfillmentSetIds: string[] = [];
+  let fulfillmentSetReachableFromSalesChannel = false;
 
   const region = (
     await safeGraph(
@@ -982,6 +1028,10 @@ export async function ensureShippingReadiness(
     ? await findStockLocationFulfillmentSet(query, stockLocationId)
     : undefined;
   let fulfillmentSetId = getId(fulfillmentSet);
+  fulfillmentSetIdsFromStockLocation = await findStockLocationFulfillmentSetIds(
+    query,
+    stockLocationId,
+  );
 
   if (!fulfillmentSetId && repair && stockLocationId) {
     try {
@@ -1000,6 +1050,10 @@ export async function ensureShippingReadiness(
         stockLocationId,
       );
       fulfillmentSetId = getId(fulfillmentSet);
+      fulfillmentSetIdsFromStockLocation = await findStockLocationFulfillmentSetIds(
+        query,
+        stockLocationId,
+      );
     } catch (error) {
       addWorkflowErrorBlocker(blockers, "fulfillment_set_create", error);
     }
@@ -1013,6 +1067,29 @@ export async function ensureShippingReadiness(
       "fulfillment_set",
     );
   else pushUnique(blockers, "fulfillment_set_missing");
+
+  const refreshedSalesChannelLink = await ensureSalesChannelStockLocationLink(
+    container,
+    query,
+    stockLocationId,
+    repair,
+    created,
+    existing,
+    blockers,
+  );
+  salesChannelStockLocationLinked =
+    refreshedSalesChannelLink.salesChannelStockLocationLinked;
+  salesChannelFulfillmentSetIds =
+    refreshedSalesChannelLink.salesChannelFulfillmentSetIds;
+  fulfillmentSetReachableFromSalesChannel = fulfillmentSetIdsFromStockLocation.some(
+    (id) => salesChannelFulfillmentSetIds.includes(id),
+  );
+  if (fulfillmentSetIdsFromStockLocation.length === 0) {
+    pushUnique(blockers, "stock_location_fulfillment_sets_missing");
+  }
+  if (fulfillmentSetId && !fulfillmentSetReachableFromSalesChannel) {
+    pushUnique(blockers, "fulfillment_set_not_reachable_from_sales_channel");
+  }
 
   let serviceZone = findUsServiceZone(fulfillmentSet);
   let serviceZoneId = getId(serviceZone);
@@ -1341,6 +1418,7 @@ export async function ensureShippingReadiness(
     fulfillmentProviderReady &&
     providerEnabledForServiceLocation &&
     salesChannelStockLocationLinked &&
+    fulfillmentSetReachableFromSalesChannel &&
     storeApiVisibilityProofReady,
   );
   const shippingOptionReady = Boolean(
@@ -1387,7 +1465,9 @@ export async function ensureShippingReadiness(
     storeApiVisibilityProofReady,
     storeApiVisibilityProofReason,
     salesChannelStockLocationLinked,
+    fulfillmentSetIdsFromStockLocation,
     salesChannelFulfillmentSetIds,
+    fulfillmentSetReachableFromSalesChannel,
     providerEnabledForServiceLocation,
     stockLocationProviderIds,
     serviceZoneProviderIds,
