@@ -16,6 +16,7 @@ const [MEDUSA_KEY_SOURCE, MEDUSA_KEY_RAW] = MEDUSA_KEY_CANDIDATES.find(([, value
 const MEDUSA_KEY = String(MEDUSA_KEY_RAW || "").trim();
 const INTERNAL_SERVICE_TOKEN = (process.env.INTERNAL_SERVICE_TOKEN || "").trim();
 const INTERNAL_AUTH_HEADER_NAME = "x-internal-token";
+const SMOKE_CONTRACT_VERSION = "2026-05-09.internal-token-preview-v1";
 const WEB_BASE_URL = (process.env.WEB_BASE_URL || process.env.NEXT_PUBLIC_WEB_BASE_URL || "https://dbaronx.com").replace(/\/+$/, "");
 const TARGET_REGION_ID = "reg_01KQSEKK6A9T86NJ0AG05XPK3H";
 const SNIPPET_LIMIT = 900;
@@ -37,6 +38,10 @@ const apiRoutesUsed = {};
 const stripeRoutesUsed = {};
 const economicRoutesUsed = {};
 const shippingRoutesUsed = {};
+
+function isSettlementBlocker(blocker) {
+  return /webhook|paid|settlement|order_sync|order-sync|economic|idempotency|internal_token|protected_route_requires_internal_token/i.test(blocker);
+}
 
 const medusaHeaders = {
   "content-type": "application/json",
@@ -242,6 +247,8 @@ async function firstCanonicalApiPost(label, canonicalPath, legacyPath, body, hea
 
 const out = {
   success: false,
+  smokeContractVersion: SMOKE_CONTRACT_VERSION,
+  scriptVersion: SMOKE_CONTRACT_VERSION,
   blockers,
   settlementBlockers,
   checkoutBlockers,
@@ -271,7 +278,7 @@ const out = {
   paymentMarkedPaid: false,
   orderSyncReady: false,
   internalTokenPresent: Boolean(INTERNAL_SERVICE_TOKEN),
-  internalAuthHeaderUsed: INTERNAL_SERVICE_TOKEN ? INTERNAL_AUTH_HEADER_NAME : null,
+  internalAuthHeaderUsed: INTERNAL_AUTH_HEADER_NAME,
   internalTokenAccepted: false,
   orderSyncPreviewAuthorized: false,
   orderSyncPreviewStatus: null,
@@ -655,7 +662,7 @@ if (dryRunProbe.status === 404) addBlocker("economic_event_dry_run_route_missing
 else if (!dryRunProbe.ok) addBlocker(`economic_event_dry_run_http_${dryRunProbe.status}`, "settlement");
 if (dryRun.paymentMarkedPaid === true || dryRun.orderCompleted === true) addBlocker("economic_dry_run_mutated_paid_or_order_state", "settlement");
 
-out.settlementBlockers = blockers.filter((blocker) => /webhook|paid|settlement|order_sync|economic|idempotency/i.test(blocker));
+out.settlementBlockers = blockers.filter(isSettlementBlocker);
 out.success = blockers.length === 0;
 if (blockers.includes("medusa_publishable_key_placeholder_not_replaced") || blockers.includes("medusa_publishable_key_looks_like_stripe_key") || blockers.includes("medusa_publishable_key_invalid")) {
   out.nextManualStep = "Replace MEDUSA_PUBLISHABLE_KEY/NEXT_PUBLIC_MEDUSA_PUBLISHABLE_KEY with the real Medusa publishable API key from Medusa, not a Stripe key or placeholder, then rerun the smoke before opening Stripe Checkout.";
@@ -663,10 +670,10 @@ if (blockers.includes("medusa_publishable_key_placeholder_not_replaced") || bloc
   out.nextManualStep = liveSessionTestModeWarning();
 } else if (out.checkoutSessionCreated && out.stripeHostedCheckoutUrl && out.stripeSessionModeDetected === "test" && !out.shippingOptionReady) {
   out.nextManualStep = "Stripe test checkout is ready, but do not open it until Medusa Store API returns a real shipping option.";
+} else if (out.stripeSessionModeDetected === "test" && out.stripeSessionModeAllowed === true && out.stripeHostedCheckoutUrl === true && out.checkoutSessionCreated === true && out.shippingOptionReady === true && out.unsignedWebhookRejected === true && checkoutBlockers.length === 0) {
+  out.nextManualStep = "Checkout test URL is safe to open for Stripe test-card validation, but do not treat order as settled until signed webhook and order sync prove completion.";
 } else if (out.checkoutSessionCreated && out.stripeHostedCheckoutUrl && out.stripeSessionModeDetected === "unknown") {
   out.nextManualStep = "Resolve unknown Stripe session mode before opening Stripe Checkout.";
-} else if (out.checkoutSessionCreated && out.stripeSecretKeyMode === "test" && out.stripeSessionModeDetected === "test" && out.shippingOptionReady && out.unsignedWebhookRejected && checkoutBlockers.length === 0) {
-  out.nextManualStep = `Open only this cs_test_* Stripe Checkout URL: ${out.checkoutUrl}; use Stripe test card 4242 4242 4242 4242 with any future expiry, any CVC, and any postal code; Stripe webhook destination must be ${CANONICAL_STRIPE_WEBHOOK_URL}; then confirm checkout.session.completed in Stripe Dashboard and verify only a signed webhook can move paid/order sync state.`;
 } else if (out.checkoutSessionCreated) {
   out.nextManualStep = "Resolve checkout blockers before opening Stripe Checkout. Current checkout safety checks are incomplete.";
 } else {

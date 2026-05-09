@@ -12,6 +12,7 @@ const MEDUSA_PUBLISHABLE_KEY = String(MEDUSA_PUBLISHABLE_KEY_RAW || "").trim();
 const API_BEARER_TOKEN = (process.env.API_BEARER_TOKEN || process.env.SMOKE_API_BEARER_TOKEN || process.env.SMOKE_JWT || "").trim();
 const INTERNAL_SERVICE_TOKEN = (process.env.INTERNAL_SERVICE_TOKEN || "").trim();
 const INTERNAL_AUTH_HEADER_NAME = "x-internal-token";
+const SMOKE_CONTRACT_VERSION = "2026-05-09.internal-token-preview-v1";
 const SHIPPING_OPTION_ID = (process.env.SHIPPING_OPTION_ID || "").trim();
 const TARGET_SALES_CHANNEL_ID = "sc_01KQNM6EQZ19Y1BCSRVF9XV61H";
 const SNIPPET_LIMIT = 900;
@@ -29,6 +30,10 @@ const stripeRoutesUsed = {};
 const economicRoutesUsed = {};
 const shippingRoutesUsed = {};
 
+function isSettlementBlocker(blocker) {
+  return /webhook|paid|settlement|order_sync|order-sync|economic|idempotency|solana|dbx|internal_token|protected_route_requires_internal_token/i.test(blocker);
+}
+
 function medusaPublishableKeyLooksLikeStripeKey() {
   return /(pk_test_|pk_live_|sk_test_|sk_live_|rk_test_|rk_live_|whsec_)/i.test(MEDUSA_PUBLISHABLE_KEY);
 }
@@ -42,7 +47,10 @@ function medusaPublishableKeyShape() {
 
 const out = {
   success: false,
+  smokeContractVersion: SMOKE_CONTRACT_VERSION,
+  scriptVersion: SMOKE_CONTRACT_VERSION,
   blockers,
+  checkoutBlockers: [],
   apiReady: false,
   medusaReady: false,
   cartReady: false,
@@ -74,7 +82,7 @@ const out = {
   paymentMarkedPaid: false,
   orderSyncReady: false,
   internalTokenPresent: Boolean(INTERNAL_SERVICE_TOKEN),
-  internalAuthHeaderUsed: INTERNAL_SERVICE_TOKEN ? INTERNAL_AUTH_HEADER_NAME : null,
+  internalAuthHeaderUsed: INTERNAL_AUTH_HEADER_NAME,
   internalTokenAccepted: false,
   orderSyncPreviewAuthorized: false,
   orderSyncPreviewStatus: null,
@@ -108,7 +116,7 @@ const out = {
     medusaPublishableKeyShape: medusaPublishableKeyShape(),
     apiBearerTokenPresent: Boolean(API_BEARER_TOKEN),
     internalServiceTokenPresent: Boolean(INTERNAL_SERVICE_TOKEN),
-    internalAuthHeaderUsed: INTERNAL_SERVICE_TOKEN ? INTERNAL_AUTH_HEADER_NAME : null,
+    internalAuthHeaderUsed: INTERNAL_AUTH_HEADER_NAME,
   },
 };
 
@@ -571,17 +579,18 @@ if (dbxReference && !out.dbxFakeTxRejected) addBlockerOnce("dbx_fake_tx_not_reje
 out.paymentMarkedPaid = out.paymentMarkedPaid || out.dbxPaymentMarkedPaid;
 if (out.paymentMarkedPaid) addBlockerOnce("fake_payment_marked_paid");
 
-out.settlementBlockers = blockers.filter((blocker) => /webhook|paid|settlement|order_sync|economic|idempotency|solana/i.test(blocker));
+out.settlementBlockers = blockers.filter(isSettlementBlocker);
+out.checkoutBlockers = blockers.filter((blocker) => !isSettlementBlocker(blocker));
 if (blockers.includes("medusa_publishable_key_placeholder_not_replaced") || blockers.includes("medusa_publishable_key_looks_like_stripe_key") || blockers.includes("medusa_publishable_key_invalid")) {
   out.nextManualStep = "Replace MEDUSA_PUBLISHABLE_KEY/NEXT_PUBLIC_MEDUSA_PUBLISHABLE_KEY with the real Medusa publishable API key from Medusa, not a Stripe key or placeholder, then rerun the smoke before opening Stripe Checkout.";
 } else if (out.stripeSessionModeDetected === "live" && !ALLOW_LIVE_STRIPE_SMOKE) {
   out.nextManualStep = liveSessionTestModeWarning();
 } else if (out.checkoutSessionCreated && out.stripeHostedCheckoutUrl && out.stripeSessionModeDetected === "test" && !out.shippingOptionReady) {
   out.nextManualStep = "Stripe test checkout is ready, but do not open it until Medusa Store API returns a real shipping option.";
+} else if (out.stripeSessionModeDetected === "test" && out.stripeSessionModeAllowed === true && out.stripeHostedCheckoutUrl === true && out.checkoutSessionCreated === true && out.shippingOptionReady === true && out.unsignedWebhookRejected === true && out.checkoutBlockers.length === 0) {
+  out.nextManualStep = "Checkout test URL is safe to open for Stripe test-card validation, but do not treat order as settled until signed webhook and order sync prove completion.";
 } else if (out.checkoutSessionCreated && out.stripeHostedCheckoutUrl && out.stripeSessionModeDetected === "unknown") {
   out.nextManualStep = "Resolve unknown Stripe session mode before attempting controlled test-card validation.";
-} else if (blockers.length === 0 && out.stripeSessionModeDetected === "test") {
-  out.nextManualStep = `Open only the cs_test_* Stripe Checkout URL (${out.checkoutUrl}) against ${CANONICAL_STRIPE_WEBHOOK_URL}, and run a real DBX token transfer only after confirming Store API shipping options are visible; then verify only signed Stripe webhooks or verified Solana transactions advance paid/order-sync state.`;
 } else {
   out.nextManualStep = "Resolve blockers, then rerun node scripts/e2e-unified-payment-rail-smoke.mjs before attempting controlled payment orders.";
 }
