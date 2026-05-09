@@ -14,10 +14,10 @@ export const TARGET_SALES_CHANNEL_ID = "sc_01KQNM6EQZ19Y1BCSRVF9XV61H";
 export const TARGET_SERVICE_ZONE_ID = "serzo_01KQY400PQPH3KZ6NMGQ5DYBY2";
 export const PREFERRED_MANUAL_FULFILLMENT_PROVIDER_ID = "manual_manual";
 
-const DEFAULT_SHIPPING_OPTION_NAME = "dBaronX Standard Delivery";
-const DEFAULT_SERVICE_ZONE_NAME = "dBaronX United States Delivery Zone";
-const DEFAULT_FULFILLMENT_SET_NAME = "dBaronX Shipping";
-const DEFAULT_COUNTRY_CODE = "us";
+export const DEFAULT_SHIPPING_OPTION_NAME = "dBaronX Standard Delivery";
+export const DEFAULT_SERVICE_ZONE_NAME = "dBaronX United States Delivery Zone";
+export const DEFAULT_FULFILLMENT_SET_NAME = "dBaronX Shipping";
+export const DEFAULT_COUNTRY_CODE = "us";
 
 type EnsureShippingReadinessOptions = {
   repair?: boolean;
@@ -59,6 +59,8 @@ export type EnsureShippingReadinessResult = {
   providerLinkWorkflowUsed: string | null;
   providerLinkInputPreview: Record<string, unknown> | null;
   createShippingOptionsWorkflowInput: Record<string, unknown>[] | null;
+  shippingOptionIdsVisibleToStoreContext: string[];
+  duplicateShippingOptionIds: string[];
 };
 
 const isRecord = (value: unknown): value is Record<string, unknown> =>
@@ -350,14 +352,15 @@ async function proveStoreApiShippingOptionContext(
   container: any,
   shippingOptionId: string | null,
   salesChannelFulfillmentSetIds: string[],
-): Promise<{ ready: boolean; reason: string | null }> {
+): Promise<{ ready: boolean; reason: string | null; optionIds: string[] }> {
   if (!shippingOptionId) {
-    return { ready: false, reason: "shipping_option_missing" };
+    return { ready: false, reason: "shipping_option_missing", optionIds: [] };
   }
   if (salesChannelFulfillmentSetIds.length === 0) {
     return {
       ready: false,
       reason: "sales_channel_fulfillment_sets_missing_for_store_api_filter",
+      optionIds: [],
     };
   }
 
@@ -381,17 +384,19 @@ async function proveStoreApiShippingOptionContext(
       .filter((id): id is string => Boolean(id));
 
     if (optionIds.includes(shippingOptionId)) {
-      return { ready: true, reason: null };
+      return { ready: true, reason: null, optionIds };
     }
 
     return {
       ready: false,
       reason: `target_shipping_option_not_returned_for_store_context:${optionIds.join(",") || "none"}`,
+      optionIds,
     };
   } catch (error) {
     return {
       ready: false,
       reason: `store_context_probe_failed:${errorMessage(error)}`,
+      optionIds: [],
     };
   }
 }
@@ -705,12 +710,15 @@ async function linkProviderToStockLocation(
   return true;
 }
 
-async function removeStoreVisibilityBlockingRules(
+async function ensureRequiredShippingOptionRules(
   container: any,
   shippingOption: Record<string, unknown> | undefined,
   blockers: string[],
   created: string[],
 ): Promise<boolean> {
+  const shippingOptionId = getId(shippingOption);
+  if (!shippingOptionId) return false;
+
   const rules = asArray<Record<string, unknown>>(shippingOption?.rules).filter(
     isRecord,
   );
@@ -718,12 +726,46 @@ async function removeStoreVisibilityBlockingRules(
     .filter((rule) => String(rule.attribute || "") === "region_id")
     .map(getId)
     .filter((id): id is string => Boolean(id));
+  const requiredRules = [
+    { attribute: "is_return", operator: "eq", value: "false" },
+    { attribute: "enabled_in_store", operator: "eq", value: "true" },
+  ];
+  const creates: Record<string, unknown>[] = [];
+  const updates: Record<string, unknown>[] = [];
 
-  if (blockingRuleIds.length === 0) return false;
+  for (const requiredRule of requiredRules) {
+    const existingRule = rules.find(
+      (rule) => String(rule.attribute || "") === requiredRule.attribute,
+    );
+    const existingRuleId = getId(existingRule);
+    if (!existingRuleId) {
+      creates.push({ shipping_option_id: shippingOptionId, ...requiredRule });
+      continue;
+    }
+
+    if (
+      String(existingRule?.operator || "") !== requiredRule.operator ||
+      String(existingRule?.value || "") !== requiredRule.value
+    ) {
+      updates.push({ id: existingRuleId, ...requiredRule });
+    }
+  }
+
+  if (blockingRuleIds.length === 0 && creates.length === 0 && updates.length === 0) {
+    return false;
+  }
 
   try {
     const fulfillmentModule = container.resolve(Modules.FULFILLMENT);
-    await fulfillmentModule.deleteShippingOptionRules(blockingRuleIds);
+    if (blockingRuleIds.length > 0) {
+      await fulfillmentModule.deleteShippingOptionRules(blockingRuleIds);
+    }
+    if (updates.length > 0) {
+      await fulfillmentModule.updateShippingOptionRules(updates as any);
+    }
+    if (creates.length > 0) {
+      await fulfillmentModule.createShippingOptionRules(creates as any);
+    }
     pushUnique(created, "shipping_option_store_visibility_rule_repair");
     return true;
   } catch (error) {
@@ -745,15 +787,31 @@ const hasUsdFlatRatePrice = (shippingOption: unknown): boolean => {
   );
 };
 
-const hasOnlyStoreVisibleRules = (shippingOption: unknown): boolean =>
-  asArray<Record<string, unknown>>(
+const hasRequiredStoreVisibleRules = (shippingOption: unknown): boolean => {
+  const rules = asArray<Record<string, unknown>>(
     isRecord(shippingOption) ? shippingOption.rules : undefined,
-  ).every((rule) => {
+  );
+  const enabledInStore = rules.some(
+    (rule) =>
+      String(rule.attribute || "") === "enabled_in_store" &&
+      String(rule.operator || "") === "eq" &&
+      String(rule.value || "") === "true",
+  );
+  const nonReturn = rules.some(
+    (rule) =>
+      String(rule.attribute || "") === "is_return" &&
+      String(rule.operator || "") === "eq" &&
+      String(rule.value || "") === "false",
+  );
+  const noStoreBlockingRules = rules.every((rule) => {
     const attribute = String(rule.attribute || "");
     return attribute === "enabled_in_store" || attribute === "is_return";
   });
 
-async function findShippingOption(
+  return enabledInStore && nonReturn && noStoreBlockingRules;
+};
+
+async function findShippingOptions(
   query: any,
   serviceZoneId: string | null,
   shippingProfileId: string | null,
@@ -776,6 +834,9 @@ async function findShippingOption(
       "prices.id",
       "prices.currency_code",
       "prices.amount",
+      "prices.price_rules.id",
+      "prices.price_rules.attribute",
+      "prices.price_rules.value",
       "service_zone.id",
       "shipping_profile.id",
     ],
@@ -783,7 +844,7 @@ async function findShippingOption(
     100,
   );
 
-  return shippingOptions.find((option) => {
+  return shippingOptions.filter((option) => {
     const optionServiceZoneId =
       typeof option.service_zone_id === "string"
         ? option.service_zone_id
@@ -801,6 +862,31 @@ async function findShippingOption(
     );
   });
 }
+
+function scoreShippingOption(option: Record<string, unknown>): number {
+  return [
+    hasRequiredStoreVisibleRules(option),
+    hasUsdFlatRatePrice(option),
+    String(option.price_type || "") === "flat",
+  ].filter(Boolean).length;
+}
+
+async function findShippingOption(
+  query: any,
+  serviceZoneId: string | null,
+  shippingProfileId: string | null,
+  fulfillmentProviderId: string | null,
+) {
+  return (
+    await findShippingOptions(
+      query,
+      serviceZoneId,
+      shippingProfileId,
+      fulfillmentProviderId,
+    )
+  ).sort((left, right) => scoreShippingOption(right) - scoreShippingOption(left))[0];
+}
+
 
 export async function ensureShippingReadiness(
   container: any,
@@ -1172,6 +1258,10 @@ export async function ensureShippingReadiness(
             },
             price_type: "flat",
             prices: [{ currency_code: "usd", amount: 0 }],
+            rules: [
+              { attribute: "is_return", operator: "eq", value: "false" },
+              { attribute: "enabled_in_store", operator: "eq", value: "true" },
+            ],
           },
         ]
       : null;
@@ -1205,7 +1295,7 @@ export async function ensureShippingReadiness(
   }
 
   if (shippingOptionId && repair) {
-    const rulesRepaired = await removeStoreVisibilityBlockingRules(
+    const rulesRepaired = await ensureRequiredShippingOptionRules(
       container,
       shippingOption,
       blockers,
@@ -1223,7 +1313,7 @@ export async function ensureShippingReadiness(
   }
 
   const priceReady = hasUsdFlatRatePrice(shippingOption);
-  const rulesReady = hasOnlyStoreVisibleRules(shippingOption);
+  const rulesReady = hasRequiredStoreVisibleRules(shippingOption);
   const storeApiVisibilityProof = await proveStoreApiShippingOptionContext(
     container,
     shippingOptionId,
@@ -1231,6 +1321,18 @@ export async function ensureShippingReadiness(
   );
   const storeApiVisibilityProofReady = storeApiVisibilityProof.ready;
   const storeApiVisibilityProofReason = storeApiVisibilityProof.reason;
+  const shippingOptionIdsVisibleToStoreContext = storeApiVisibilityProof.optionIds;
+  const duplicateShippingOptionIds = serviceZoneId && shippingProfileId
+    ? (await findShippingOptions(
+        query,
+        serviceZoneId,
+        shippingProfileId,
+        fulfillmentProviderId,
+      ))
+        .map(getId)
+        .filter((id): id is string => Boolean(id))
+        .filter((id) => id !== shippingOptionId)
+    : [];
   const visibleToStoreApiExpected = Boolean(
     shippingOptionId &&
     priceReady &&
@@ -1296,5 +1398,7 @@ export async function ensureShippingReadiness(
     providerLinkInputPreview,
     ...(providerLinkRepairError ? { providerLinkRepairError } : {}),
     createShippingOptionsWorkflowInput,
+    shippingOptionIdsVisibleToStoreContext,
+    duplicateShippingOptionIds,
   };
 }

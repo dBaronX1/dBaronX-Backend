@@ -290,6 +290,13 @@ const out = {
   medusaPublishableKeyShape: medusaPublishableKeyShape(),
   medusaPublishableKeyRejectedByStoreApi: false,
   shippingOptionProofBlockerReason: null,
+  storeShippingOptionsEndpoint: null,
+  cartRegionId: null,
+  cartSalesChannelId: null,
+  cartShippingCountry: null,
+  medusaPublishableKeyAccepted: false,
+  shippingMethodPresent: false,
+  shippingTotalPositive: false,
   productId: null,
   variantId: null,
   regionId: null,
@@ -384,6 +391,8 @@ if (out.regionId) {
     guardMedusaPublishableKeyProbe(lastCartProbe);
     cart = cartFrom(lastCartProbe.data);
     out.cartId = cart?.id || null;
+    out.cartRegionId = cart?.region_id || out.cartRegionId;
+    out.cartSalesChannelId = cart?.sales_channel_id || out.cartSalesChannelId;
     if (lastCartProbe.ok && out.cartId) break;
   }
   out.cartReady = Boolean(out.cartId);
@@ -425,15 +434,21 @@ if (out.cartId) {
   shippingRoutesUsed.cartAddress = { method: "POST", path: `/store/carts/${out.cartId}`, body: addressBody };
   if (addressProbe.ok) cart = cartFrom(addressProbe.data) || cart;
   else addWarning(`cart_address_http_${addressProbe.status}`);
+  out.cartRegionId = cart?.region_id || out.cartRegionId;
+  out.cartSalesChannelId = cart?.sales_channel_id || out.cartSalesChannelId;
+  out.cartShippingCountry = cart?.shipping_address?.country_code || addressBody.shipping_address.country_code;
 }
 
 let shippingOptionId = null;
 if (out.cartId) {
   const shippingPath = `/store/shipping-options?cart_id=${encodeURIComponent(out.cartId)}`;
-  const shippingProbe = await requestJson(`medusa shipping options GET ${shippingPath}`, `${MEDUSA_URL}${shippingPath}`, { headers: medusaHeaders });
+  const storeShippingOptionsEndpoint = `${MEDUSA_URL}${shippingPath}`;
+  out.storeShippingOptionsEndpoint = storeShippingOptionsEndpoint;
+  const shippingProbe = await requestJson(`medusa shipping options GET ${shippingPath}`, storeShippingOptionsEndpoint, { headers: medusaHeaders });
   const options = array(shippingProbe.data?.shipping_options);
   checks.shippingOptionsHttp = shippingProbe.status;
   guardMedusaPublishableKeyProbe(shippingProbe);
+  if (shippingProbe.ok && !out.medusaPublishableKeyRejectedByStoreApi) out.medusaPublishableKeyAccepted = true;
   checks.shippingOptionsCount = options.length;
   out.shippingOptionsCount = options.length;
   out.shippingOptionIds = options.map((option) => option?.id).filter(Boolean);
@@ -455,6 +470,13 @@ if (out.cartId) {
   if (shippingProbe.ok && !shippingOptionId) {
     out.shippingOptionProofBlockerReason = `shipping_option_store_visibility_missing: Store API returned HTTP ${shippingProbe.status} with an empty shipping_options array for cart ${out.cartId}; proof used target sales channel ${salesChannelIdFrom(product) || TARGET_SALES_CHANNEL_ID}, US address country_code=us, and requires a real shipping option ID.`;
     checks.shippingOptionProofBlockerReason = out.shippingOptionProofBlockerReason;
+    checks.shippingVisibilityDiagnostics = {
+      storeShippingOptionsEndpoint,
+      cartRegionId: out.cartRegionId,
+      cartSalesChannelId: out.cartSalesChannelId,
+      cartShippingCountry: out.cartShippingCountry,
+      medusaPublishableKeyAccepted: out.medusaPublishableKeyAccepted,
+    };
     addBlocker("shipping_option_store_visibility_missing");
     if (MEDUSA_COMMERCE_ENSURE_SHIPPING_VISIBLE_EXPECTED) addBlocker("shipping_option_store_visibility_mismatch");
   }
@@ -484,12 +506,19 @@ if (out.cartId) {
   const totalsProbe = await requestJson(`medusa cart totals GET /store/carts/${out.cartId}`, `${MEDUSA_URL}/store/carts/${out.cartId}`, { headers: medusaHeaders });
   if (totalsProbe.ok) cart = cartFrom(totalsProbe.data) || cart;
   checks.cartTotalsHttp = totalsProbe.status;
+  const shippingMethods = array(cart?.shipping_methods);
+  out.shippingMethodPresent = shippingMethods.length > 0;
+  out.shippingTotalPositive = Number(cart?.shipping_total ?? 0) > 0;
   checks.cartTotals = {
     subtotal: cart?.subtotal ?? null,
     shipping_total: cart?.shipping_total ?? null,
     total: cart?.total ?? null,
     currency_code: cart?.currency_code ?? null,
+    shipping_methods_count: shippingMethods.length,
   };
+  if (shippingOptionId && !out.shippingTotalPositive && !out.shippingMethodPresent) {
+    addBlocker("shipping_method_not_confirmed_on_cart");
+  }
   shippingRoutesUsed.cartShippingTotals = { method: "GET", path: `/store/carts/${out.cartId}` };
 }
 
