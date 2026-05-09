@@ -248,6 +248,49 @@ node scripts/e2e-stripe-checkout-session-smoke.mjs
 
    `CHECKOUT_SESSION_ID` may be used instead of `STRIPE_SESSION_ID`. If only the session ID is available, the smoke can still look up settlement by `STRIPE_SESSION_ID`; if the session ID is unavailable, provide `CART_ID` plus either `ORDER_REF` or `CHECKOUT_REF`.
 
+   Stripe lookup ID meanings are strict:
+   - `cs_test_*` is the correct controlled test Checkout Session ID for `STRIPE_SESSION_ID`, `CHECKOUT_SESSION_ID`, or the settlement-status `sessionId` query parameter; production live-mode sessions use `cs_live_*`.
+   - `evt_*` is a Stripe Event ID, not a Checkout Session ID. Pass it as `STRIPE_EVENT_ID` or `stripeEventId` for diagnostic durable-record lookup.
+   - `pi_*` is a Stripe Payment Intent ID. Pass it as `PAYMENT_INTENT_ID` or `paymentIntentId` when the Checkout Session ID is unavailable.
+   - `ch_*` or `py_*` is a charge-like ID. Pass it as `CHARGE_ID` or `chargeId`; it is only useful if the API already stored that charge ID in safe local metadata/payment evidence.
+   - Cart/order/checkout refs from Checkout metadata can also be used: pass `CART_ID` plus `ORDER_REF` and/or `CHECKOUT_REF`. Metadata refs are lookup keys only; they do not prove payment without signed `checkout.session.completed` evidence.
+
+   Wrong ID types in `STRIPE_SESSION_ID` or `CHECKOUT_SESSION_ID` are never silently treated as a Checkout Session. The smoke emits `idClassification`, `acceptedLookupKeys`, `rejectedLookupKeys`, `lookupAdvice`, and `exactExpectedIdFormat: "cs_test_* or cs_live_*"`. Misrouted values produce explicit blockers such as `received_stripe_event_id_not_checkout_session_id`, `received_payment_intent_id_not_checkout_session_id`, `received_charge_id_not_checkout_session_id`, and `checkout_session_id_required`.
+
+   Example post-payment lookup commands:
+
+   ```bash
+   API_URL=https://dbaronx-api-unified.onrender.com \
+   STRIPE_SESSION_ID=cs_test_... \
+   node scripts/e2e-stripe-post-payment-settlement-smoke.mjs
+   ```
+
+   ```bash
+   API_URL=https://dbaronx-api-unified.onrender.com \
+   STRIPE_EVENT_ID=evt_... \
+   node scripts/e2e-stripe-post-payment-settlement-smoke.mjs
+   ```
+
+   ```bash
+   API_URL=https://dbaronx-api-unified.onrender.com \
+   PAYMENT_INTENT_ID=pi_... \
+   node scripts/e2e-stripe-post-payment-settlement-smoke.mjs
+   ```
+
+   ```bash
+   API_URL=https://dbaronx-api-unified.onrender.com \
+   CHARGE_ID=ch_... \
+   node scripts/e2e-stripe-post-payment-settlement-smoke.mjs
+   ```
+
+   ```bash
+   API_URL=https://dbaronx-api-unified.onrender.com \
+   CART_ID=cart_... \
+   ORDER_REF=stripe-controlled-... \
+   CHECKOUT_REF=stripe-controlled-... \
+   node scripts/e2e-stripe-post-payment-settlement-smoke.mjs
+   ```
+
 7. Interpret blockers from `blockerSources`:
    - No blockers means signed webhook evidence, the durable Stripe payment record, the verified economic event, duplicate webhook idempotency, and Medusa order completion are all ready.
    - `payment_record_lookup_pending` or `verified_stripe_event_missing` means Stripe has not delivered a valid signed `checkout.session.completed` webhook to the API yet, or the webhook persistence migration/env is missing.
@@ -255,7 +298,7 @@ node scripts/e2e-stripe-checkout-session-smoke.mjs
    - `medusa_cart_completion_requires_payment_provider_session` means the signed Stripe payment is proven, but Medusa cart completion still requires a real Medusa payment provider/session setup; do not fake a Medusa order ID.
    - `medusa_order_completion_pending_verified_webhook` means no Medusa order completion was confirmed yet.
 
-The settlement lookup endpoint is `GET /api/checkout/stripe/settlement-status?sessionId=cs_test_...&cartId=cart_...&orderRef=...&checkoutRef=...`. It returns only booleans, statuses, blockers, and a Medusa order ID when Medusa actually returns one; it never returns raw Stripe secrets, webhook secrets, Supabase service keys, or internal tokens.
+The settlement lookup endpoint is `GET /api/checkout/stripe/settlement-status` and accepts `sessionId`, `stripeEventId`, `paymentIntentId`, `chargeId`, `cartId`, `orderRef`, and `checkoutRef`. Lookup priority is `sessionId`, then cart/order/checkout refs, then `paymentIntentId`, then `stripeEventId`, then `chargeId` only when safely stored in local metadata/payment evidence. It returns only booleans, statuses, blockers, and a Medusa order ID when Medusa actually returns one; it never returns raw Stripe secrets, webhook secrets, Supabase service keys, or internal tokens.
 
 ## Remaining steps before live mode
 - Complete and document real Medusa payment-provider/session setup if settlement reports `medusa_cart_completion_requires_payment_provider_session`.

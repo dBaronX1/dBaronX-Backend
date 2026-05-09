@@ -39,10 +39,21 @@ type StripeOrderSyncPreviewResult = {
 
 type StripeSettlementStatusLookupInput = {
   sessionId?: string | null;
+  stripeEventId?: string | null;
+  paymentIntentId?: string | null;
+  chargeId?: string | null;
   cartId?: string | null;
   orderRef?: string | null;
   checkoutRef?: string | null;
 };
+
+type StripeLookupIdClassification =
+  | "missing"
+  | "checkout_session_id"
+  | "stripe_event_id"
+  | "payment_intent_id"
+  | "charge_id"
+  | "unknown";
 
 type StripeSettlementStatusResult = {
   success: boolean;
@@ -143,6 +154,31 @@ function isDuplicateError(
     message.includes("duplicate key") ||
     message.includes("unique")
   );
+}
+
+function classifyStripeLookupId(
+  value?: string | null,
+): StripeLookupIdClassification {
+  const id = String(value || "").trim();
+  if (!id) return "missing";
+  if (/^cs_(test|live)_/.test(id)) return "checkout_session_id";
+  if (/^evt_/.test(id)) return "stripe_event_id";
+  if (/^pi_/.test(id)) return "payment_intent_id";
+  if (/^(ch|py)_/.test(id)) return "charge_id";
+  return "unknown";
+}
+
+function blockerForMisroutedSessionId(
+  classification: StripeLookupIdClassification,
+): string | null {
+  if (classification === "stripe_event_id")
+    return "received_stripe_event_id_not_checkout_session_id";
+  if (classification === "payment_intent_id")
+    return "received_payment_intent_id_not_checkout_session_id";
+  if (classification === "charge_id")
+    return "received_charge_id_not_checkout_session_id";
+  if (classification === "unknown") return "checkout_session_id_required";
+  return null;
 }
 
 @Injectable()
@@ -557,22 +593,53 @@ export class StripeCheckoutService {
   async settlementStatus(
     input: StripeSettlementStatusLookupInput,
   ): Promise<StripeSettlementStatusResult> {
+    const rawSessionId = this.cleanLookupValue(input.sessionId);
+    const sessionIdClassification = classifyStripeLookupId(rawSessionId);
+    const misroutedSessionBlocker = blockerForMisroutedSessionId(
+      sessionIdClassification,
+    );
     const mapping = {
-      sessionId: this.cleanLookupValue(input.sessionId),
+      sessionId:
+        sessionIdClassification === "checkout_session_id" ? rawSessionId : null,
+      stripeEventId: this.cleanLookupValue(input.stripeEventId),
+      paymentIntentId: this.cleanLookupValue(input.paymentIntentId),
+      chargeId: this.cleanLookupValue(input.chargeId),
       cartId: this.cleanLookupValue(input.cartId),
       orderRef: this.cleanLookupValue(input.orderRef),
       checkoutRef: this.cleanLookupValue(input.checkoutRef),
     };
+    if (!mapping.stripeEventId && sessionIdClassification === "stripe_event_id")
+      mapping.stripeEventId = rawSessionId;
+    if (
+      !mapping.paymentIntentId &&
+      sessionIdClassification === "payment_intent_id"
+    )
+      mapping.paymentIntentId = rawSessionId;
+    if (!mapping.chargeId && sessionIdClassification === "charge_id")
+      mapping.chargeId = rawSessionId;
+
     const blockers: string[] = [];
+    if (misroutedSessionBlocker) blockers.push(misroutedSessionBlocker);
 
     if (
       !mapping.sessionId &&
-      !(mapping.cartId && (mapping.orderRef || mapping.checkoutRef))
+      !(mapping.cartId && (mapping.orderRef || mapping.checkoutRef)) &&
+      !mapping.paymentIntentId &&
+      !mapping.stripeEventId &&
+      !mapping.chargeId
     ) {
-      blockers.push("stripe_session_id_or_cart_order_ref_required");
+      blockers.push("checkout_session_id_required");
     }
 
-    const paymentRecord = blockers.length
+    const hasLookupEvidence = Boolean(
+      mapping.sessionId ||
+        (mapping.cartId && (mapping.orderRef || mapping.checkoutRef)) ||
+        mapping.paymentIntentId ||
+        mapping.stripeEventId ||
+        mapping.chargeId,
+    );
+
+    const paymentRecord = !hasLookupEvidence
       ? {
           ready: false,
           stripeEventId: null,
@@ -587,7 +654,7 @@ export class StripeCheckoutService {
       ? await this.findVerifiedEconomicEvent(
           paymentRecord.stripeEventId,
           mapping.sessionId,
-          null,
+          mapping.paymentIntentId,
         )
       : false;
     const idempotency = await this.idempotencyRecorder.readiness();
@@ -1122,7 +1189,7 @@ export class StripeCheckoutService {
         .schema("app_public")
         .from("stripe_webhook_events")
         .select(
-          "event_id,stripe_event_id,settlement_status,medusa_order_id,order_sync_status,amount_minor_units,currency",
+          "event_id,stripe_event_id,payment_intent_id,stripe_payment_intent_id,settlement_status,medusa_order_id,order_sync_status,amount_minor_units,currency",
         )
         .eq("event_type", "checkout.session.completed")
         .eq("verification_status", "verified")
@@ -1141,6 +1208,16 @@ export class StripeCheckoutService {
         query = query
           .eq("cart_id", mapping.cartId)
           .eq("checkout_ref", mapping.checkoutRef);
+      else if (mapping.paymentIntentId)
+        query = query.or(
+          `payment_intent_id.eq.${mapping.paymentIntentId},stripe_payment_intent_id.eq.${mapping.paymentIntentId}`,
+        );
+      else if (mapping.stripeEventId)
+        query = query.or(
+          `event_id.eq.${mapping.stripeEventId},stripe_event_id.eq.${mapping.stripeEventId},idempotency_key.eq.${mapping.stripeEventId}`,
+        );
+      else if (mapping.chargeId)
+        query = query.eq("raw_metadata_safe->>chargeId", mapping.chargeId);
       else
         return {
           ready: false,
