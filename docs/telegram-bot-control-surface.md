@@ -252,3 +252,23 @@ Validation command for the customer journey smoke:
 ```bash
 node scripts/e2e-telegram-customer-first-checkout-journey-smoke.mjs
 ```
+
+## First real supplier product discovery behavior
+
+Telegram customer discovery now treats `metadata.realSupplierProduct: true` with `metadata.demo: false` as the public-safe signal that a product is not a demo, provided supplier/source metadata is also present. The same product should expose safe metadata fields such as `supplier`, `supplierProductId`, `supplierSku`, and `sourceUrl` in Medusa metadata, but Telegram only prints customer-safe supplier hints and product/storefront URLs.
+
+Customer-visible behavior:
+
+- `/products` labels demo/sample/mock/test products as `DEMO` and returns `real_supplier_product_missing` when no real supplier product is visible.
+- `/products` includes price, availability guidance, safe supplier hint, and product URL for listed products.
+- `/product <handle_or_id>` suppresses the `DEMO` label for a product that carries the first-real-product metadata contract and keeps showing the storefront product URL and checkout URL.
+- Telegram remains read-only: it does not create carts, create checkout sessions, mutate supplier imports, write money state, credit wallets/rewards, approve payouts, mark orders paid, or mark orders fulfilled.
+
+Run the first real product smoke before sending customers to checkout:
+
+```bash
+MEDUSA_BASE_URL=https://<medusa-host> \
+MEDUSA_PUBLISHABLE_KEY=<publishable key if required> \
+WEB_BASE_URL=https://<web-host> \
+pnpm first-product:readiness
+```
