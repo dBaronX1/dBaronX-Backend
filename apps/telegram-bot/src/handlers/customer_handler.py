@@ -9,6 +9,7 @@ from telegram.ext import ContextTypes
 from core.settings import get_settings
 from formatters.control_surface_formatters import diagnostic, summarize_response
 from shared.context.actor_context import build_actor_context
+from shared.contracts.backend_contracts import TelegramActorContext
 from shared.http.http_client import InternalHttpClient
 
 CUSTOMER_SAFE_MODE = "customer_read_only_no_money_or_fulfillment_writes"
@@ -31,7 +32,7 @@ class CustomerCommandService:
         command = _command_name(update)
         actor = build_actor_context(update)
         try:
-            text = await self._dispatch(command, context.args or [], actor.telegram_user_id)
+            text = await self._dispatch(command, context.args or [], actor)
         except Exception as exc:  # sanitized final guard; no secrets
             text = diagnostic(
                 f"/{command or 'customer'}",
@@ -41,26 +42,26 @@ class CustomerCommandService:
         if update.effective_message:
             await update.effective_message.reply_text(text)
 
-    async def _dispatch(self, command: str, args: list[str], actor_id: str) -> str:
+    async def _dispatch(self, command: str, args: list[str], actor: TelegramActorContext) -> str:
         if command in {"start", "help"}:
-            return self._customer_help(actor_id)
+            return self._customer_help(actor.telegram_user_id)
         if command == "shop":
             return self._shop_text()
         if command == "products":
-            return await self._products_text(actor_id)
+            return await self._products_text(actor)
         if command == "product":
-            return await self._product_text(args, actor_id)
+            return await self._product_text(args, actor)
         if command == "cart_help":
             return self._cart_help()
         if command == "checkout_help":
             return self._checkout_help()
         if command == "order_status":
-            return await self._order_status(args, actor_id)
+            return await self._order_status(args, actor.telegram_user_id)
         if command == "payment_status":
-            return await self._payment_status(args, actor_id)
+            return await self._payment_status(args, actor.telegram_user_id)
         if command in {"support", "contact_support"}:
-            return await self._support_text(args, actor_id)
-        return self._customer_help(actor_id)
+            return await self._support_text(args, actor.telegram_user_id)
+        return self._customer_help(actor.telegram_user_id)
 
     def _customer_help(self, actor_id: str) -> str:
         return diagnostic(
@@ -88,39 +89,49 @@ class CustomerCommandService:
             next_action="Open the product listing, choose a real supplier product, then complete checkout through the web storefront and Stripe-hosted payment.",
         )
 
-    async def _products_text(self, actor_id: str) -> str:
-        payload = await self._medusa_get("/store/products", actor_id=actor_id, params={"limit": 5})
-        products = _extract_products(payload)[:5]
+    async def _products_text(self, actor: TelegramActorContext) -> str:
+        payload = await self._medusa_get("/store/products", actor_id=actor.telegram_user_id, params={"limit": 20})
+        all_products = _extract_products(payload)
+        draft_products = [product for product in all_products if _is_supplier_draft(product)]
+        products = [product for product in all_products if _is_verified_checkout_product(product)][:5]
+        if actor.is_admin:
+            products = [*products, *draft_products[: max(0, 5 - len(products))]]
         if not products:
+            sections = [
+                PRODUCT_SOURCE_RULE,
+                summarize_response("Medusa /store/products", payload),
+                f"Product listing URL: {self.web_base_url}/products",
+                "Blockers: endpoint_not_available_yet" if _is_not_available(payload) else "Blockers: real_supplier_product_missing",
+                "No real supplier product is ready for checkout.",
+            ]
+            if draft_products:
+                sections.append("Supplier draft — not ready for checkout")
             return diagnostic(
                 "/products",
-                [
-                    PRODUCT_SOURCE_RULE,
-                    summarize_response("Medusa /store/products", payload),
-                    f"Product listing URL: {self.web_base_url}/products",
-                    "Blockers: endpoint_not_available_yet" if _is_not_available(payload) else "Blockers: no_public_products_returned",
-                ],
-                next_action="Open the product listing. If it is empty, publish/import one approved real supplier product outside Telegram.",
+                sections,
+                next_action="Wait until one supplier product is verified_for_checkout with image, stock, shipping country, and delivery estimate before starting checkout.",
             )
         real_supplier_present = any(_is_real_supplier_product(product) for product in products)
         demo_only = all(_is_demo_product(product) for product in products)
         sections = [PRODUCT_SOURCE_RULE, f"Returned {len(products)} public products (Telegram limit: 5)."]
         if demo_only or not real_supplier_present:
             sections.append("Blockers: real_supplier_product_missing")
+            if draft_products:
+                sections.append("Supplier draft — not ready for checkout")
         sections.extend(_product_summary_line(idx + 1, product, self.web_base_url) for idx, product in enumerate(products))
         return diagnostic(
             "/products",
             sections,
-            next_action="Use /product <handle_or_id> or open a listed product link. For first real checkout, use only a non-DEMO product with storefront availability.",
+            next_action="Use /product <handle_or_id> or open a listed product link only when it is verified_for_checkout; supplier drafts require image, stock, shipping country, and delivery estimate verification first.",
         )
 
-    async def _product_text(self, args: list[str], actor_id: str) -> str:
+    async def _product_text(self, args: list[str], actor: TelegramActorContext) -> str:
         if not args:
             return diagnostic("/product", ["Usage: /product <handle_or_id>", f"Product listing URL: {self.web_base_url}/products"], next_action="Copy a product handle or ID from /products or the storefront.")
         product_ref = args[0].strip()
         payloads = [
-            await self._medusa_get(f"/store/products/{quote(product_ref, safe='')}", actor_id=actor_id),
-            await self._medusa_get("/store/products", actor_id=actor_id, params={"handle": product_ref, "limit": 1}),
+            await self._medusa_get(f"/store/products/{quote(product_ref, safe='')}", actor_id=actor.telegram_user_id),
+            await self._medusa_get("/store/products", actor_id=actor.telegram_user_id, params={"handle": product_ref, "limit": 1}),
         ]
         products: list[dict[str, Any]] = []
         for payload in payloads:
@@ -138,11 +149,23 @@ class CustomerCommandService:
                 ],
                 next_action="Open the lookup link, use /products for published products, or contact /support with the product reference.",
             )
+        draft = _is_supplier_draft(product)
+        if draft and not actor.is_admin:
+            return diagnostic(
+                "/product",
+                [
+                    PRODUCT_SOURCE_RULE,
+                    "Status: not_ready_for_checkout",
+                    "Blockers: real_supplier_product_missing",
+                    "Supplier draft — not ready for checkout",
+                ],
+                next_action="No real supplier product is ready for checkout yet. Wait for image, stock, shipping country, and delivery estimate verification.",
+            )
         demo = _is_demo_product(product)
         source_url = _public_source_url(product)
         sections = [
             PRODUCT_SOURCE_RULE,
-            f"Product: {'DEMO — ' if demo else ''}{_product_title(product)}",
+            f"Product: {_product_label_prefix(product)}{_product_title(product)}",
             f"Price: {_product_price(product)}",
             f"Availability: {_availability_hint(product)}",
             f"Supplier: {_supplier_hint(product)}",
@@ -158,7 +181,7 @@ class CustomerCommandService:
         return diagnostic(
             "/product",
             sections,
-            next_action="Open the product URL, add to cart on the web storefront, and continue only if the storefront shows the item as available.",
+            next_action="Open the product URL only for verified_for_checkout items; supplier drafts require verification before checkout.",
         )
 
     def _cart_help(self) -> str:
@@ -279,8 +302,9 @@ def _product_link(product: dict[str, Any], web_base_url: str) -> str:
 
 
 def _product_summary_line(index: int, product: dict[str, Any], web_base_url: str) -> str:
-    prefix = "DEMO — " if _is_demo_product(product) else ""
-    return f"{index}. {prefix}{_product_title(product)} | Price: {_product_price(product)} | Availability: {_availability_hint(product)} | Supplier: {_supplier_hint(product)} | URL: {_product_link(product, web_base_url)}"
+    prefix = _product_label_prefix(product)
+    checkout_status = _checkout_status_hint(product)
+    return f"{index}. {prefix}{_product_title(product)} | Checkout: {checkout_status} | Price: {_product_price(product)} | Availability: {_availability_hint(product)} | Supplier: {_supplier_hint(product)} | URL: {_product_link(product, web_base_url)}"
 
 
 def _first_matching_product(products: list[dict[str, Any]], product_ref: str) -> dict[str, Any] | None:
@@ -381,7 +405,7 @@ def _safe_public_value(value: Any) -> str:
 
 def _is_demo_product(product: dict[str, Any]) -> bool:
     metadata = product.get("metadata") if isinstance(product.get("metadata"), dict) else {}
-    if metadata.get("realSupplierProduct") is True and metadata.get("demo") is False:
+    if metadata.get("realSupplierProduct") is True and metadata.get("demo") is False and metadata.get("supplierVerificationStatus") == "verified_for_checkout":
         return False
     if metadata.get("demo") is True or metadata.get("realSupplierProduct") is False:
         return True
@@ -396,6 +420,44 @@ def _has_supplier_signal(product: dict[str, Any]) -> bool:
     supplier_values = [metadata.get(key) for key in ("supplier", "supplier_name", "supplier_id", "source", "supplierProductId", "supplier_product_id", "supplierSku", "supplier_sku", "sourceUrl", "cj_product_id", "external_id")]
     return any(str(value or "").strip() and "demo" not in str(value).lower() for value in supplier_values)
 
+
+
+def _is_supplier_draft(product: dict[str, Any]) -> bool:
+    metadata = product.get("metadata") if isinstance(product.get("metadata"), dict) else {}
+    return bool(metadata.get("demo") is False and metadata.get("realSupplierProduct") is False and metadata.get("supplierVerificationStatus") == "draft_pending_verification" and _has_supplier_signal(product))
+
+
+def _is_verified_checkout_product(product: dict[str, Any]) -> bool:
+    metadata = product.get("metadata") if isinstance(product.get("metadata"), dict) else {}
+    return bool(metadata.get("demo") is False and metadata.get("realSupplierProduct") is True and metadata.get("supplierVerificationStatus") == "verified_for_checkout" and _has_supplier_signal(product))
+
+
+def _supplier_verification_blockers(product: dict[str, Any]) -> list[str]:
+    metadata = product.get("metadata") if isinstance(product.get("metadata"), dict) else {}
+    blockers = metadata.get("supplierVerificationBlockers") or metadata.get("blockers") or []
+    if isinstance(blockers, list):
+        return [str(blocker) for blocker in blockers if str(blocker).strip()]
+    if isinstance(blockers, str):
+        return [blocker.strip() for blocker in blockers.split(",") if blocker.strip()]
+    return []
+
+
+def _checkout_status_hint(product: dict[str, Any]) -> str:
+    if _is_verified_checkout_product(product):
+        return "verified_for_checkout"
+    if _is_supplier_draft(product):
+        return "Supplier draft — not ready for checkout"
+    return "not ready for checkout"
+
+
+def _product_label_prefix(product: dict[str, Any]) -> str:
+    if _is_supplier_draft(product):
+        return "Supplier draft — not ready for checkout — "
+    if _is_demo_product(product):
+        return "DEMO — "
+    if not _is_verified_checkout_product(product):
+        return "NOT READY — "
+    return ""
 
 def _payment_lookup_params(reference: str) -> dict[str, Any]:
     if reference.startswith("cs_"):

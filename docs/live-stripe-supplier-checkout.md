@@ -710,18 +710,24 @@ Proceed to a real customer only after the smoke passes and a non-DEMO supplier p
 
 This path is intentionally single-product and controlled. It does **not** bulk-import a supplier catalog, scrape supplier sites, or let Telegram mutate supplier, order, wallet, payout, payment, or fulfillment state.
 
-### Real product metadata contract
+### CJ draft and publish metadata contract
 
-The first real supplier product must be seeded/published with real supplier provenance and explicit non-demo metadata:
+The first supplier product flow has two explicit modes:
 
-- `metadata.supplier`: public-safe supplier name or supplier identifier.
+- `DBX_FIRST_PRODUCT_MODE=draft` stores an incomplete CJ product for review. It is **not** live-checkout ready. Metadata must include `supplier: "cj"`, `supplierProductId`, `supplierSku`, `sourceUrl`, `realSupplierProduct: false`, `demo: false`, `supplierVerificationStatus: "draft_pending_verification"`, and blockers such as `product_image_missing`, `stock_unverified`, `shipping_country_unverified`, and `delivery_estimate_unverified`.
+- `DBX_FIRST_PRODUCT_MODE=publish` is the only mode that can mark a product live-checkout ready. It requires image URL, stock quantity greater than zero, shipping countries, and a delivery estimate, then writes `realSupplierProduct: true`, `demo: false`, and `supplierVerificationStatus: "verified_for_checkout"`.
+
+Shared supplier provenance metadata:
+
+- `metadata.supplier`: public-safe supplier name or supplier identifier, for the first CJ product this is `cj`.
 - `metadata.supplierProductId`: supplier's real product ID/reference.
 - `metadata.supplierSku`: supplier SKU for the selected sellable variant.
 - `metadata.sourceUrl`: verified supplier/source product URL.
-- `metadata.realSupplierProduct: true`.
-- `metadata.demo: false`.
+- `metadata.supplierCostUsdMinor`: supplier product cost in USD minor units for margin review.
+- `metadata.shippingCountries`: confirmed shipping destination countries; required for publish.
+- `metadata.deliveryEstimate`: confirmed delivery estimate; required for publish.
 
-A product missing supplier/source fields is not first-transaction ready. A demo/sample/mock/test product must remain a demo product and must not be upgraded by metadata alone.
+A product missing supplier/source fields, image, stock proof, shipping country, or delivery estimate is not first-transaction ready. A demo/sample/mock/test product must remain a demo product and must not be upgraded by metadata alone.
 
 ### Manual first real product checklist
 
@@ -744,20 +750,38 @@ Before inviting the first real customer to pay real money:
 Set the required environment values from a manually approved supplier product, then run:
 
 ```bash
-DBX_FIRST_PRODUCT_TITLE="<real product title>" \
-DBX_FIRST_PRODUCT_HANDLE="<unique-real-product-handle>" \
+# Draft/review mode for the selected CJ product when image, stock, shipping, or delivery is unverified.
+DBX_FIRST_PRODUCT_MODE=draft \
+DBX_FIRST_PRODUCT_TITLE="Men's Cotton Linen Long Sleeve Casual Shirt" \
+DBX_FIRST_PRODUCT_HANDLE="mens-cotton-linen-long-sleeve-casual-shirt-cjds212420101az" \
+DBX_FIRST_PRODUCT_DESCRIPTION="CJ supplier draft pending image, stock, shipping country, and delivery estimate verification." \
+DBX_FIRST_PRODUCT_PRICE_USD_MINOR="<customer price in cents>" \
+DBX_FIRST_PRODUCT_COST_USD_MINOR="419" \
+DBX_FIRST_PRODUCT_SUPPLIER="cj" \
+DBX_FIRST_PRODUCT_SUPPLIER_PRODUCT_ID="2408300732091605000" \
+DBX_FIRST_PRODUCT_SUPPLIER_SKU="CJDS212420101AZ" \
+DBX_FIRST_PRODUCT_SOURCE_URL="https://cjdropshipping.com/product/new-mens-casual-blouse-cotton-linen-shirt-loose-tops-long-sleeve-tee-shirt-spring-autumn-casual-handsome-mens-shirts-p-2408300732091605000.html" \
+pnpm first-product:seed
+
+# Publish mode only after all verification fields are confirmed.
+DBX_FIRST_PRODUCT_MODE=publish \
+DBX_FIRST_PRODUCT_TITLE="Men's Cotton Linen Long Sleeve Casual Shirt" \
+DBX_FIRST_PRODUCT_HANDLE="mens-cotton-linen-long-sleeve-casual-shirt-cjds212420101az" \
 DBX_FIRST_PRODUCT_DESCRIPTION="<customer-safe product description>" \
-DBX_FIRST_PRODUCT_PRICE_USD_MINOR="<price in cents>" \
-DBX_FIRST_PRODUCT_SUPPLIER="<supplier name/id>" \
-DBX_FIRST_PRODUCT_SUPPLIER_PRODUCT_ID="<supplier product id>" \
-DBX_FIRST_PRODUCT_SUPPLIER_SKU="<supplier sku>" \
-DBX_FIRST_PRODUCT_SOURCE_URL="https://<supplier product url>" \
+DBX_FIRST_PRODUCT_PRICE_USD_MINOR="<customer price in cents>" \
+DBX_FIRST_PRODUCT_COST_USD_MINOR="419" \
+DBX_FIRST_PRODUCT_SUPPLIER="cj" \
+DBX_FIRST_PRODUCT_SUPPLIER_PRODUCT_ID="2408300732091605000" \
+DBX_FIRST_PRODUCT_SUPPLIER_SKU="CJDS212420101AZ" \
+DBX_FIRST_PRODUCT_SOURCE_URL="https://cjdropshipping.com/product/new-mens-casual-blouse-cotton-linen-shirt-loose-tops-long-sleeve-tee-shirt-spring-autumn-casual-handsome-mens-shirts-p-2408300732091605000.html" \
 DBX_FIRST_PRODUCT_IMAGE_URL="https://<approved product image url>" \
-DBX_FIRST_PRODUCT_STOCK_QTY="<confirmed stock quantity>" \
+DBX_FIRST_PRODUCT_STOCK_QTY="<confirmed stock quantity greater than zero>" \
+DBX_FIRST_PRODUCT_SHIPPING_COUNTRIES="US" \
+DBX_FIRST_PRODUCT_DELIVERY_ESTIMATE="<confirmed customer-safe delivery estimate>" \
 pnpm first-product:seed
 ```
 
-The seed script refuses missing supplier/product/source fields, non-positive price, non-positive stock, invalid URLs, and demo/sample/mock/test markers. It creates only the requested first real product and does not replace the existing demo seed catalog.
+The seed script refuses missing supplier/product/source fields, missing or non-positive supplier cost, non-positive customer price, invalid URLs, and demo/sample/mock/test markers. Publish mode additionally refuses missing image, stock quantity less than one, missing shipping countries, and missing delivery estimate. Draft mode stores blockers instead of pretending the product is checkout-ready.
 
 ### Readiness smoke command
 

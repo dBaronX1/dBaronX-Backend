@@ -86,7 +86,7 @@ Operational goal: produce one real customer/user transaction with proof, not bro
 
 Required path:
 
-1. Publish/import one approved real supplier product through the backend/admin workflow, not Telegram.
+1. Store incomplete CJ data only in `DBX_FIRST_PRODUCT_MODE=draft`; publish/import one approved real supplier product through the backend/admin workflow only after image, stock, shipping country, and delivery estimate are verified.
 2. Confirm Medusa/storefront can list the product through `/products` or the storefront product page.
 3. Open the product page/customer bot product link.
 4. Create Stripe Checkout only through the verified storefront/API checkout path.
@@ -164,7 +164,7 @@ The customer bot now guides a public Telegram user from discovery to the canonic
 2. Customer sends `/products`.
    - Bot reads public products from the Medusa Store API (`GET /store/products`, maximum five items for Telegram readability).
    - Each item includes title, public price when exposed, availability guidance, and a product URL.
-   - If the visible catalog is demo-only or lacks public supplier metadata, the bot labels DEMO items and returns `real_supplier_product_missing` instead of implying a real supplier product is ready.
+   - Customer `/products` shows only products with `supplierVerificationStatus: "verified_for_checkout"`, `realSupplierProduct: true`, and `demo: false`. If only supplier drafts exist, customers see `real_supplier_product_missing` plus `Supplier draft — not ready for checkout` instead of fake readiness. Admin context may see draft rows labeled `Supplier draft — not ready for checkout`.
 3. Customer sends `/product <handle_or_id>`.
    - Bot looks up the product by direct Store API product path and by handle-filtered listing.
    - Bot returns title, price, availability hint, supplier/public metadata hint, product URL, and checkout URL.
@@ -185,7 +185,7 @@ Product discovery is public-read only and source-backed:
 - Price is displayed only when the public product payload exposes price data.
 - Availability is displayed only as public-safe storefront/inventory guidance; Telegram never invents supplier stock.
 - Supplier is displayed only when public product metadata provides a supplier/source signal.
-- Demo/sample/mock products are labeled `DEMO` and block first-real-checkout readiness with `real_supplier_product_missing`.
+- Demo/sample/mock products are labeled `DEMO`, and CJ/supplier drafts are labeled `Supplier draft — not ready for checkout`. Both block first-real-checkout readiness with `real_supplier_product_missing`; only `verified_for_checkout` products are customer-checkout candidates.
 
 ### What customers can do in Telegram
 
