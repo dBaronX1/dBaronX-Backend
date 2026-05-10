@@ -138,7 +138,8 @@ for (const file of files) {
   const lines = text.split(/\r?\n/);
   lines.forEach((line, index) => {
     const lineNumber = index + 1;
-    if (/^(<<<<<<<|=======|>>>>>>>)($|\s)/.test(line)) {
+    const conflictMarkerPattern = new RegExp(`^(${['<'.repeat(7), '='.repeat(7), '>'.repeat(7)].join('|')})($|\\s)`);
+    if (conflictMarkerPattern.test(line)) {
       conflictMarkersFound.push({ file, line: lineNumber, marker: line.trim().slice(0, 40) });
     }
 

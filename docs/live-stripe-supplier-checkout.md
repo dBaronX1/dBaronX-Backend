@@ -45,7 +45,7 @@ The web app must never receive `STRIPE_SECRET_KEY`, `STRIPE_WEBHOOK_SECRET`, `CJ
 - `sk_live_*` creates live-mode Checkout Sessions such as `cs_live_*`.
 - Any other secret-key prefix is treated as `unknown` and must be corrected before relying on the result.
 
-The first controlled Stripe checkout requires all Stripe values to be test-mode values from the same Stripe environment: `STRIPE_SECRET_KEY=sk_test_*` on the API service, `NEXT_PUBLIC_STRIPE_PUBLIC_KEY=pk_test_*` on the web service, and `STRIPE_WEBHOOK_SECRET=whsec_*` from the matching test-mode webhook endpoint. Do not mix `sk_live_*`, `pk_test_*`, or a live `whsec_*` in one controlled test run. If a controlled test request asks for `checkoutMode: "test"` while the API has an `sk_live_*` secret key, the API must block Checkout Session creation with `stripe_live_key_used_for_test_checkout` and must not return a `checkoutUrl` or `sessionId`.
+The first controlled Stripe checkout requires all Stripe values to be test-mode values from the same Stripe environment: `STRIPE_SECRET_KEY` set to a test-mode `sk_test_*` value on the API service, `NEXT_PUBLIC_STRIPE_PUBLIC_KEY=pk_test_*` on the web service, and `STRIPE_WEBHOOK_SECRET` set to the matching test-mode `whsec_*` value from the matching test-mode webhook endpoint. Do not mix `sk_live_*`, `pk_test_*`, or a live `whsec_*` in one controlled test run. If a controlled test request asks for `checkoutMode: "test"` while the API has an `sk_live_*` secret key, the API must block Checkout Session creation with `stripe_live_key_used_for_test_checkout` and must not return a `checkoutUrl` or `sessionId`.
 
 Live checkout is still supported for future production use, but it must be explicitly requested with `checkoutMode: "live"` and the API environment must set `ALLOW_LIVE_STRIPE_CHECKOUT` to `true`. Without that explicit allowance, readiness reports `stripe_live_key_present_without_live_checkout_allowance` when an `sk_live_*` key is present.
 
@@ -307,7 +307,9 @@ The settlement storage readiness endpoint is `GET /api/checkout/stripe/settlemen
 Before repeating paid Stripe tests, prove storage readiness from an operator shell:
 
 ```bash
-API_URL=https://dbaronx-api-unified.onrender.com INTERNAL_SERVICE_TOKEN=... node scripts/e2e-stripe-post-payment-settlement-smoke.mjs
+API_URL=https://dbaronx-api-unified.onrender.com \
+INTERNAL_SERVICE_TOKEN= \
+node scripts/e2e-stripe-post-payment-settlement-smoke.mjs
 ```
 
 If the smoke reports `settlementStorageReady: false`, `migrationActionRequired: true`, or non-empty `missingSettlementTables`, perform the SQL migration manually:
@@ -335,7 +337,13 @@ Use replay only after the Supabase storage readiness endpoint reports no missing
 7. Rerun:
 
 ```bash
-API_URL=https://dbaronx-api-unified.onrender.com INTERNAL_SERVICE_TOKEN=... STRIPE_SESSION_ID=cs_test_... CART_ID=cart_... ORDER_REF=stripe-controlled-... CHECKOUT_REF=stripe-controlled-... node scripts/e2e-stripe-post-payment-settlement-smoke.mjs
+API_URL=https://dbaronx-api-unified.onrender.com \
+INTERNAL_SERVICE_TOKEN= \
+STRIPE_SESSION_ID=cs_test_... \
+CART_ID=cart_... \
+ORDER_REF=stripe-controlled-... \
+CHECKOUT_REF=stripe-controlled-... \
+node scripts/e2e-stripe-post-payment-settlement-smoke.mjs
 ```
 
 A fresh checkout is also valid after migration. Do not mark paid from the frontend success redirect, do not mark paid from an unsigned webhook, and do not mark paid while the storage readiness endpoint reports missing tables. `paymentMarkedPaid` can become `true` only when the API has verified the Stripe signature for `checkout.session.completed`, persisted the durable row in `app_public.stripe_webhook_events`, and stored the matching verified economic event in `app_public.economic_events`. This signed evidence requirement protects against forged client redirects, replay ambiguity before idempotency storage exists, and double-settlement.
@@ -524,7 +532,7 @@ Only open `checkoutUrl` when the smoke reports all of the following: `stripeSecr
 
 Controlled first-transaction smokes must create Stripe **test-mode** Checkout Sessions. A valid controlled test session has a `sessionId` beginning with `cs_test_`; only that mode may be used with Stripe test cards such as `4242 4242 4242 4242`.
 
-A `sessionId` beginning with `cs_live_` is live-money mode. Do **not** open or pay a `cs_live_*` Checkout URL for test-card validation. If the first Stripe smoke returns `stripeSessionModeDetected: "live"`, the smoke reports `stripe_live_session_returned_for_test_smoke` and the manual step is: “Do not open/pay this live session for test-card validation. Configure `STRIPE_SECRET_KEY=sk_test_...` and `STRIPE_WEBHOOK_SECRET` from a test webhook endpoint, redeploy, and rerun.”
+A `sessionId` beginning with `cs_live_` is live-money mode. Do **not** open or pay a `cs_live_*` Checkout URL for test-card validation. If the first Stripe smoke returns `stripeSessionModeDetected: "live"`, the smoke reports `stripe_live_session_returned_for_test_smoke` and the manual step is: “Do not open/pay this live session for test-card validation. Configure `STRIPE_SECRET_KEY` to a test-mode `sk_test_*` value and `STRIPE_WEBHOOK_SECRET` from a test webhook endpoint, redeploy, and rerun.”
 
 The API also rejects a request with `checkoutMode: "test"` when the configured Stripe key is detected as live mode, returning the blocker `stripe_live_key_used_for_test_checkout`. Legitimate live checkout remains supported for explicit `checkoutMode: "live"`; `ALLOW_LIVE_STRIPE_CHECKOUT_FOR_SMOKE=true` is only an explicit smoke override and must not be used for controlled test-card validation.
 
@@ -636,3 +644,36 @@ Do not enable live Stripe money mode until all of these are true in test mode:
 - If `TELEGRAM_BOT_TOKEN` appears in logs, rotate it immediately, redeploy the bot with the new token, and re-register the webhook at `https://<bot-public-host>/webhook/telegram`.
 - Configure `BOT_PUBLIC_BASE_URL` or `TELEGRAM_BOT_PUBLIC_BASE_URL` to the public bot origin; the webhook path remains `/webhook/telegram`. Configure `TELEGRAM_ALLOWED_ADMIN_IDS` as comma-separated numeric Telegram user IDs before using protected ops commands.
 - Claim payment/order settled only when signed Stripe webhook evidence, verified Stripe event storage, economic event persistence, payment record linkage, duplicate webhook safety, and Medusa order sync proof are all returned by backend proof endpoints.
+
+## Telegram ops continuity for the first controlled transaction
+
+Telegram readiness is required for production-control confidence but does not control whether a test-mode Stripe Checkout URL is safe to open. `checkoutSafeToOpen` remains governed by the Stripe/Medusa/API smoke result and requires a `cs_test_*` session. `telegramOpsReady` requires the bot `/ready` contract to report success plus configured admin guard, webhook secret, internal token, bot public URL, API, FastAPI, Medusa, webhook endpoint compatibility, and no secret leak detection.
+
+Run these commands from a private terminal with shell tracing disabled. Never print token-bearing Telegram URLs:
+
+```bash
+set +x
+BOT_PUBLIC_BASE_URL=https://<bot-public-host> \
+TELEGRAM_BOT_TOKEN= \
+TELEGRAM_WEBHOOK_SECRET= \
+node scripts/telegram-set-webhook.mjs
+
+BOT_PUBLIC_BASE_URL=https://<bot-public-host> \
+TELEGRAM_BOT_TOKEN= \
+node scripts/telegram-webhook-info.mjs
+
+BOT_BASE_URL=https://<bot-public-host> \
+API_BASE_URL=https://dbaronx-api-unified.onrender.com \
+FASTAPI_BASE_URL=<current FastAPI URL> \
+MEDUSA_BASE_URL=https://dbaronx-medusa.onrender.com \
+node scripts/e2e-telegram-bot-live-readiness-smoke.mjs
+
+BOT_BASE_URL=https://<bot-public-host> \
+API_BASE_URL=https://dbaronx-api-unified.onrender.com \
+FASTAPI_BASE_URL=<current FastAPI URL> \
+MEDUSA_BASE_URL=https://dbaronx-medusa.onrender.com \
+INTERNAL_SERVICE_TOKEN= \
+node scripts/e2e-first-transaction-with-telegram-ops-smoke.mjs
+```
+
+The Telegram commands verified for first-transaction continuity are `/status`, `/payments_status`, `/stripe_storage`, `/stripe_first_tx_status`, `/stripe_settlement <session>`, `/medusa_status`, and `/commerce_status`. They are read-only/proof-only and must not mark paid, settle orders, approve payouts, credit wallets, fulfill orders, import suppliers, fake paid state, fake reward state, or override live money safety.

@@ -24,8 +24,8 @@ This address is safe to render in checkout and QR codes. It must be the same rec
 ```bash
 SOLANA_RPC_URL=<server-only Solana RPC URL>
 DBX_TOKEN_MINT=<DBX SPL-token mint>
-INTERNAL_SERVICE_TOKEN=<NestJS-to-FastAPI shared internal token>
-SUPABASE_SERVICE_ROLE_KEY=<server-only Supabase service role key>
+INTERNAL_SERVICE_TOKEN=
+SUPABASE_SERVICE_ROLE_KEY=
 FASTAPI_BASE_URL=<internal FastAPI base URL>
 ```
 

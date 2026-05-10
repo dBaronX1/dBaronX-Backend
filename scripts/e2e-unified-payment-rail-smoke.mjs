@@ -253,7 +253,7 @@ function stripeSessionModeFromId(sessionId) {
 }
 
 function liveSessionTestModeWarning() {
-  return "Do not open/pay this live session for test-card validation. Configure STRIPE_SECRET_KEY=sk_test_... and STRIPE_WEBHOOK_SECRET from a test webhook endpoint, redeploy, and rerun. Only set ALLOW_LIVE_STRIPE_SMOKE=true for an explicitly approved live smoke.";
+  return "Do not open/pay this live session for test-card validation. Configure STRIPE_SECRET_KEY to a test-mode sk_test_* value and STRIPE_WEBHOOK_SECRET from a test webhook endpoint, redeploy, and rerun. Only set ALLOW_LIVE_STRIPE_SMOKE=true for an explicitly approved live smoke.";
 }
 
 function normalizeStripeKeyMode(value) {

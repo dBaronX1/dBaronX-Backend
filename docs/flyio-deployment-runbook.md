@@ -47,14 +47,27 @@ fly deploy --config apps/medusa/fly.toml --remote-only
 Set per app (examples):
 
 ```bash
-fly secrets set SUPABASE_URL=... SUPABASE_SERVICE_ROLE_KEY=... --app dbaronx-services-fastapi
-fly secrets set INTERNAL_SERVICE_TOKEN=... DBX_RPC_URL=... --app dbaronx-services-fastapi
+fly secrets set SUPABASE_URL=... \
+  SUPABASE_SERVICE_ROLE_KEY= \
+  --app dbaronx-services-fastapi
+fly secrets set DBX_RPC_URL=... \
+  INTERNAL_SERVICE_TOKEN= \
+  --app dbaronx-services-fastapi
 
-fly secrets set SUPABASE_URL=... SUPABASE_SERVICE_ROLE_KEY=... JWT_SECRET=... --app dbaronx-nestjs-api
-fly secrets set INTERNAL_SERVICE_TOKEN=... FASTAPI_BASE_URL=... --app dbaronx-nestjs-api
+fly secrets set SUPABASE_URL=... JWT_SECRET=... \
+  SUPABASE_SERVICE_ROLE_KEY= \
+  --app dbaronx-nestjs-api
+fly secrets set FASTAPI_BASE_URL=... \
+  INTERNAL_SERVICE_TOKEN= \
+  --app dbaronx-nestjs-api
 
-fly secrets set TELEGRAM_BOT_TOKEN=... TELEGRAM_WEBHOOK_SECRET=... --app dbaronx-telegram-bot
-fly secrets set NESTJS_BASE_URL=... FASTAPI_BASE_URL=... INTERNAL_SERVICE_TOKEN=... --app dbaronx-telegram-bot
+fly secrets set \
+  TELEGRAM_BOT_TOKEN= \
+  TELEGRAM_WEBHOOK_SECRET= \
+  --app dbaronx-telegram-bot
+fly secrets set NESTJS_BASE_URL=... FASTAPI_BASE_URL=... \
+  INTERNAL_SERVICE_TOKEN= \
+  --app dbaronx-telegram-bot
 
 fly secrets set NEXT_PUBLIC_SUPABASE_URL=... NEXT_PUBLIC_SUPABASE_ANON_KEY=... --app dbaronx-web
 fly secrets set NEXT_PUBLIC_API_BASE_URL=... --app dbaronx-web

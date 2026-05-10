@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import logging
+from datetime import UTC, datetime
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI, Header, HTTPException, Request
@@ -36,7 +37,7 @@ async def lifespan(_app: FastAPI):
     await _ensure_telegram_runtime_started()
     blockers = settings.startup_blockers()
     logger.info(
-        "Route status: webhook path=/webhook health path=/health ready path=/ready telegramRuntimeStarted=%s startupBlockers=%s",
+        "Route status: webhook path=/webhook/telegram compatPath=/webhook health path=/health ready path=/ready telegramRuntimeStarted=%s startupBlockers=%s",
         telegram_app_started,
         blockers,
     )
@@ -57,30 +58,38 @@ app = FastAPI(
 
 @app.get("/health")
 async def health() -> dict[str, object]:
+    blockers = settings.startup_blockers()
     return {
         "success": True,
         "service": settings.APP_NAME,
         "environment": settings.ENVIRONMENT,
         "telegramRuntimeStarted": telegram_app_started,
-        "blockers": settings.startup_blockers(),
+        "blockers": blockers,
+        "readyPath": "/ready",
+        "healthPath": "/health",
+        "webhookPath": "/webhook/telegram",
+        "timestamp": _utc_timestamp(),
     }
 
 
 @app.get("/ready")
 async def ready() -> dict[str, object]:
-    if not telegram_app_started:
-        raise HTTPException(status_code=503, detail="telegram runtime not started")
-    return {"ok": True, "telegramRuntimeStarted": True}
+    payload = settings.readiness_flags(telegram_runtime_started=telegram_app_started)
+    payload["timestamp"] = _utc_timestamp()
+    return payload
 
 
 async def _process_telegram_webhook(
     request: Request,
     x_telegram_bot_api_secret_token: str | None = Header(default=None),
-) -> dict[str, bool]:
+) -> dict[str, object]:
     if settings.ENABLE_WEBHOOK_SIGNATURE_CHECK:
         expected = settings.TELEGRAM_WEBHOOK_SECRET
         if not expected or x_telegram_bot_api_secret_token != expected:
             raise HTTPException(status_code=403, detail="invalid webhook secret")
+
+    if request.headers.get("x-dbx-webhook-probe", "").lower() == "true":
+        return {"ok": True, "probe": True}
 
     body = await request.body()
     if len(body) > settings.MAX_WEBHOOK_BODY_BYTES:
@@ -95,6 +104,8 @@ async def _process_telegram_webhook(
         raise HTTPException(status_code=400, detail="invalid webhook payload")
 
     await _ensure_telegram_runtime_started()
+    if not telegram_app_started:
+        raise HTTPException(status_code=503, detail="telegram runtime not started")
     update = Update.de_json(payload, telegram_app.bot)
     await telegram_app.process_update(update)
     return {"ok": True}
@@ -104,7 +115,7 @@ async def _process_telegram_webhook(
 async def telegram_webhook_telegram(
     request: Request,
     x_telegram_bot_api_secret_token: str | None = Header(default=None),
-) -> dict[str, bool]:
+) -> dict[str, object]:
     return await _process_telegram_webhook(request, x_telegram_bot_api_secret_token)
 
 
@@ -112,5 +123,9 @@ async def telegram_webhook_telegram(
 async def telegram_webhook_compat(
     request: Request,
     x_telegram_bot_api_secret_token: str | None = Header(default=None),
-) -> dict[str, bool]:
+) -> dict[str, object]:
     return await _process_telegram_webhook(request, x_telegram_bot_api_secret_token)
+
+
+def _utc_timestamp() -> str:
+    return datetime.now(UTC).isoformat()

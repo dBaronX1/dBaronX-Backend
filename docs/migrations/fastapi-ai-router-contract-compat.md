@@ -47,5 +47,5 @@ This keeps the stronger canonical service flow intact while reducing client brea
 
 ## Validation run
 - `python -m compileall apps/services-fastapi/src`
-- `INTERNAL_SERVICE_TOKEN=local-dev-internal-token PYTHONPATH=apps/services-fastapi/src python -m uvicorn main:app --host 127.0.0.1 --port 8099` (startup verification)
+- `PYTHONPATH=apps/services-fastapi/src python -m uvicorn main:app --host 127.0.0.1 --port 8099 # set INTERNAL_SERVICE_TOKEN in env` (startup verification)
 - `git ls-files .dbx-source`
