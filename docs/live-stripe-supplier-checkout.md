@@ -677,3 +677,31 @@ node scripts/e2e-first-transaction-with-telegram-ops-smoke.mjs
 ```
 
 The Telegram commands verified for first-transaction continuity are `/status`, `/payments_status`, `/stripe_storage`, `/stripe_first_tx_status`, `/stripe_settlement <session>`, `/medusa_status`, and `/commerce_status`. They are read-only/proof-only and must not mark paid, settle orders, approve payouts, credit wallets, fulfill orders, import suppliers, fake paid state, fake reward state, or override live money safety.
+
+## Telegram customer discovery to Stripe checkout handoff
+
+The Telegram customer bot is now a read-only discovery and guidance surface for the first real checkout path. It does not create checkout sessions directly and it does not write money, fulfillment, wallet, payout, or supplier-import state.
+
+Customer path:
+
+1. `/shop` returns the storefront URL, product listing URL, `/products` instruction, and support path.
+2. `/products` reads public products from Medusa Store API and returns up to five Telegram-readable entries with title, public price when available, availability hint, and product URL.
+3. `/product <handle_or_id>` looks up the product by public Store API ID/path or handle-filtered listing and returns the product URL/checkout URL for the web storefront.
+4. Customer opens the web product page, uses the web cart, and pays through Stripe-hosted checkout.
+5. Backend accepts payment proof only from signed Stripe webhook evidence.
+6. `/payment_status <checkout_session_or_order_ref>` reads the backend settlement-status endpoint and returns only `pending_verification`, `paid_verified`, `not_found`, or `support_required` to customers.
+7. `/order_status <order_or_email_or_reference>` returns public-safe support guidance when no safe public fulfillment proof exists.
+
+First-real-transaction blocker behavior:
+
+- Demo/sample/mock products are labeled `DEMO`.
+- If only demo products are visible, or no product exposes a public supplier/source signal, Telegram returns `real_supplier_product_missing`.
+- Telegram never fakes supplier availability, paid state, or fulfilled state to make the flow look ready.
+
+Run the static customer journey smoke before manual customer testing:
+
+```bash
+node scripts/e2e-telegram-customer-first-checkout-journey-smoke.mjs
+```
+
+Proceed to a real customer only after the smoke passes and a non-DEMO supplier product is visible through Medusa and the web storefront.

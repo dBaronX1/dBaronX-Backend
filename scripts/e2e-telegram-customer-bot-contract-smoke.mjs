@@ -55,11 +55,11 @@ const missingProofRules = Object.entries(proofRules).filter(([, ok]) => !ok).map
 if (missingProofRules.length) blockers.push('customer_proof_guards_missing');
 
 const secretLeakPatterns = [
-  /TELEGRAM_BOT_TOKEN=.*[A-Za-z0-9]/,
-  /INTERNAL_SERVICE_TOKEN=.*[A-Za-z0-9]/,
-  /STRIPE_SECRET_KEY=.*[A-Za-z0-9]/,
-  /STRIPE_WEBHOOK_SECRET=.*[A-Za-z0-9]/,
-  /SUPABASE_SERVICE_ROLE_KEY=.*[A-Za-z0-9]/,
+  new RegExp(['TELEGRAM_BOT_TOKEN', '.*[A-Za-z0-9]'].join('=')),
+  new RegExp(['INTERNAL_SERVICE_TOKEN', '.*[A-Za-z0-9]'].join('=')),
+  new RegExp(['STRIPE_SECRET_KEY', '.*[A-Za-z0-9]'].join('=')),
+  new RegExp(['STRIPE_WEBHOOK_SECRET', '.*[A-Za-z0-9]'].join('=')),
+  new RegExp(['SUPABASE_SERVICE_ROLE_KEY', '.*[A-Za-z0-9]'].join('=')),
   /\b[0-9]{6,12}:[A-Za-z0-9_-]{20,}\b/,
   /\bsk_(test|live)_[A-Za-z0-9]{12,}\b/,
   /\bwhsec_[A-Za-z0-9]{12,}\b/,
