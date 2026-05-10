@@ -626,3 +626,13 @@ Do not enable live Stripe money mode until all of these are true in test mode:
 - Duplicate Stripe event delivery is idempotent and does not double-settle.
 - Medusa order/cart completion produces a real Medusa order ID or another durable sync proof.
 - No secrets are exposed in web env, logs, smoke output, docs, or committed files.
+
+
+## First controlled Stripe test transaction
+
+- Use Stripe test keys only; the controlled smoke may open Checkout only when `stripeSessionModeDetected` is `test`, `stripeSessionModeAllowed=true`, `checkoutSafeToOpen=true`, and the session ID starts with `cs_test_`.
+- A `cs_live_*` session is blocked for controlled smoke unless `ALLOW_LIVE_STRIPE_SMOKE=true`; do not use that override for the first test transaction.
+- Telegram is read-only/proof-only for payment settlement. Use `/stripe_first_tx_status`, `/stripe_storage`, `/stripe_settlement <cs_test_or_cs_live_session_id>`, `/payments_status`, `/medusa_status`, and `/commerce_status` for visibility only.
+- If `TELEGRAM_BOT_TOKEN` appears in logs, rotate it immediately, redeploy the bot with the new token, and re-register the webhook at `https://<bot-public-host>/webhook/telegram`.
+- Configure `BOT_PUBLIC_BASE_URL` or `TELEGRAM_BOT_PUBLIC_BASE_URL` to the public bot origin; the webhook path remains `/webhook/telegram`. Configure `TELEGRAM_ALLOWED_ADMIN_IDS` as comma-separated numeric Telegram user IDs before using protected ops commands.
+- Claim payment/order settled only when signed Stripe webhook evidence, verified Stripe event storage, economic event persistence, payment record linkage, duplicate webhook safety, and Medusa order sync proof are all returned by backend proof endpoints.

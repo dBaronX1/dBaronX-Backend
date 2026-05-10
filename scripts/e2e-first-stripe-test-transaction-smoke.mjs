@@ -437,6 +437,9 @@ const out = {
   sessionId: null,
   stripeSessionModeDetected: "unknown",
   stripeSessionModeAllowed: false,
+  checkoutSafeToOpen: false,
+  settlementSafeToClaim: false,
+  telegramOpsReady: false,
   checkoutUrl: null,
   checkoutUrlPresent: false,
   stripeHostedCheckoutUrl: false,
@@ -1008,6 +1011,14 @@ out.orderSyncReady =
   previewProbe.ok &&
   preview.orderSyncReady === true &&
   out.orderSyncPreviewBlockers.length === 0;
+out.settlementSafeToClaim = Boolean(
+  out.verifiedStripeEventReady &&
+    out.paymentRecordReady &&
+    out.medusaOrderCompletionReady &&
+    out.orderSyncReady &&
+    out.duplicateWebhookSafe &&
+    out.settlementStatus === "settled",
+);
 if (previewProbe.status === 404)
   addBlocker("order_sync_preview_route_missing", "settlement");
 else if ([401, 403].includes(previewProbe.status)) {
@@ -1069,6 +1080,25 @@ if (dryRun.paymentMarkedPaid === true || dryRun.orderCompleted === true)
   addBlocker("economic_dry_run_mutated_paid_or_order_state", "settlement");
 
 out.settlementBlockers = blockers.filter(isSettlementBlocker);
+out.checkoutBlockers = checkoutBlockers;
+out.checkoutSafeToOpen = Boolean(
+  out.checkoutSessionCreated &&
+    out.stripeHostedCheckoutUrl &&
+    out.stripeSessionModeDetected === "test" &&
+    out.stripeSessionModeAllowed === true &&
+    out.shippingOptionReady === true &&
+    out.unsignedWebhookRejected === true &&
+    checkoutBlockers.length === 0,
+);
+out.telegramOpsReady = Boolean(
+  out.apiReady &&
+    out.paymentReadinessReady &&
+    out.stripeConfigured &&
+    out.stripeWebhookConfigured &&
+    out.unsignedWebhookRejected,
+);
+if (out.stripeSessionModeDetected === "live" && !ALLOW_LIVE_STRIPE_SMOKE)
+  out.checkoutSafeToOpen = false;
 out.success = blockers.length === 0;
 if (
   blockers.includes("medusa_publishable_key_placeholder_not_replaced") ||
@@ -1091,13 +1121,7 @@ if (
   out.nextManualStep =
     "Stripe test checkout is ready, but do not open it until Medusa Store API returns a real shipping option.";
 } else if (
-  out.stripeSessionModeDetected === "test" &&
-  out.stripeSessionModeAllowed === true &&
-  out.stripeHostedCheckoutUrl === true &&
-  out.checkoutSessionCreated === true &&
-  out.shippingOptionReady === true &&
-  out.unsignedWebhookRejected === true &&
-  checkoutBlockers.length === 0
+  out.checkoutSafeToOpen === true
 ) {
   out.nextManualStep =
     "Checkout test URL is safe to open for Stripe test-card validation. Configure the Stripe Dashboard test webhook to post checkout.session.completed to the API, pay with a Stripe test card, then rerun with STRIPE_SESSION_ID or CHECKOUT_SESSION_ID to verify durable payment evidence and Medusa completion state.";

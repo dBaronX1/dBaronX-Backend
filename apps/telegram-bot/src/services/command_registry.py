@@ -36,6 +36,7 @@ _COMMANDS: tuple[CommandSpec, ...] = (
     CommandSpec("orders_status", "Order sync/admin readiness", Role.OPS, "api", "protected_read", "commerce"),
     CommandSpec("payments_status", "Payment readiness", Role.OPS, "api", "protected_read", "payments"),
     CommandSpec("stripe_status", "Stripe checkout readiness", Role.OPS, "api", "protected_read", "payments"),
+    CommandSpec("stripe_first_tx_status", "First Stripe test transaction proof status", Role.OPS, "api", "protected_read", "payments"),
     CommandSpec("stripe_storage", "Stripe settlement storage readiness", Role.ADMIN, "api", "protected_read", "payments"),
     CommandSpec("stripe_settlement", "Stripe settlement proof by checkout session", Role.ADMIN, "api", "protected_read", "payments"),
     CommandSpec("dbx_status", "DBX payment readiness", Role.OPS, "api", "protected_read", "payments"),
