@@ -1,324 +1,153 @@
-# dBaronX Telegram Bot Control Surface
+# Telegram bot control surface and customer transaction path
 
-The Telegram bot is the mobile-first control, alerting, admin command, and operational diagnostics surface for dBaronX. It does **not** duplicate economic/business logic:
+## Live deployment port contract
 
-- NestJS API remains the payment, wallet, supplier, payout, commerce, and economic-event brain.
-- FastAPI remains the intelligence/risk/AI verification surface.
-- Medusa remains the commerce engine.
-- Supabase remains persistence through approved backend services.
-- Telegram never stores or displays secrets.
+Canonical Telegram bot port is **8080**.
 
-## Runtime architecture
+- Fly `apps/telegram-bot/fly.toml` sets `[env] PORT = "8080"`.
+- Fly `apps/telegram-bot/fly.toml` sets `[http_service].internal_port = 8080`.
+- Docker exposes `8080` and starts Uvicorn with `--host 0.0.0.0 --port ${PORT:-8080}`.
+- FastAPI health check path is `GET /health`.
+- Readiness remains available at `GET /ready`.
+- Telegram webhook path is `POST /webhook/telegram`; compatibility path `POST /webhook` remains available.
 
-The bot preserves the existing FastAPI + `python-telegram-bot` webhook architecture:
+Expected public webhook URL:
 
-- HTTP service: `apps/telegram-bot/src/main.py`
-- Telegram webhook endpoints: `POST /webhook/telegram` and compatibility `POST /webhook`
-- Health endpoints: `GET /health` and `GET /ready`
-- Handler registration: `apps/telegram-bot/src/app/router.py`
-- Central command registry: `apps/telegram-bot/src/services/command_registry.py`
-- Resilient backend HTTP client: `apps/telegram-bot/src/shared/http/http_client.py`
-
-The container binds to `0.0.0.0` and reads `PORT` from the runtime environment.
-
-## Required environment variables
-
-Set these in Render/Fly or the active deployment platform. Values below are names only; never commit real values.
-
-```env
-TELEGRAM_BOT_TOKEN=
-TELEGRAM_WEBHOOK_SECRET=
-TELEGRAM_ALLOWED_ADMIN_IDS=
-TELEGRAM_ADMIN_ROLES=
-TELEGRAM_BOT_PUBLIC_BASE_URL=
-BOT_PUBLIC_BASE_URL=
-API_BASE_URL=
-FASTAPI_BASE_URL=
-MEDUSA_BASE_URL=
-INTERNAL_SERVICE_TOKEN=
-BOT_ENV=production
+```text
+https://<bot-host>/webhook/telegram
 ```
 
-Recommended production URLs:
-
-- `API_BASE_URL=https://dbaronx-api-unified.onrender.com`
-- `MEDUSA_BASE_URL=https://dbaronx-medusa.onrender.com`
-- `FASTAPI_BASE_URL=<current FastAPI URL>`
-
-`TELEGRAM_ADMIN_ROLES` is optional and accepts comma-separated `telegramUserId:ROLE` entries, where role is one of `OWNER`, `ADMIN`, `OPS`, or `VIEWER`. If omitted, every ID in `TELEGRAM_ALLOWED_ADMIN_IDS` is treated as `OWNER`.
-
-## Webhook setup
-
-1. Deploy the bot with the env vars above.
-2. Confirm `GET /health` reports no startup blockers.
-3. Confirm `GET /ready` is green after the Telegram runtime starts.
-4. Register the Telegram webhook to `https://<bot-public-host>/webhook/telegram`.
-5. Use `TELEGRAM_WEBHOOK_SECRET` as Telegram's `secret_token` so Telegram sends `x-telegram-bot-api-secret-token`.
-6. Keep `ENABLE_WEBHOOK_SIGNATURE_CHECK=true` in production.
-
-### Safe helper scripts
-
-Use the repository helper when possible so the bot token is never printed. If `TELEGRAM_BOT_TOKEN` ever appears in logs, screenshots, tickets, or chat, rotate the token immediately in BotFather, update the runtime secret store, redeploy, and re-register the webhook:
+Fly deploy command:
 
 ```bash
-export TELEGRAM_BOT_TOKEN
-export TELEGRAM_WEBHOOK_SECRET
-BOT_PUBLIC_BASE_URL=https://<bot-public-host> node scripts/telegram-set-webhook.mjs
-node scripts/telegram-webhook-info.mjs
+fly deploy --config apps/telegram-bot/fly.toml --app dbaronx-telegram-bot
 ```
 
-`BOT_PUBLIC_BASE_URL` is the public HTTPS origin for the deployed bot, for example `https://<bot-public-host>`. `TELEGRAM_BOT_PUBLIC_BASE_URL` is the equivalent deployment-specific alias; either variable may be used and both resolve to the webhook URL `https://<bot-public-host>/webhook/telegram`. The helper sends Telegram that webhook URL and the `secret_token` value, but it prints only `https://api.telegram.org/bot<redacted>/...` for Telegram API calls.
-
-### Raw Telegram API commands
-
-Prefer the helper scripts above. If manual setup is unavoidable, use a local shell variable and disable shell tracing before running any command. Never paste a token-bearing Telegram URL into logs, tickets, screenshots, or committed files; display it only as `https://api.telegram.org/bot<redacted>/...`.
-
-Set the webhook with the public webhook URL `https://<bot-public-host>/webhook/telegram`:
+Webhook set command after deploy and token rotation:
 
 ```bash
-set +x
-telegram_api="https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}"
-curl -sS -X POST "${telegram_api}/setWebhook" \
-  -H "Content-Type: application/json" \
-  -d '{"url":"https://<bot-public-host>/webhook/telegram","secret_token":"'"${TELEGRAM_WEBHOOK_SECRET}"'","allowed_updates":["message","callback_query"],"drop_pending_updates":false}' >/tmp/telegram-set-webhook.json
-node -e 'const fs=require("fs"); const p=JSON.parse(fs.readFileSync("/tmp/telegram-set-webhook.json","utf8")); delete p.result?.url; console.log(JSON.stringify(p,null,2));'
-rm -f /tmp/telegram-set-webhook.json
+TELEGRAM_BOT_PUBLIC_BASE_URL=https://<bot-host> \
+TELEGRAM_WEBHOOK_URL=https://<bot-host>/webhook/telegram \
+node scripts/telegram-set-webhook.mjs
 ```
 
-Delete the webhook or inspect webhook info only from a private terminal with `set +x`; do not print the expanded `telegram_api` variable.
+If a Telegram token appeared in logs, rotate it immediately in BotFather, replace only the runtime secret value, redeploy the bot, and re-register the webhook. Never paste token values into logs, docs, shell history, screenshots, issue comments, or smoke output.
 
-`TELEGRAM_WEBHOOK_SECRET` must be a high-entropy value stored only in the runtime secret store. Telegram stores it during `setWebhook` and includes the same value in the `x-telegram-bot-api-secret-token` header on webhook deliveries. The bot rejects webhook requests when `ENABLE_WEBHOOK_SIGNATURE_CHECK=true` and the header does not match.
+## Deployment order after every fix
 
-## Admin authorization
+1. NestJS API
+2. Medusa
+3. Telegram bot
+4. Web frontend
+5. FastAPI only if changed
 
-Only Telegram user IDs listed in `TELEGRAM_ALLOWED_ADMIN_IDS` are allowed. Unauthorized users receive a safe denial message. The bot logs only audit-safe data: command name, hashed Telegram user ID, timestamp, and result.
+## Role split
 
-To get a numeric Telegram user ID safely:
+The bot is not admin-only. Public customer commands are available to non-admin Telegram users. Admin/ops commands remain protected by `TELEGRAM_ALLOWED_ADMIN_IDS`, optional `TELEGRAM_ADMIN_USERNAMES`, optional `TELEGRAM_ADMIN_CHAT_IDS`, and optional `TELEGRAM_ADMIN_ROLES`.
 
-1. In Telegram, send a message to `@userinfobot`, `@RawDataBot`, or another trusted ID utility bot and copy only the numeric `id` field.
-2. Alternatively, temporarily inspect a sanitized Telegram update in a private development environment and copy `message.from.id`. Do not log message text, bot tokens, webhook secrets, or production customer data.
-3. Store the IDs as a comma-separated runtime secret, for example `TELEGRAM_ALLOWED_ADMIN_IDS=123456789,987654321`.
-4. Optionally set explicit roles with `TELEGRAM_ADMIN_ROLES=123456789:OWNER,987654321:OPS`. IDs without an explicit role default to `OWNER`.
-5. Redeploy the bot and run `node scripts/e2e-telegram-bot-live-readiness-smoke.mjs` with `BOT_BASE_URL`, backend base URLs, and boolean-checkable secrets in the environment.
-
-The bot never echoes:
-
-- Telegram bot tokens
-- webhook secrets
-- internal service tokens
-- Supabase service role keys
-- Stripe keys/webhook secrets
-- CJ/AliExpress credentials
-- signed URLs or credential-bearing headers
-
-## Command list
-
-### System/readiness
+### Public customer commands
 
 - `/start`
 - `/help`
+- `/shop`
+- `/products`
+- `/product <handle_or_id>`
+- `/cart_help`
+- `/checkout_help`
+- `/order_status <order_or_email_or_reference>`
+- `/payment_status <checkout_session_or_order_ref>`
+- `/support`
+- `/contact_support`
+
+Customer commands are read-only and public-safe. They may read public storefront/API status, return product/storefront links, and explain checkout/support steps. They must not expose admin readiness, internal tokens, route manifests, startup blockers, secret flags, payout queues, supplier admin data, or backend internals.
+
+If a public product/status endpoint is missing, the bot returns a useful storefront/support fallback and a blocker such as `endpoint_not_available_yet`; it does not invent a successful product, payment, or fulfillment state.
+
+### Protected admin/ops commands preserved
+
 - `/status`
-- `/health`
-- `/runtime`
-- `/launch`
-- `/routes`
-- `/env_check`
-
-### Commerce
-
-- `/commerce_status`
-- `/medusa_status`
-- `/shipping_status`
-- `/catalog_status`
-- `/orders_status`
-
-### Payments
-
 - `/payments_status`
-- `/stripe_status`
-- `/stripe_first_tx_status`
 - `/stripe_storage`
-- `/stripe_settlement <cs_test_or_cs_live_session_id>`
-- `/dbx_status`
-- `/dbx_payment <reference>`
-- `/economic_status`
-
-### Suppliers
-
+- `/stripe_first_tx_status`
+- `/stripe_settlement`
+- `/medusa_status`
+- `/commerce_status`
 - `/suppliers_status`
-- `/cj_status`
-- `/cj_import_ready <supplierProductId> <supplierSku>`
-- `/aliexpress_status`
-
-### Watch, ads, affiliate, payouts, wallet
-
-- `/ads_status`
+- `/dbx_status`
 - `/watch_status`
 - `/affiliate_status`
-- `/payouts_status`
-- `/wallet_status`
-
-### AI Stories
-
-- `/ai_status`
 - `/ai_stories_status`
-- `/story_campaigns_status`
 
-### Planned/partial modules
+Additional protected diagnostics remain available for authorized operators, including `/commands`, `/health`, `/runtime`, `/launch`, `/routes`, `/env_check`, supplier readiness commands, wallet/payout read-only status commands, and AI/system readiness commands.
 
-- `/dreams_status`
-- `/rewards_status`
-- `/subscriptions_status`
-- `/airdrop_status`
-- `/giftcards_status`
-- `/ebooks_status`
-- `/idcard_status`
+## 48-hour first real customer transaction path
 
-### Debug
+Operational goal: produce one real customer/user transaction with proof, not broad ecosystem expansion.
 
-- `/debug_status` returns raw normalized JSON and is admin-only.
+Required path:
 
-## Backend endpoints called
+1. Publish/import one approved real supplier product through the backend/admin workflow, not Telegram.
+2. Confirm Medusa/storefront can list the product through `/products` or the storefront product page.
+3. Open the product page/customer bot product link.
+4. Create Stripe Checkout only through the verified storefront/API checkout path.
+5. Complete Stripe payment in the intended mode.
+6. Verify signed Stripe webhook proof for `checkout.session.completed`.
+7. Verify payment/order record proof in the backend.
+8. Verify Telegram customer visibility with `/payment_status <checkout_session_or_order_ref>` and `/order_status <order_or_email_or_reference>`.
+9. Verify Telegram admin visibility with `/stripe_settlement <checkout_session_id>`, `/payments_status`, and `/commerce_status`.
 
-The bot calls backend readiness/orchestration endpoints rather than duplicating logic:
+Safety rules:
 
-- NestJS API:
-  - `GET /api/health`
-  - `GET /api/system/runtime-status`
-  - `GET /api/system/runtime-contract`
-  - `GET /api/system/deployment-readiness`
-  - `GET /api/system/controller-registry`
-  - `GET /api/payments/readiness`
-  - `GET /api/payments/economic-readiness`
-  - `GET /api/checkout/stripe/readiness`
-  - `GET /api/checkout/stripe/settlement-storage-readiness`
-  - `GET /api/checkout/stripe/settlement-status?sessionId=...`
-  - `GET /api/dbx-payments/:reference`
-  - `GET /api/suppliers/readiness`
-  - `GET /api/suppliers/cj/preflight`
-  - `POST /api/suppliers/cj/import-readiness`
-  - module dashboards/status endpoints when present
-- FastAPI:
-  - `GET /health`
-- Medusa:
-  - `GET /health`
-
-If a module does not yet expose a safe status endpoint, the bot returns `endpoint_not_available_yet` or `planned_or_partial` with the next backend endpoint needed. It does not invent success.
-
-## Payment safety rules
-
-Telegram is read-only/proof-only for payment settlement. It must never mark paid, completed, rewarded, fulfilled, credited, or settled. It may only display backend-returned readiness and proof.
-
-### Stripe settlement rules
-
-- Telegram never bypasses signed Stripe webhook verification.
-- `/stripe_storage` uses the internal token and reports settlement table readiness.
-- `/stripe_settlement` checks backend settlement proof by checkout session ID.
-- If storage tables are missing, next action is: apply Supabase migration, restart API, replay `checkout.session.completed`.
-- The bot does not claim a payment is settled unless the backend returns verified settlement proof.
-
-### DBX verification rules
-
-- DBX payment verification remains backend-only.
-- Telegram never fakes DBX verification.
-- `/dbx_payment <reference>` displays backend proof and status only.
-- If DBX token mint is missing, configure `DBX_TOKEN_MINT` server-side and restart the API.
-
-## Supplier rules
-
-- No automatic massive imports from Telegram.
-- `/cj_import_ready` requires explicit `supplierProductId` and `supplierSku`.
-- Telegram only calls backend import readiness; it does not import real products in this phase.
-- No AliExpress scraping from Telegram.
+- `/payment_status` must never claim paid unless backend proof explicitly says paid.
+- `/order_status` must never claim fulfilled unless backend proof explicitly says fulfilled.
+- Telegram does not open a live money override, mark payments paid, mark orders fulfilled, credit wallets/rewards, approve payouts, settle payouts, or import supplier products.
 
 ## Unsafe actions intentionally blocked
 
-These actions are intentionally not available from Telegram in this phase:
+Telegram must not provide these actions:
 
-- approve payouts
-- settle payouts
-- credit wallets
-- settle payments
-- mark orders fulfilled
-- mark payments paid/completed
-- import real supplier products directly
-- bypass Stripe webhook verification
+- payout approval
+- payout settlement
+- wallet crediting
+- reward crediting
+- order fulfillment
+- fake paid state
+- fake fulfilled state
+- supplier import mutation
+- live money override
 
-Existing legacy payout write commands now return a blocked-action message rather than calling write endpoints.
+Legacy payout write commands return a blocked-action message instead of calling write endpoints.
 
-## Deployment commands
+## Validation and smoke commands
+
+Local/static checks:
 
 ```bash
-pnpm --filter dbaronx-api build
-pnpm --filter dbaronx-web build
-pnpm --filter @dbaronx/medusa build
-pnpm --filter @dbaronx/medusa typecheck
-python -m compileall apps/services-fastapi/src apps/telegram-bot/src || true
-node --check scripts/e2e-telegram-bot-command-contract-smoke.mjs
-node scripts/e2e-telegram-bot-command-contract-smoke.mjs
 node --check scripts/e2e-telegram-bot-live-readiness-smoke.mjs
-BOT_BASE_URL=https://<bot-public-host> API_BASE_URL=https://<api-host> MEDUSA_BASE_URL=https://<medusa-host> node scripts/e2e-telegram-bot-live-readiness-smoke.mjs
-node --check scripts/telegram-set-webhook.mjs
-node --check scripts/telegram-webhook-info.mjs
+node --check scripts/e2e-telegram-customer-bot-contract-smoke.mjs
+node scripts/e2e-telegram-customer-bot-contract-smoke.mjs
 ```
 
-## Remaining gaps before full admin operations
+Live readiness smoke:
 
-- Add backend read-only status endpoints for planned/partial modules before exposing richer Telegram diagnostics.
-- Add backend-approved preview endpoints for any future operational write before Telegram can call it.
-- Keep payout approval, settlement, wallet crediting, fulfillment, and supplier import workflows outside Telegram until backend proof/audit policies are complete.
-
-## Live response and first-transaction ops readiness contract
-
-`GET /ready` is intentionally public-safe and returns flags only. It never returns the bot token, webhook secret, internal token, or token-bearing Telegram API URLs. The required response fields are:
-
-- `success`
-- `blockers`
-- `telegramRuntimeStarted`
-- `botPublicBaseUrlPresent`
-- `telegramBotPublicBaseUrlPresent`
-- `botBaseUrlPresent`
-- `apiBaseUrlPresent`
-- `medusaBaseUrlPresent`
-- `fastapiBaseUrlPresent`
-- `adminGuardConfigured`
-- `telegramWebhookSecretPresent`
-- `internalTokenPresent`
-- `webhookPath`
-- `healthPath`
-- `readyPath`
-- `safeMode`
-- `timestamp`
-
-The bot accepts these environment aliases consistently:
-
-- Bot public origin: `BOT_PUBLIC_BASE_URL`, `TELEGRAM_BOT_PUBLIC_BASE_URL`, or `BOT_BASE_URL`.
-- Nest/API origin: `API_BASE_URL` or `API_URL`.
-- Medusa origin: `MEDUSA_BASE_URL` or `MEDUSA_URL`.
-- FastAPI origin: `FASTAPI_BASE_URL` or `FASTAPI_URL`.
-
-The canonical Telegram webhook URL is always:
-
-```text
-https://<BOT_PUBLIC_BASE_URL>/webhook/telegram
+```bash
+BOT_BASE_URL=https://<bot-host> \
+API_BASE_URL=https://<api-host> \
+MEDUSA_BASE_URL=https://<medusa-host> \
+node scripts/e2e-telegram-bot-live-readiness-smoke.mjs
 ```
 
-`POST /webhook/telegram` is canonical and `POST /webhook` remains a compatibility endpoint. When `TELEGRAM_WEBHOOK_SECRET` is configured, both endpoints require Telegram's `x-telegram-bot-api-secret-token` header. Health and readiness endpoints do not require this header.
+The live readiness smoke accepts `API_BASE_URL` or `API_URL`, `MEDUSA_BASE_URL` or `MEDUSA_URL`, and `BOT_BASE_URL`, `BOT_PUBLIC_BASE_URL`, or `TELEGRAM_BOT_PUBLIC_BASE_URL`. It prints attempted API, bot, FastAPI, and Medusa paths with HTTP statuses. It does not require `TELEGRAM_BOT_TOKEN` in the local shell when deployed `/ready` confirms the Telegram runtime is configured server-side. It redacts known token/key shapes and configured secret values.
 
-### First transaction Telegram proof commands
+First transaction combined smoke:
 
-The first controlled Stripe transaction uses Telegram for read-only proof and operator diagnostics only. The verified commands are:
+```bash
+BOT_BASE_URL=https://<bot-host> \
+API_BASE_URL=https://<api-host> \
+MEDUSA_BASE_URL=https://<medusa-host> \
+MEDUSA_PUBLISHABLE_KEY= \
+INTERNAL_SERVICE_TOKEN= \
+node scripts/e2e-first-transaction-with-telegram-ops-smoke.mjs
+```
 
-- `/status`
-- `/payments_status`
-- `/stripe_storage`
-- `/stripe_first_tx_status`
-- `/stripe_settlement <session>`
-- `/medusa_status`
-- `/commerce_status`
-
-These commands must remain proof-only. They do not mark paid, settle orders, approve payouts, credit wallets, fulfill orders, import suppliers, fake paid state, fake reward state, or override live money controls.
-
-### Token rotation rule
-
-If `TELEGRAM_BOT_TOKEN` appears in runtime logs, screenshots, chat, tickets, or terminal recordings, immediately rotate the token in BotFather, update the deployment secret store, redeploy the bot, and re-register the webhook with `scripts/telegram-set-webhook.mjs`. Helper scripts print only sanitized Telegram API endpoints such as `https://api.telegram.org/bot<redacted>/setWebhook`.
+Do not print the actual publishable/internal secret values in logs or tickets.

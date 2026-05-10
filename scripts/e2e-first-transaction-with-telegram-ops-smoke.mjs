@@ -11,6 +11,9 @@ const timeoutMs = Number.parseInt(process.env.FIRST_TRANSACTION_OPS_SMOKE_TIMEOU
 const blockers = [];
 const responseSnippets = {};
 
+const customerBotContract = runJson('telegram customer bot contract smoke', 'node', ['scripts/e2e-telegram-customer-bot-contract-smoke.mjs'], 30000);
+if (customerBotContract.status !== 0 || customerBotContract.json?.success !== true) addBlocker('telegram_customer_bot_contract_failed');
+
 const first = runJson('first stripe transaction smoke', 'node', ['scripts/e2e-first-stripe-test-transaction-smoke.mjs'], timeoutMs);
 const firstPayload = first.json || {};
 for (const blocker of array(firstPayload.checkoutBlockers)) addBlocker(blocker);
@@ -70,6 +73,10 @@ const result = {
     botAdminGuardConfigured: botReadiness?.adminGuardConfigured === true,
     botWebhookSecretConfigured: botReadiness?.webhookSecretConfigured === true,
     botInternalTokenConfigured: botReadiness?.internalTokenConfigured === true,
+    customerBotContractSuccess: customerBotContract.json?.success === true,
+    customerBotPublicCommandCount: customerBotContract.json?.publicCommandCount || 0,
+    customerBotProtectedCommandCount: customerBotContract.json?.protectedCommandCount || 0,
+    customerBotSecretLeakDetected: customerBotContract.json?.secretLeakDetected === true,
   },
   responseSnippets,
   nextManualStep: checkoutSafeToOpen

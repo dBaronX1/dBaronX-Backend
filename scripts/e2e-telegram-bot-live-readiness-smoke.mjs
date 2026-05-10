@@ -33,8 +33,20 @@ const commandRegistrySmoke = spawnSync('node', ['scripts/e2e-telegram-bot-comman
 if (commandRegistrySmoke.status !== 0) addBlocker('command_registry_smoke_failed');
 observedPayloads.push(commandRegistrySmoke.stdout || '', commandRegistrySmoke.stderr || '');
 
+const customerContractSmoke = spawnSync('node', ['scripts/e2e-telegram-customer-bot-contract-smoke.mjs'], {
+  cwd: process.cwd(),
+  encoding: 'utf8',
+  timeout: timeoutMs,
+});
+if (customerContractSmoke.status !== 0) addBlocker('customer_bot_contract_smoke_failed');
+observedPayloads.push(customerContractSmoke.stdout || '', customerContractSmoke.stderr || '');
+
 const botHealth = botBaseUrl ? await fetchJson(`${botBaseUrl}/health`) : missing('BOT_BASE_URL_missing');
 const botReadyResult = botBaseUrl ? await fetchJson(`${botBaseUrl}/ready`) : missing('BOT_BASE_URL_missing');
+const attemptedBotPaths = [
+  { path: '/health', status: botHealth.status },
+  { path: '/ready', status: botReadyResult.status },
+];
 observedPayloads.push(botHealth.raw, botReadyResult.raw);
 
 if (!botBaseUrl) addBlocker('BOT_BASE_URL_missing');
@@ -57,22 +69,29 @@ const webhookResults = botBaseUrl
     ])
   : [missing('BOT_BASE_URL_missing'), missing('BOT_BASE_URL_missing')];
 observedPayloads.push(...webhookResults.map((result) => result.raw));
+attemptedBotPaths.push(
+  { path: '/webhook/telegram', status: webhookResults[0].status },
+  { path: '/webhook', status: webhookResults[1].status },
+);
 const webhookEndpointReady = webhookResults.every((result) => result.exists);
 if (!webhookEndpointReady && botBaseUrl) addBlocker('webhook_endpoint_missing');
 
-const apiReachable = apiBaseUrl
-  ? await reachableAny(apiBaseUrl, ['/health', '/api/health'])
-  : Boolean(botReadyResult.json?.apiBaseUrlPresent);
+const apiAttempt = apiBaseUrl
+  ? await attemptPaths(apiBaseUrl, ['/health', '/api/health'])
+  : { reachable: Boolean(botReadyResult.json?.apiBaseUrlPresent), attempts: [] };
+const apiReachable = apiAttempt.reachable;
 if (!apiReachable) addBlocker(apiBaseUrl ? 'api_unreachable' : 'API_BASE_URL_missing');
 
-const fastapiReachable = fastapiBaseUrl
-  ? await reachableAny(fastapiBaseUrl, ['/health'])
-  : Boolean(botReadyResult.json?.fastapiBaseUrlPresent);
+const fastapiAttempt = fastapiBaseUrl
+  ? await attemptPaths(fastapiBaseUrl, ['/health'])
+  : { reachable: Boolean(botReadyResult.json?.fastapiBaseUrlPresent), attempts: [] };
+const fastapiReachable = fastapiAttempt.reachable;
 if (!fastapiReachable) addBlocker(fastapiBaseUrl ? 'fastapi_unreachable' : 'FASTAPI_BASE_URL_missing');
 
-const medusaReachable = medusaBaseUrl
-  ? await reachableAny(medusaBaseUrl, ['/health', '/store/products?limit=1'])
-  : Boolean(botReadyResult.json?.medusaBaseUrlPresent);
+const medusaAttempt = medusaBaseUrl
+  ? await attemptPaths(medusaBaseUrl, ['/health', '/store/products?limit=1'])
+  : { reachable: Boolean(botReadyResult.json?.medusaBaseUrlPresent), attempts: [] };
+const medusaReachable = medusaAttempt.reachable;
 if (!medusaReachable) addBlocker(medusaBaseUrl ? 'medusa_unreachable' : 'MEDUSA_BASE_URL_missing');
 
 const adminGuardConfigured = Boolean(botReadyResult.json?.adminGuardConfigured || hasConfiguredList(process.env.TELEGRAM_ALLOWED_ADMIN_IDS || process.env.TELEGRAM_ADMIN_IDS || ''));
@@ -106,6 +125,10 @@ const result = {
   internalTokenConfigured,
   botPublicBaseUrlConfigured,
   expectedWebhookUrl,
+  attemptedApiPaths: apiAttempt.attempts,
+  attemptedBotPaths,
+  attemptedMedusaPaths: medusaAttempt.attempts,
+  attemptedFastapiPaths: fastapiAttempt.attempts,
   secretLeakDetected,
   nextManualStep: nextManualStep(uniqueBlockers),
 };
@@ -141,10 +164,14 @@ async function probeWebhook(url) {
   return { ...result, exists: result.status !== 404 && result.status !== 405 && result.status !== 0 };
 }
 
-async function reachableAny(baseUrl, paths) {
+async function attemptPaths(baseUrl, paths) {
   const results = await Promise.all(paths.map((path) => fetchJson(`${baseUrl}${path}`)));
   observedPayloads.push(...results.map((result) => result.raw));
-  return results.some((result) => result.status >= 200 && result.status < 500 && result.status !== 404);
+  const attempts = paths.map((path, index) => ({ path, status: results[index].status }));
+  return {
+    reachable: results.some((result) => result.status >= 200 && result.status < 300),
+    attempts,
+  };
 }
 
 function normalizeBlockers(value) {

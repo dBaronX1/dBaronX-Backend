@@ -22,7 +22,7 @@ class Settings(BaseSettings):
     BOT_ENV: str = Field(default="development")
     LOG_LEVEL: str = Field(default="INFO")
     HOST: str = Field(default="0.0.0.0")
-    PORT: int = Field(default=8081)
+    PORT: int = Field(default=8080)
 
     TELEGRAM_BOT_TOKEN: str = ""
     TELEGRAM_WEBHOOK_SECRET: str | None = None
@@ -47,6 +47,9 @@ class Settings(BaseSettings):
     TELEGRAM_BOT_PUBLIC_BASE_URL: str = ""
     BOT_BASE_URL: str = ""
     TELEGRAM_BOT_BASE_URL: str = ""
+    WEB_BASE_URL: str = Field(default="", validation_alias=AliasChoices("WEB_BASE_URL", "NEXT_PUBLIC_WEB_BASE_URL", "FRONTEND_URL"))
+    NEXT_PUBLIC_WEB_BASE_URL: str = ""
+    FRONTEND_URL: str = ""
 
     REQUEST_TIMEOUT_SECONDS: int = Field(default=12)
     REQUEST_RETRY_COUNT: int = Field(default=2)
@@ -95,6 +98,10 @@ class Settings(BaseSettings):
     @property
     def bot_public_base_url(self) -> str:
         return (self.BOT_PUBLIC_BASE_URL or self.TELEGRAM_BOT_PUBLIC_BASE_URL or self.BOT_BASE_URL or self.TELEGRAM_BOT_BASE_URL).rstrip("/")
+
+    @property
+    def web_base_url(self) -> str:
+        return (self.WEB_BASE_URL or self.NEXT_PUBLIC_WEB_BASE_URL or self.FRONTEND_URL or "https://dbaronx.com").rstrip("/")
 
     def _env_present(self, *names: str) -> bool:
         return any(bool(os.getenv(name, "").strip()) for name in names)

@@ -6,9 +6,18 @@ class TelegramCommandManifestService:
         return {
             "success": True,
             "telegram_command_manifest": {
-                "general": [
+                "customer": [
                     "/start",
                     "/help",
+                    "/shop",
+                    "/products",
+                    "/product <handle_or_id>",
+                    "/cart_help",
+                    "/checkout_help",
+                    "/order_status <order_or_email_or_reference>",
+                    "/payment_status <checkout_session_or_order_ref>",
+                    "/support",
+                    "/contact_support",
                 ],
                 "ops": [
                     "/admin",
