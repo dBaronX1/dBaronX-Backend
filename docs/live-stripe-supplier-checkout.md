@@ -1,6 +1,7 @@
 # Live Stripe + Supplier Checkout (dbaronx.com)
 
 ## DNS map
+
 - web: `https://dbaronx.com`
 - api: `https://dbaronx-api-unified.onrender.com`
 - commerce (Medusa): `https://dbaronx-medusa.onrender.com`
@@ -9,6 +10,7 @@
 ## Render environment checklist
 
 ### NestJS/API Render service only
+
 Set these only on the API service. Do not expose them to the browser and do not commit real values.
 
 ```dotenv
@@ -26,6 +28,7 @@ CJ_API_BASE_URL=https://developers.cjdropshipping.com/api2.0
 - `CJ_API_BASE_URL` should remain `https://developers.cjdropshipping.com/api2.0`.
 
 ### Web Render service / browser-safe values
+
 Set these on the web service with public/test values only. The first controlled checkout must use a `pk_test_*` publishable key that belongs to the same Stripe account/mode as the API `sk_test_*` secret key.
 
 ```dotenv
@@ -52,6 +55,7 @@ Live checkout is still supported for future production use, but it must be expli
 Never use a Stripe test card on a `cs_live_*` session. A smoke output containing `cs_live_*` is a blocker for the controlled test and must be fixed by replacing Render API/Web Stripe keys with `sk_test_*` / `pk_test_*`, redeploying, and rerunning the smoke.
 
 ## Stripe Dashboard webhook setup
+
 1. Open Stripe Dashboard with **Test mode** enabled for the controlled test.
 2. Go to **Developers → Webhooks → Add endpoint**.
 3. Enter the exact dBaronX API endpoint URL: `https://dbaronx-api-unified.onrender.com/api/checkout/stripe/webhook`.
@@ -65,6 +69,7 @@ Never use a Stripe test card on a `cs_live_*` session. A smoke output containing
 The NestJS endpoint verifies the raw body and `stripe-signature` header with `Stripe.webhooks.constructEvent(payload, sigHeader, STRIPE_WEBHOOK_SECRET)`. Unsigned, missing-secret, or invalid-signature calls must return `verified: false`, `paymentMarkedPaid: false`, and no paid/order settlement.
 
 ## Checkout flow contract
+
 - NestJS remains the payment/economic brain and calls `stripe.checkout.sessions.create(...)`.
 - Medusa remains the commerce engine for products, regions, carts, line items, and shipping options.
 - FastAPI remains the intelligence/risk layer and is not allowed to mark Stripe payments paid.
@@ -73,7 +78,6 @@ The NestJS endpoint verifies the raw body and `stripe-signature` header with `St
 - Browser redirects are not trusted as payment proof.
 - Paid/settled state can only be attached after a verified Stripe webhook event.
 - Verified `checkout.session.completed` writes durable signed-webhook payment evidence to `app_public.stripe_webhook_events`, persists a verified `commerce.checkout.payment_verified` economic event, and only reports `paymentMarkedPaid: true` from the settlement lookup after that signed webhook evidence exists. Browser redirects never mark paid state.
-
 
 ## Canonical live API route paths
 
@@ -127,6 +131,7 @@ node scripts/e2e-stripe-controlled-order-smoke.mjs
 ```
 
 ## Stripe Checkout metadata contract
+
 The Checkout Session and PaymentIntent metadata include the safe mapping fields below when available:
 
 ```json
@@ -221,6 +226,7 @@ node scripts/e2e-stripe-checkout-session-smoke.mjs
 `orderSyncReady` remains `false` until durable DBX payment-record lookup and Medusa order completion settlement are connected. That is intentional: the smoke proves the mapping boundary and prevents fake paid/order-complete state.
 
 ## First controlled manual Stripe test checkout and post-payment settlement proof
+
 1. Run the first Stripe smoke and save its `cartId`, `orderRef`, `checkoutRef`, `sessionId`, and `checkoutUrl`:
 
    ```bash
@@ -349,6 +355,7 @@ node scripts/e2e-stripe-post-payment-settlement-smoke.mjs
 A fresh checkout is also valid after migration. Do not mark paid from the frontend success redirect, do not mark paid from an unsigned webhook, and do not mark paid while the storage readiness endpoint reports missing tables. `paymentMarkedPaid` can become `true` only when the API has verified the Stripe signature for `checkout.session.completed`, persisted the durable row in `app_public.stripe_webhook_events`, and stored the matching verified economic event in `app_public.economic_events`. This signed evidence requirement protects against forged client redirects, replay ambiguity before idempotency storage exists, and double-settlement.
 
 ## Remaining steps before live mode
+
 - Complete and document real Medusa payment-provider/session setup if settlement reports `medusa_cart_completion_requires_payment_provider_session`.
 - Add replay/refund/cancel operational procedures and monitoring.
 - Run a controlled refund and supplier dry-run after the first test payment.
@@ -388,6 +395,7 @@ node scripts/e2e-cj-live-probe-smoke.mjs
 Use `CJ_TEST_SKU` instead of `CJ_TEST_PRODUCT_ID` when validating a SKU. AliExpress remains disabled until official approval is granted; do not configure AliExpress credentials or scrape AliExpress as a substitute for approved API access.
 
 ## Remaining steps before live mode
+
 - Configure API `STRIPE_SECRET_KEY` to an `sk_test_*` value and `STRIPE_WEBHOOK_SECRET` to the matching `whsec_*` signing secret from the same test webhook endpoint in Render, and configure web `NEXT_PUBLIC_STRIPE_PUBLIC_KEY` to a `pk_test_*` value.
 - Run the controlled order smoke and confirm a hosted Stripe Checkout URL is returned.
 - Complete one Stripe hosted Checkout test payment and verify the Dashboard delivery for `checkout.session.completed`.
@@ -635,7 +643,6 @@ Do not enable live Stripe money mode until all of these are true in test mode:
 - Medusa order/cart completion produces a real Medusa order ID or another durable sync proof.
 - No secrets are exposed in web env, logs, smoke output, docs, or committed files.
 
-
 ## First controlled Stripe test transaction
 
 - Use Stripe test keys only; the controlled smoke may open Checkout only when `stripeSessionModeDetected` is `test`, `stripeSessionModeAllowed=true`, `checkoutSafeToOpen=true`, and the session ID starts with `cs_test_`.
@@ -723,7 +730,9 @@ Shared supplier provenance metadata:
 - `metadata.supplierProductId`: supplier's real product ID/reference.
 - `metadata.supplierSku`: supplier SKU for the selected sellable variant.
 - `metadata.sourceUrl`: verified supplier/source product URL.
-- `metadata.supplierCostUsdMinor`: supplier product cost in USD minor units for margin review.
+- `metadata.supplierCostAmount`: supplier product cost in USD minor units for margin/readiness review.
+- `metadata.supplierCostCurrency`: `usd`.
+- `metadata.supplierCostUsdMinor`: backward-compatible supplier product cost alias in USD minor units.
 - `metadata.shippingCountries`: confirmed shipping destination countries; required for publish.
 - `metadata.deliveryEstimate`: confirmed delivery estimate; required for publish.
 
@@ -755,11 +764,11 @@ DBX_FIRST_PRODUCT_MODE=draft \
 DBX_FIRST_PRODUCT_TITLE="Men's Cotton Linen Long Sleeve Casual Shirt" \
 DBX_FIRST_PRODUCT_HANDLE="mens-cotton-linen-long-sleeve-casual-shirt-cjds212420101az" \
 DBX_FIRST_PRODUCT_DESCRIPTION="CJ supplier draft pending image, stock, shipping country, and delivery estimate verification." \
-DBX_FIRST_PRODUCT_PRICE_USD_MINOR="<customer price in cents>" \
+DBX_FIRST_PRODUCT_PRICE_USD_MINOR="999" \
 DBX_FIRST_PRODUCT_COST_USD_MINOR="419" \
 DBX_FIRST_PRODUCT_SUPPLIER="cj" \
 DBX_FIRST_PRODUCT_SUPPLIER_PRODUCT_ID="2408300732091605000" \
-DBX_FIRST_PRODUCT_SUPPLIER_SKU="CJDS212420101AZ" \
+DBX_FIRST_PRODUCT_SUPPLIER_SKU="CJDS212420173UF" \
 DBX_FIRST_PRODUCT_SOURCE_URL="https://cjdropshipping.com/product/new-mens-casual-blouse-cotton-linen-shirt-loose-tops-long-sleeve-tee-shirt-spring-autumn-casual-handsome-mens-shirts-p-2408300732091605000.html" \
 pnpm first-product:seed
 
@@ -768,11 +777,11 @@ DBX_FIRST_PRODUCT_MODE=publish \
 DBX_FIRST_PRODUCT_TITLE="Men's Cotton Linen Long Sleeve Casual Shirt" \
 DBX_FIRST_PRODUCT_HANDLE="mens-cotton-linen-long-sleeve-casual-shirt-cjds212420101az" \
 DBX_FIRST_PRODUCT_DESCRIPTION="<customer-safe product description>" \
-DBX_FIRST_PRODUCT_PRICE_USD_MINOR="<customer price in cents>" \
+DBX_FIRST_PRODUCT_PRICE_USD_MINOR="999" \
 DBX_FIRST_PRODUCT_COST_USD_MINOR="419" \
 DBX_FIRST_PRODUCT_SUPPLIER="cj" \
 DBX_FIRST_PRODUCT_SUPPLIER_PRODUCT_ID="2408300732091605000" \
-DBX_FIRST_PRODUCT_SUPPLIER_SKU="CJDS212420101AZ" \
+DBX_FIRST_PRODUCT_SUPPLIER_SKU="CJDS212420173UF" \
 DBX_FIRST_PRODUCT_SOURCE_URL="https://cjdropshipping.com/product/new-mens-casual-blouse-cotton-linen-shirt-loose-tops-long-sleeve-tee-shirt-spring-autumn-casual-handsome-mens-shirts-p-2408300732091605000.html" \
 DBX_FIRST_PRODUCT_IMAGE_URL="https://<approved product image url>" \
 DBX_FIRST_PRODUCT_STOCK_QTY="<confirmed stock quantity greater than zero>" \
@@ -781,7 +790,7 @@ DBX_FIRST_PRODUCT_DELIVERY_ESTIMATE="<confirmed customer-safe delivery estimate>
 pnpm first-product:seed
 ```
 
-The seed script refuses missing supplier/product/source fields, missing or non-positive supplier cost, non-positive customer price, invalid URLs, and demo/sample/mock/test markers. Publish mode additionally refuses missing image, stock quantity less than one, missing shipping countries, and missing delivery estimate. Draft mode stores blockers instead of pretending the product is checkout-ready.
+The seed script refuses missing supplier/product/source fields, non-positive customer price, invalid URLs, credential-bearing URLs, and demo/sample/mock/test markers. `DBX_FIRST_PRODUCT_COST_USD_MINOR` is required as a positive integer in publish mode and missing/invalid publish cost fails with `DBX_FIRST_PRODUCT_COST_USD_MINOR_REQUIRED`; draft mode stores `supplier_cost_missing` with the other blockers instead of pretending the product is checkout-ready. Publish mode additionally refuses missing image, stock quantity less than one, missing shipping countries, and missing delivery estimate.
 
 ### Readiness smoke command
 
@@ -807,7 +816,8 @@ Required CJ/manual inputs:
 - [ ] CJ SKU: `<CJ variant/SKU selected for the first transaction>`
 - [ ] CJ source URL: `<https://... or http://... CJ/public supplier product URL>`
 - [ ] Product image URL: `<https://... or http://... image URL>`
-- [ ] Selling price: `<USD minor units used for DBX_FIRST_PRODUCT_PRICE_USD_MINOR>`
+- [ ] Supplier cost: `<USD minor units used for DBX_FIRST_PRODUCT_COST_USD_MINOR; selected CJ product public cost is 419>`
+- [ ] Selling price: `<USD minor units used for DBX_FIRST_PRODUCT_PRICE_USD_MINOR; use 999 or another operator-approved margin-safe price>`
 - [ ] Stock quantity: `<positive quantity confirmed from CJ/manual supplier review>`
 - [ ] Shipping country: `<country used to confirm Medusa shipping option visibility>`
 - [ ] Margin note: `<internal margin reviewed in NestJS/business process; do not expose supplier cost in Telegram>`
@@ -820,6 +830,8 @@ Metadata contract created on both product metadata and variant metadata where Me
   "supplierProductId": "<DBX_FIRST_PRODUCT_SUPPLIER_PRODUCT_ID>",
   "supplierSku": "<DBX_FIRST_PRODUCT_SUPPLIER_SKU>",
   "sourceUrl": "<DBX_FIRST_PRODUCT_SOURCE_URL>",
+  "supplierCostAmount": 419,
+  "supplierCostCurrency": "usd",
   "realSupplierProduct": true,
   "demo": false
 }
@@ -831,11 +843,12 @@ Seed command:
 DBX_FIRST_PRODUCT_TITLE='<CJ product title>' \
 DBX_FIRST_PRODUCT_HANDLE='<customer-safe-handle>' \
 DBX_FIRST_PRODUCT_DESCRIPTION='<customer-safe description>' \
-DBX_FIRST_PRODUCT_PRICE_USD_MINOR='<selling price in cents>' \
+DBX_FIRST_PRODUCT_PRICE_USD_MINOR='999' \
+DBX_FIRST_PRODUCT_COST_USD_MINOR='419' \
 DBX_FIRST_PRODUCT_SUPPLIER='cj' \
-DBX_FIRST_PRODUCT_SUPPLIER_PRODUCT_ID='<CJ product ID>' \
-DBX_FIRST_PRODUCT_SUPPLIER_SKU='<CJ SKU>' \
-DBX_FIRST_PRODUCT_SOURCE_URL='<https://...>' \
+DBX_FIRST_PRODUCT_SUPPLIER_PRODUCT_ID='2408300732091605000' \
+DBX_FIRST_PRODUCT_SUPPLIER_SKU='CJDS212420173UF' \
+DBX_FIRST_PRODUCT_SOURCE_URL='https://cjdropshipping.com/product/new-mens-casual-blouse-cotton-linen-shirt-loose-tops-long-sleeve-tee-shirt-spring-autumn-casual-handsome-mens-shirts-p-2408300732091605000.html' \
 DBX_FIRST_PRODUCT_IMAGE_URL='<https://...>' \
 DBX_FIRST_PRODUCT_STOCK_QTY='<positive stock quantity>' \
 pnpm first-product:seed
