@@ -11,8 +11,16 @@ const productsResponse = await getJson(`${MEDUSA_BASE_URL}/store/products?limit=
 if (!productsResponse.ok) addBlocker('medusa_store_api_unreachable');
 
 const products = extractProducts(productsResponse.json);
-const realProduct = products.find((product) => isRealSupplierProduct(product));
-if (!realProduct) addBlocker('real_supplier_product_missing');
+const draftProduct = products.find((product) => isDraftSupplierProduct(product)) || null;
+const verifiedProduct = products.find((product) => isVerifiedSupplierProduct(product)) || null;
+const realProduct = verifiedProduct;
+if (!verifiedProduct) addBlocker('verified_supplier_product_missing');
+
+const draftMetadata = metadataOf(draftProduct);
+const verifiedMetadata = metadataOf(verifiedProduct);
+const supplierVerificationStatus = safeString(verifiedMetadata.supplierVerificationStatus || draftMetadata.supplierVerificationStatus || '');
+const supplierVerificationBlockers = normalizeBlockers(verifiedMetadata.supplierVerificationBlockers || verifiedMetadata.blockers || draftMetadata.supplierVerificationBlockers || draftMetadata.blockers || []);
+if (draftProduct && !verifiedProduct) addBlocker('draft_supplier_product_pending_verification');
 
 const variant = firstVariant(realProduct);
 const productId = realProduct?.id || null;
@@ -26,7 +34,9 @@ const priceReady = Boolean(variant && hasPrice(variant));
 const stockReady = Boolean(variant && hasAvailabilityProof(variant));
 const productUrl = productUrlFor(realProduct);
 const productUrlReady = Boolean(productUrl && handle);
-const realSupplierProductPresent = Boolean(realProduct);
+const draftSupplierProductPresent = Boolean(draftProduct);
+const verifiedSupplierProductPresent = Boolean(verifiedProduct);
+const realSupplierProductPresent = verifiedSupplierProductPresent;
 const telegramDiscoveryReady = Boolean(products.length > 0 && realProduct && !products.every(isDemoProduct));
 
 if (!variantId) addBlocker('variant_missing');
@@ -44,7 +54,11 @@ const checkoutPathReady = Boolean(realSupplierProductPresent && variantId && pri
 const result = {
   success: blockers.length === 0,
   blockers,
+  draftSupplierProductPresent,
+  verifiedSupplierProductPresent,
   realSupplierProductPresent,
+  supplierVerificationStatus: supplierVerificationStatus || null,
+  supplierVerificationBlockers,
   productId,
   variantId,
   handle,
@@ -77,7 +91,19 @@ function extractProducts(payload) {
 function firstVariant(product) { return Array.isArray(product?.variants) ? product.variants.find((v) => v && typeof v === 'object') || null : null; }
 function isExplicitReal(product) {
   const metadata = metadataOf(product);
-  return metadata.realSupplierProduct === true && metadata.demo === false;
+  return metadata.realSupplierProduct === true && metadata.demo === false && metadata.supplierVerificationStatus === 'verified_for_checkout';
+}
+function isDraftSupplierProduct(product) {
+  const metadata = metadataOf(product);
+  return Boolean(product && metadata.demo === false && metadata.realSupplierProduct === false && metadata.supplierVerificationStatus === 'draft_pending_verification' && hasSupplierSignal(product));
+}
+function isVerifiedSupplierProduct(product) {
+  return Boolean(product && !isDemoProduct(product) && isExplicitReal(product) && hasSupplierSignal(product));
+}
+function normalizeBlockers(value) {
+  if (Array.isArray(value)) return value.map((item) => safeString(item)).filter(Boolean);
+  if (typeof value === 'string' && value.trim()) return value.split(',').map((item) => item.trim()).filter(Boolean);
+  return [];
 }
 function isDemoProduct(product) {
   if (isExplicitReal(product)) return false;
@@ -91,7 +117,7 @@ function hasSupplierSignal(product) {
   const values = [metadata.supplier, metadata.supplier_name, metadata.supplier_id, metadata.source, metadata.supplierProductId, metadata.supplier_product_id, metadata.cj_product_id, metadata.external_id, metadata.supplierSku, metadata.supplier_sku, metadata.sourceUrl];
   return values.some((value) => safeString(value) && !/\bdemo\b/i.test(String(value)));
 }
-function isRealSupplierProduct(product) { return Boolean(product && !isDemoProduct(product) && isExplicitReal(product) && hasSupplierSignal(product)); }
+function isRealSupplierProduct(product) { return isVerifiedSupplierProduct(product); }
 function hasPrice(variant) {
   const calculated = variant.calculated_price;
   if (calculated && typeof calculated === 'object') {
@@ -164,6 +190,7 @@ function snippet(value) {
   return text.length > 900 ? `${text.slice(0, 900)}…` : text;
 }
 function nextManualStep() {
+  if (draftSupplierProductPresent && !verifiedSupplierProductPresent) return `Verify the draft supplier product before live checkout: add image URL, confirm stock quantity, shipping countries, and delivery estimate, then rerun the seed in publish mode.`;
   if (blockers.length) return `Resolve blockers before first real checkout: ${blockers.join(', ')}.`;
   return `Open ${productUrl}, add the item to cart, run Stripe test checkout, then proceed to live money only after signed webhook/order proof is verified.`;
 }
