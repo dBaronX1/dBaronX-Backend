@@ -272,3 +272,70 @@ MEDUSA_PUBLISHABLE_KEY=<publishable key if required> \
 WEB_BASE_URL=https://<web-host> \
 pnpm first-product:readiness
 ```
+
+## Manual CJ first-product checklist
+
+For the first real customer transaction, Telegram may only verify discovery/status guidance for a manually selected CJ product that has already been seeded into Medusa. Telegram must not scrape CJ, bulk import CJ products, call supplier-write endpoints, create checkout sessions, mark payments paid, fulfill orders, credit wallets, or approve payouts.
+
+Required CJ/manual inputs before running Telegram discovery:
+
+- [ ] CJ product title
+- [ ] CJ product ID
+- [ ] CJ SKU
+- [ ] CJ source URL (`http://` or `https://` only)
+- [ ] Product image URL (`http://` or `https://` only)
+- [ ] Selling price
+- [ ] Stock quantity
+- [ ] Shipping country
+- [ ] Margin note reviewed outside Telegram; internal supplier cost/margin is never printed to customers
+
+Expected Medusa metadata contract for Telegram to classify the product as real:
+
+```json
+{
+  "supplier": "cj",
+  "supplierProductId": "<CJ product ID>",
+  "supplierSku": "<CJ SKU>",
+  "sourceUrl": "<CJ source URL>",
+  "realSupplierProduct": true,
+  "demo": false
+}
+```
+
+Seed command:
+
+```bash
+DBX_FIRST_PRODUCT_TITLE='<CJ product title>' \
+DBX_FIRST_PRODUCT_HANDLE='<customer-safe-handle>' \
+DBX_FIRST_PRODUCT_DESCRIPTION='<customer-safe description>' \
+DBX_FIRST_PRODUCT_PRICE_USD_MINOR='<selling price in cents>' \
+DBX_FIRST_PRODUCT_SUPPLIER='cj' \
+DBX_FIRST_PRODUCT_SUPPLIER_PRODUCT_ID='<CJ product ID>' \
+DBX_FIRST_PRODUCT_SUPPLIER_SKU='<CJ SKU>' \
+DBX_FIRST_PRODUCT_SOURCE_URL='<https://...>' \
+DBX_FIRST_PRODUCT_IMAGE_URL='<https://...>' \
+DBX_FIRST_PRODUCT_STOCK_QTY='<positive stock quantity>' \
+pnpm first-product:seed
+```
+
+Readiness command:
+
+```bash
+EXPECT_SUPPLIER=cj \
+MEDUSA_BASE_URL=https://dbaronx-medusa.onrender.com \
+WEB_BASE_URL=https://dbaronx.com \
+MEDUSA_PUBLISHABLE_KEY='<publishable key if required>' \
+pnpm first-product:readiness
+```
+
+Telegram test commands:
+
+```text
+/shop
+/products
+/product <handle_or_id>
+/checkout_help
+/payment_status <checkout_session_or_order_ref>
+/order_status <order_or_email_or_reference>
+/support
+```
