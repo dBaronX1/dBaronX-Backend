@@ -705,3 +705,69 @@ node scripts/e2e-telegram-customer-first-checkout-journey-smoke.mjs
 ```
 
 Proceed to a real customer only after the smoke passes and a non-DEMO supplier product is visible through Medusa and the web storefront.
+
+## First real supplier product readiness path
+
+This path is intentionally single-product and controlled. It does **not** bulk-import a supplier catalog, scrape supplier sites, or let Telegram mutate supplier, order, wallet, payout, payment, or fulfillment state.
+
+### Real product metadata contract
+
+The first real supplier product must be seeded/published with real supplier provenance and explicit non-demo metadata:
+
+- `metadata.supplier`: public-safe supplier name or supplier identifier.
+- `metadata.supplierProductId`: supplier's real product ID/reference.
+- `metadata.supplierSku`: supplier SKU for the selected sellable variant.
+- `metadata.sourceUrl`: verified supplier/source product URL.
+- `metadata.realSupplierProduct: true`.
+- `metadata.demo: false`.
+
+A product missing supplier/source fields is not first-transaction ready. A demo/sample/mock/test product must remain a demo product and must not be upgraded by metadata alone.
+
+### Manual first real product checklist
+
+Before inviting the first real customer to pay real money:
+
+- [ ] Choose one approved real supplier product; do not bulk import.
+- [ ] Confirm the supplier source URL is legitimate and still reachable.
+- [ ] Confirm customer price, supplier cost, fees, taxes, shipping, and target margin.
+- [ ] Confirm stock/availability from the supplier for the exact SKU/variant.
+- [ ] Confirm the first shipping destination and shipping option are supported.
+- [ ] Seed/publish the product with the controlled first-product seed script.
+- [ ] Verify the Medusa Store API lists the non-demo product.
+- [ ] Verify Telegram `/products` and `/product <handle_or_id>` do not label that product `DEMO` and show safe supplier metadata plus product URL.
+- [ ] Verify the storefront product URL opens and can add the item to cart.
+- [ ] Run Stripe test checkout first.
+- [ ] Move to live money only after signed Stripe webhook proof and durable order/payment records are verified.
+
+### Controlled seed command
+
+Set the required environment values from a manually approved supplier product, then run:
+
+```bash
+DBX_FIRST_PRODUCT_TITLE="<real product title>" \
+DBX_FIRST_PRODUCT_HANDLE="<unique-real-product-handle>" \
+DBX_FIRST_PRODUCT_DESCRIPTION="<customer-safe product description>" \
+DBX_FIRST_PRODUCT_PRICE_USD_MINOR="<price in cents>" \
+DBX_FIRST_PRODUCT_SUPPLIER="<supplier name/id>" \
+DBX_FIRST_PRODUCT_SUPPLIER_PRODUCT_ID="<supplier product id>" \
+DBX_FIRST_PRODUCT_SUPPLIER_SKU="<supplier sku>" \
+DBX_FIRST_PRODUCT_SOURCE_URL="https://<supplier product url>" \
+DBX_FIRST_PRODUCT_IMAGE_URL="https://<approved product image url>" \
+DBX_FIRST_PRODUCT_STOCK_QTY="<confirmed stock quantity>" \
+pnpm first-product:seed
+```
+
+The seed script refuses missing supplier/product/source fields, non-positive price, non-positive stock, invalid URLs, and demo/sample/mock/test markers. It creates only the requested first real product and does not replace the existing demo seed catalog.
+
+### Readiness smoke command
+
+After Medusa is running and the product is published, run:
+
+```bash
+MEDUSA_BASE_URL=https://<medusa-host> \
+MEDUSA_PUBLISHABLE_KEY=<publishable key if required> \
+WEB_BASE_URL=https://<web-host> \
+pnpm first-product:readiness
+```
+
+The smoke verifies Store API reachability, a non-demo real supplier product, supplier metadata, price, variant, stock/availability proof, product URL, shipping option visibility for a cart, and Telegram discovery readiness. If it reports `real_supplier_product_missing`, do not proceed to a real customer transaction.

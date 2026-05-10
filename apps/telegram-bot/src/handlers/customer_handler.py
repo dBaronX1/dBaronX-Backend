@@ -276,7 +276,7 @@ def _product_link(product: dict[str, Any], web_base_url: str) -> str:
 
 def _product_summary_line(index: int, product: dict[str, Any], web_base_url: str) -> str:
     prefix = "DEMO — " if _is_demo_product(product) else ""
-    return f"{index}. {prefix}{_product_title(product)} | Price: {_product_price(product)} | Availability: {_availability_hint(product)} | URL: {_product_link(product, web_base_url)}"
+    return f"{index}. {prefix}{_product_title(product)} | Price: {_product_price(product)} | Availability: {_availability_hint(product)} | Supplier: {_supplier_hint(product)} | URL: {_product_link(product, web_base_url)}"
 
 
 def _first_matching_product(products: list[dict[str, Any]], product_ref: str) -> dict[str, Any] | None:
@@ -349,8 +349,12 @@ def _supplier_hint(product: dict[str, Any]) -> str:
 
 
 def _is_demo_product(product: dict[str, Any]) -> bool:
-    values = [product.get("title"), product.get("name"), product.get("handle"), product.get("id")]
     metadata = product.get("metadata") if isinstance(product.get("metadata"), dict) else {}
+    if metadata.get("realSupplierProduct") is True and metadata.get("demo") is False:
+        return False
+    if metadata.get("demo") is True or metadata.get("realSupplierProduct") is False:
+        return True
+    values = [product.get("title"), product.get("name"), product.get("handle"), product.get("id")]
     values.extend(metadata.get(key) for key in ("source", "supplier", "supplier_name", "environment", "type"))
     joined = " ".join(str(value or "") for value in values).lower()
     return any(marker in joined for marker in ("demo", "sample", "test product", "mock"))
@@ -358,7 +362,7 @@ def _is_demo_product(product: dict[str, Any]) -> bool:
 
 def _has_supplier_signal(product: dict[str, Any]) -> bool:
     metadata = product.get("metadata") if isinstance(product.get("metadata"), dict) else {}
-    supplier_values = [metadata.get(key) for key in ("supplier", "supplier_name", "supplier_id", "source", "cj_product_id", "external_id")]
+    supplier_values = [metadata.get(key) for key in ("supplier", "supplier_name", "supplier_id", "source", "supplierProductId", "supplier_product_id", "supplierSku", "supplier_sku", "sourceUrl", "cj_product_id", "external_id")]
     return any(str(value or "").strip() and "demo" not in str(value).lower() for value in supplier_values)
 
 
