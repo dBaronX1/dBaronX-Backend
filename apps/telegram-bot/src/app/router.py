@@ -23,6 +23,7 @@ from handlers.callback_fallback_handler import callback_fallback_handler
 from handlers.command_manifest_handler import command_manifest_handler
 from handlers.commerce_admin_handler import commerce_admin_handler
 from handlers.control_surface_handler import control_surface_handler
+from handlers.customer_handler import customer_command_handler
 from handlers.commerce_handler import (
     commerce_ops_handler,
     commerce_reconciliation_help_handler,
@@ -32,7 +33,6 @@ from handlers.fastapi_handler import (
     fastapi_handoff_pack_handler,
     fastapi_route_family_matrix_handler,
 )
-from handlers.help_handler import help_handler
 from handlers.launch_audit_handler import launch_audit_handler
 from handlers.ops_callback_handler import ops_callback_handler
 from handlers.ops_handler import ops_home_handler
@@ -53,7 +53,6 @@ from handlers.review_handler import (
     ai_review_queue_handler,
     suppliers_ops_handler,
 )
-from handlers.start_handler import start_handler
 from handlers.status_handler import status_handler
 from handlers.system_handler import (
     system_fastapi_handler,
@@ -76,8 +75,15 @@ from handlers.watch_handler import (
 
 def register_handlers(application: Application) -> None:
 
+    public_customer_commands = [
+        "start", "help", "shop", "products", "product", "cart_help", "checkout_help",
+        "order_status", "payment_status", "support", "contact_support",
+    ]
+    for command in public_customer_commands:
+        application.add_handler(CommandHandler(command, customer_command_handler))
+
     control_commands = [
-        "start", "help", "commands", "status", "health", "runtime", "launch", "routes", "env_check",
+        "commands", "status", "health", "runtime", "launch", "routes", "env_check",
         "commerce_status", "medusa_status", "shipping_status", "catalog_status", "orders_status",
         "payments_status", "stripe_status", "stripe_first_tx_status", "stripe_storage", "stripe_settlement", "dbx_status", "dbx_payment", "economic_status",
         "suppliers_status", "cj_status", "cj_import_ready", "aliexpress_status",
@@ -89,8 +95,6 @@ def register_handlers(application: Application) -> None:
     for command in control_commands:
         application.add_handler(CommandHandler(command, control_surface_handler))
 
-    application.add_handler(CommandHandler("start", start_handler))
-    application.add_handler(CommandHandler("help", help_handler))
     application.add_handler(CommandHandler("commands", command_manifest_handler))
 
     application.add_handler(CommandHandler("admin", admin_home_handler))

@@ -12,5 +12,5 @@ RUN pip install --no-cache-dir --upgrade pip && \
 
 COPY src ./src
 
-EXPOSE 8081
-CMD ["sh", "-c", "python -m uvicorn src.main:app --host 0.0.0.0 --port ${PORT:-8081}"]
+EXPOSE 8080
+CMD ["sh", "-c", "python -m uvicorn src.main:app --host 0.0.0.0 --port ${PORT:-8080}"]

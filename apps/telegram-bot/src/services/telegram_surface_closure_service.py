@@ -11,6 +11,7 @@ class TelegramSurfaceClosureService:
         manifest = self.manifest.build()["telegram_command_manifest"]
 
         required_sections = [
+            "customer",
             "ops",
             "system",
             "wallet_payments_payouts",

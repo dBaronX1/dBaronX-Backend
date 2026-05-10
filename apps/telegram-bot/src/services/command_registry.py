@@ -20,8 +20,17 @@ class CommandSpec:
 
 
 _COMMANDS: tuple[CommandSpec, ...] = (
-    CommandSpec("start", "Open the control surface", Role.VIEWER, "bot", "safe", "system"),
-    CommandSpec("help", "List all registered commands", Role.VIEWER, "bot", "safe", "system"),
+    CommandSpec("start", "Open the customer bot", Role.UNKNOWN, "bot", "safe", "customer"),
+    CommandSpec("help", "List public customer commands", Role.UNKNOWN, "bot", "safe", "customer"),
+    CommandSpec("shop", "Open storefront/shop guidance", Role.UNKNOWN, "web/medusa", "safe", "customer"),
+    CommandSpec("products", "List public storefront products", Role.UNKNOWN, "medusa", "safe", "customer"),
+    CommandSpec("product", "Show a public product link by handle or ID", Role.UNKNOWN, "medusa/web", "safe", "customer"),
+    CommandSpec("cart_help", "Explain safe storefront cart flow", Role.UNKNOWN, "web", "safe", "customer"),
+    CommandSpec("checkout_help", "Explain safe Stripe checkout flow", Role.UNKNOWN, "web/api", "safe", "customer"),
+    CommandSpec("order_status", "Check customer order proof without fulfillment claims", Role.UNKNOWN, "api", "safe", "customer"),
+    CommandSpec("payment_status", "Check backend payment proof without fake paid claims", Role.UNKNOWN, "api", "safe", "customer"),
+    CommandSpec("support", "Get dBaronX support/contact guidance", Role.UNKNOWN, "web/api", "safe", "customer"),
+    CommandSpec("contact_support", "Get dBaronX support/contact guidance", Role.UNKNOWN, "web/api", "safe", "customer"),
     CommandSpec("commands", "Show command registry", Role.VIEWER, "bot", "safe", "system"),
     CommandSpec("status", "Unified ecosystem status", Role.VIEWER, "api/fastapi/medusa", "protected_read", "system"),
     CommandSpec("health", "Bot/API/FastAPI/Medusa health", Role.VIEWER, "api/fastapi/medusa", "protected_read", "system"),

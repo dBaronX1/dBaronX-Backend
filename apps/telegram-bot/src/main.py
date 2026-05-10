@@ -37,7 +37,9 @@ async def lifespan(_app: FastAPI):
     await _ensure_telegram_runtime_started()
     blockers = settings.startup_blockers()
     logger.info(
-        "Route status: webhook path=/webhook/telegram compatPath=/webhook health path=/health ready path=/ready telegramRuntimeStarted=%s startupBlockers=%s",
+        "Telegram startup contract configuredPort=%s healthPath=/health readyPath=/ready webhookPath=/webhook/telegram publicBaseUrlPresent=%s telegramRuntimeStarted=%s startupBlockers=%s",
+        settings.PORT,
+        bool(settings.bot_public_base_url),
         telegram_app_started,
         blockers,
     )
