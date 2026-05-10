@@ -151,3 +151,104 @@ node scripts/e2e-first-transaction-with-telegram-ops-smoke.mjs
 ```
 
 Do not print the actual publishable/internal secret values in logs or tickets.
+
+## Customer Telegram flow after product-discovery hardening
+
+The customer bot now guides a public Telegram user from discovery to the canonical web checkout path without introducing Telegram-side money or fulfillment writes.
+
+1. Customer sends `/shop`.
+   - Bot returns the storefront URL.
+   - Bot returns the product listing URL.
+   - Bot tells the user to run `/products` for a Telegram-readable catalog preview.
+   - Bot returns `/contact_support` and the storefront support fallback.
+2. Customer sends `/products`.
+   - Bot reads public products from the Medusa Store API (`GET /store/products`, maximum five items for Telegram readability).
+   - Each item includes title, public price when exposed, availability guidance, and a product URL.
+   - If the visible catalog is demo-only or lacks public supplier metadata, the bot labels DEMO items and returns `real_supplier_product_missing` instead of implying a real supplier product is ready.
+3. Customer sends `/product <handle_or_id>`.
+   - Bot looks up the product by direct Store API product path and by handle-filtered listing.
+   - Bot returns title, price, availability hint, supplier/public metadata hint, product URL, and checkout URL.
+   - If the product is not found, the bot returns `not_found`, a storefront lookup URL, and next actions.
+4. Customer opens the product URL in the web storefront.
+5. Customer completes cart and checkout only through the storefront and Stripe-hosted checkout.
+6. Backend verifies signed Stripe webhook proof before any payment is treated as paid.
+7. Customer can use `/payment_status <checkout_session_or_order_ref>` or `/order_status <order_or_email_or_reference>` for safe read-only status guidance.
+
+### Product discovery flow
+
+Product discovery is public-read only and source-backed:
+
+- Primary source: Medusa Store API `GET /store/products`.
+- Product detail lookup: `GET /store/products/<handle_or_id>` and `GET /store/products?handle=<handle>&limit=1`.
+- Telegram output limit: three to five products; current cap is five.
+- Product URL shape: `<WEB_BASE_URL>/products/<handle_or_id>`.
+- Price is displayed only when the public product payload exposes price data.
+- Availability is displayed only as public-safe storefront/inventory guidance; Telegram never invents supplier stock.
+- Supplier is displayed only when public product metadata provides a supplier/source signal.
+- Demo/sample/mock products are labeled `DEMO` and block first-real-checkout readiness with `real_supplier_product_missing`.
+
+### What customers can do in Telegram
+
+Customers can:
+
+- Find the storefront and product listing with `/shop`.
+- Preview public products with `/products`.
+- Inspect a specific public product with `/product <handle_or_id>`.
+- Learn the cart and checkout path with `/cart_help` and `/checkout_help`.
+- Request safe status guidance with `/payment_status <checkout_session_or_order_ref>`.
+- Request safe order-support guidance with `/order_status <order_or_email_or_reference>`.
+- Get support instructions with `/support` or `/contact_support`.
+
+Customers cannot use Telegram to create carts, create live checkout sessions directly, settle payments, mark orders paid, mark orders fulfilled, reserve stock, credit wallets/rewards, approve payouts, settle payouts, or mutate supplier imports.
+
+### What only web checkout can do
+
+Only the web storefront checkout path can:
+
+- Build the canonical customer cart.
+- Show final storefront availability, shipping, tax, and total price.
+- Redirect to Stripe-hosted checkout.
+- Return the Stripe Checkout Session ID/order reference the customer can later provide for support/status lookup.
+
+Telegram remains a read-only guide into that path.
+
+### What only signed webhook proof can prove
+
+Only the backend processing a valid signed Stripe webhook can prove payment. Customer Telegram status is constrained to these safe statuses:
+
+- `pending_verification`
+- `paid_verified`
+- `not_found`
+- `support_required`
+
+The bot never maps a user-supplied reference, redirect URL, browser success page, or unsigned webhook attempt to paid. `/payment_status` may say `paid_verified` only when the backend settlement-status endpoint reports verified Stripe event proof and a payment record. `/order_status` does not claim customer fulfillment; when a public order-status endpoint is unavailable or insufficient, it returns support guidance.
+
+### First real transaction checklist
+
+Before inviting the first real customer to pay real money:
+
+- [ ] Publish/import at least one approved real supplier product outside Telegram.
+- [ ] Confirm Medusa Store API lists that product through `GET /store/products`.
+- [ ] Confirm `/products` labels no real supplier blockers for that item.
+- [ ] Confirm `/product <handle_or_id>` returns price/availability/product URL and does not label the item DEMO.
+- [ ] Confirm web product page can add the item to cart.
+- [ ] Confirm web checkout redirects to Stripe-hosted checkout in the intended mode.
+- [ ] Confirm unsigned Stripe webhook requests are rejected.
+- [ ] Confirm signed `checkout.session.completed` webhook evidence is persisted.
+- [ ] Confirm `/payment_status <checkout_session_or_order_ref>` returns `paid_verified` only after backend proof.
+- [ ] Confirm `/order_status <order_or_email_or_reference>` sends customers to support rather than faking fulfillment when public proof is unavailable.
+- [ ] Confirm admin/ops diagnostics remain protected from non-admin Telegram users.
+
+### Deployment order after this change
+
+1. Deploy the NestJS API so settlement-status behavior is available.
+2. Deploy/restart Medusa so the public Store API reflects the approved supplier product.
+3. Deploy the Telegram bot so `/shop`, `/products`, `/product`, `/checkout_help`, `/payment_status`, and `/order_status` use the hardened customer flow.
+4. Deploy the web frontend so product pages and checkout guidance match the bot links.
+5. Run the customer first-checkout smoke and the live first-transaction smoke before sending a real customer to checkout.
+
+Validation command for the customer journey smoke:
+
+```bash
+node scripts/e2e-telegram-customer-first-checkout-journey-smoke.mjs
+```
