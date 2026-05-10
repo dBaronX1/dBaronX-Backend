@@ -40,7 +40,6 @@ const BASE_REQUIRED_ENV = [
   "DBX_FIRST_PRODUCT_HANDLE",
   "DBX_FIRST_PRODUCT_DESCRIPTION",
   "DBX_FIRST_PRODUCT_PRICE_USD_MINOR",
-  "DBX_FIRST_PRODUCT_COST_USD_MINOR",
   "DBX_FIRST_PRODUCT_SUPPLIER",
   "DBX_FIRST_PRODUCT_SUPPLIER_PRODUCT_ID",
   "DBX_FIRST_PRODUCT_SUPPLIER_SKU",
@@ -48,13 +47,17 @@ const BASE_REQUIRED_ENV = [
 ] as const;
 
 const OPTIONAL_VERIFICATION_ENV = [
+  "DBX_FIRST_PRODUCT_COST_USD_MINOR",
   "DBX_FIRST_PRODUCT_IMAGE_URL",
   "DBX_FIRST_PRODUCT_STOCK_QTY",
   "DBX_FIRST_PRODUCT_SHIPPING_COUNTRIES",
   "DBX_FIRST_PRODUCT_DELIVERY_ESTIMATE",
 ] as const;
 
-type FirstProductEnv = (typeof BASE_REQUIRED_ENV)[number] | (typeof OPTIONAL_VERIFICATION_ENV)[number] | "DBX_FIRST_PRODUCT_MODE";
+type FirstProductEnv =
+  | (typeof BASE_REQUIRED_ENV)[number]
+  | (typeof OPTIONAL_VERIFICATION_ENV)[number]
+  | "DBX_FIRST_PRODUCT_MODE";
 
 function asArray<T = any>(value: unknown, fallbackKeys: string[] = []): T[] {
   if (Array.isArray(value)) return value as T[];
@@ -89,7 +92,27 @@ function parseMode(): FirstProductMode {
 function parsePositiveInteger(raw: string, name: string): number {
   if (!/^\d+$/.test(raw)) fail(`${name}_must_be_integer`);
   const value = Number(raw);
-  if (!Number.isSafeInteger(value) || value <= 0) fail(`${name}_must_be_positive`);
+  if (!Number.isSafeInteger(value) || value <= 0)
+    fail(`${name}_must_be_positive`);
+  return value;
+}
+
+function parseSupplierCostAmount(raw: string, mode: FirstProductMode): number {
+  if (!/^\d+$/.test(raw)) {
+    if (mode === "publish")
+      fail("DBX_FIRST_PRODUCT_COST_USD_MINOR_REQUIRED", {
+        reason: raw ? "must_be_positive_integer_minor_units" : "missing",
+      });
+    return 0;
+  }
+  const value = Number(raw);
+  if (!Number.isSafeInteger(value) || value <= 0) {
+    if (mode === "publish")
+      fail("DBX_FIRST_PRODUCT_COST_USD_MINOR_REQUIRED", {
+        reason: "must_be_positive_integer_minor_units",
+      });
+    return 0;
+  }
   return value;
 }
 
@@ -97,15 +120,24 @@ function parseOptionalNonNegativeInteger(raw: string, name: string): number {
   if (!raw) return 0;
   if (!/^\d+$/.test(raw)) fail(`${name}_must_be_integer`);
   const value = Number(raw);
-  if (!Number.isSafeInteger(value) || value < 0) fail(`${name}_must_be_non_negative`);
+  if (!Number.isSafeInteger(value) || value < 0)
+    fail(`${name}_must_be_non_negative`);
   return value;
 }
 
 function assertUrl(value: string, name: string): void {
   try {
     const url = new URL(value);
-    if (!["http:", "https:"].includes(url.protocol)) fail(`${name}_must_be_http_url`);
-    if (/token|secret|access[_-]?key|api[_-]?key|bearer/i.test(url.search)) fail(`${name}_must_not_include_credentials`);
+    if (!["http:", "https:"].includes(url.protocol))
+      fail(`${name}_must_be_http_url`);
+    if (url.username || url.password)
+      fail(`${name}_must_not_include_credentials`);
+    if (
+      /token|secret|access[_-]?key|api[_-]?key|bearer/i.test(
+        `${url.search} ${url.hash}`,
+      )
+    )
+      fail(`${name}_must_not_include_credentials`);
   } catch {
     fail(`${name}_must_be_valid_url`);
   }
@@ -127,21 +159,18 @@ function normalizeSupplier(value: string): string {
 }
 
 function supplierMetadata(input: FirstProductInput): Record<string, unknown> {
-  return {
-    supplier: input.supplier,
-    supplierProductId: input.supplierProductId,
-    supplierSku: input.supplierSku,
-    sourceUrl: input.sourceUrl,
-    realSupplierProduct: true,
-    demo: false,
-  };
+  return metadataFor(input);
 }
 
-function verificationBlockersFor(input: Omit<FirstProductInput, "verificationBlockers">): string[] {
+function verificationBlockersFor(
+  input: Omit<FirstProductInput, "verificationBlockers">,
+): string[] {
   const blockers: string[] = [];
+  if (input.supplierCostAmount <= 0) blockers.push("supplier_cost_missing");
   if (!input.imageUrl) blockers.push("product_image_missing");
   if (input.stockQty <= 0) blockers.push("stock_unverified");
-  if (input.shippingCountries.length === 0) blockers.push("shipping_country_unverified");
+  if (input.shippingCountries.length === 0)
+    blockers.push("shipping_country_unverified");
   if (!input.deliveryEstimate) blockers.push("delivery_estimate_unverified");
   return blockers;
 }
@@ -149,24 +178,40 @@ function verificationBlockersFor(input: Omit<FirstProductInput, "verificationBlo
 function readInput(): FirstProductInput {
   const mode = parseMode();
   const missing = BASE_REQUIRED_ENV.filter((name) => !env(name));
-  if (missing.length) fail("first_product_required_env_missing", { missing, mode });
+  if (missing.length)
+    fail("first_product_required_env_missing", { missing, mode });
 
   const inputWithoutBlockers = {
     mode,
     title: env("DBX_FIRST_PRODUCT_TITLE"),
     handle: env("DBX_FIRST_PRODUCT_HANDLE"),
     description: env("DBX_FIRST_PRODUCT_DESCRIPTION"),
-    priceAmount: parsePositiveInteger(env("DBX_FIRST_PRODUCT_PRICE_USD_MINOR"), "DBX_FIRST_PRODUCT_PRICE_USD_MINOR"),
+    priceAmount: parsePositiveInteger(
+      env("DBX_FIRST_PRODUCT_PRICE_USD_MINOR"),
+      "DBX_FIRST_PRODUCT_PRICE_USD_MINOR",
+    ),
+    supplierCostAmount: parseSupplierCostAmount(
+      env("DBX_FIRST_PRODUCT_COST_USD_MINOR"),
+      mode,
+    ),
     supplier: normalizeSupplier(env("DBX_FIRST_PRODUCT_SUPPLIER")),
     supplierProductId: env("DBX_FIRST_PRODUCT_SUPPLIER_PRODUCT_ID"),
     supplierSku: env("DBX_FIRST_PRODUCT_SUPPLIER_SKU"),
     sourceUrl: env("DBX_FIRST_PRODUCT_SOURCE_URL"),
     imageUrl: env("DBX_FIRST_PRODUCT_IMAGE_URL"),
-    stockQty: parseOptionalNonNegativeInteger(env("DBX_FIRST_PRODUCT_STOCK_QTY"), "DBX_FIRST_PRODUCT_STOCK_QTY"),
-    shippingCountries: parseShippingCountries(env("DBX_FIRST_PRODUCT_SHIPPING_COUNTRIES")),
+    stockQty: parseOptionalNonNegativeInteger(
+      env("DBX_FIRST_PRODUCT_STOCK_QTY"),
+      "DBX_FIRST_PRODUCT_STOCK_QTY",
+    ),
+    shippingCountries: parseShippingCountries(
+      env("DBX_FIRST_PRODUCT_SHIPPING_COUNTRIES"),
+    ),
     deliveryEstimate: env("DBX_FIRST_PRODUCT_DELIVERY_ESTIMATE"),
   };
-  const input: FirstProductInput = { ...inputWithoutBlockers, verificationBlockers: verificationBlockersFor(inputWithoutBlockers) };
+  const input: FirstProductInput = {
+    ...inputWithoutBlockers,
+    verificationBlockers: verificationBlockersFor(inputWithoutBlockers),
+  };
 
   assertUrl(input.sourceUrl, "DBX_FIRST_PRODUCT_SOURCE_URL");
   if (input.imageUrl) assertUrl(input.imageUrl, "DBX_FIRST_PRODUCT_IMAGE_URL");
@@ -175,38 +220,59 @@ function readInput(): FirstProductInput {
     fail("DBX_FIRST_PRODUCT_SUPPLIER_must_be_cj", { supplier: input.supplier });
   }
 
-  if (containsDemoMarker(`${input.title} ${input.handle} ${input.description}`)) {
-    fail("first_real_product_title_handle_description_must_not_contain_demo_mock_sample_or_test");
+  if (
+    containsDemoMarker(`${input.title} ${input.handle} ${input.description}`)
+  ) {
+    fail(
+      "first_real_product_title_handle_description_must_not_contain_demo_mock_sample_or_test",
+    );
+  }
+
+  if (input.mode === "publish" && input.verificationBlockers.length) {
+    fail("first_product_publish_verification_blockers", {
+      blockers: input.verificationBlockers,
+    });
   }
 
   return input;
 }
 
 function metadataFor(input: FirstProductInput) {
-  const verified = input.mode === "publish";
+  const verified =
+    input.mode === "publish" && input.verificationBlockers.length === 0;
   return {
     supplier: input.supplier,
     supplierProductId: input.supplierProductId,
     supplierSku: input.supplierSku,
     sourceUrl: input.sourceUrl,
+    supplierCostAmount: input.supplierCostAmount,
+    supplierCostCurrency: "usd",
     supplierCostUsdMinor: input.supplierCostAmount,
     shippingCountries: input.shippingCountries,
     deliveryEstimate: input.deliveryEstimate || null,
     realSupplierProduct: verified,
     demo: false,
-    supplierVerificationStatus: verified ? "verified_for_checkout" : "draft_pending_verification",
+    supplierVerificationStatus: verified
+      ? "verified_for_checkout"
+      : "draft_pending_verification",
     supplierVerificationBlockers: verified ? [] : input.verificationBlockers,
     blockers: verified ? [] : input.verificationBlockers,
   };
 }
 
-function productInputFor(input: FirstProductInput, defaultSalesChannelId: string, shippingProfileId: string) {
+function productInputFor(
+  input: FirstProductInput,
+  defaultSalesChannelId: string,
+  shippingProfileId: string,
+) {
   const metadata = metadataFor(input);
   return {
     title: input.title,
     description: input.description,
     handle: input.handle,
-    ...(input.imageUrl ? { thumbnail: input.imageUrl, images: [{ url: input.imageUrl }] } : { images: [] }),
+    ...(input.imageUrl
+      ? { thumbnail: input.imageUrl, images: [{ url: input.imageUrl }] }
+      : { images: [] }),
     status: "published" as const,
     sales_channels: [{ id: defaultSalesChannelId }],
     shipping_profile_id: shippingProfileId,
@@ -225,7 +291,11 @@ function productInputFor(input: FirstProductInput, defaultSalesChannelId: string
   };
 }
 
-async function updateExistingProduct(container: ExecArgs["container"], existingProduct: any, input: FirstProductInput): Promise<void> {
+async function updateExistingProduct(
+  container: ExecArgs["container"],
+  existingProduct: any,
+  input: FirstProductInput,
+): Promise<void> {
   const productModuleService = container.resolve<any>("product");
   const metadata = metadataFor(input);
   await productModuleService.updateProducts([
@@ -234,7 +304,9 @@ async function updateExistingProduct(container: ExecArgs["container"], existingP
       title: input.title,
       description: input.description,
       handle: input.handle,
-      ...(input.imageUrl ? { thumbnail: input.imageUrl, images: [{ url: input.imageUrl }] } : {}),
+      ...(input.imageUrl
+        ? { thumbnail: input.imageUrl, images: [{ url: input.imageUrl }] }
+        : {}),
       metadata,
     },
   ]);
@@ -258,58 +330,124 @@ async function updateExistingProduct(container: ExecArgs["container"], existingP
   }
 }
 
-async function syncInventoryLevel(container: ExecArgs["container"], query: QueryGraphFn, inventoryItemId: string | null | undefined, stockLocationId: string, stockQty: number): Promise<boolean> {
+async function syncInventoryLevel(
+  container: ExecArgs["container"],
+  query: QueryGraphFn,
+  inventoryItemId: string | null | undefined,
+  stockLocationId: string,
+  stockQty: number,
+): Promise<boolean> {
   if (!inventoryItemId || stockQty <= 0) return false;
 
   const existingLevelsResult = await query({
     entity: "inventory_level",
     fields: ["id", "inventory_item_id", "location_id"],
-    filters: { inventory_item_id: inventoryItemId, location_id: stockLocationId },
+    filters: {
+      inventory_item_id: inventoryItemId,
+      location_id: stockLocationId,
+    },
     pagination: { take: 1 },
   });
-  const existingLevel = asArray<any>(existingLevelsResult, ["inventory_levels"])[0] || null;
+  const existingLevel =
+    asArray<any>(existingLevelsResult, ["inventory_levels"])[0] || null;
   if (existingLevel?.id) {
     await updateInventoryLevelsWorkflow(container).run({
-      input: { updates: [{ id: existingLevel.id, inventory_item_id: inventoryItemId, location_id: stockLocationId, stocked_quantity: stockQty }] },
+      input: {
+        updates: [
+          {
+            id: existingLevel.id,
+            inventory_item_id: inventoryItemId,
+            location_id: stockLocationId,
+            stocked_quantity: stockQty,
+          },
+        ],
+      },
     });
     return true;
   }
 
   await createInventoryLevelsWorkflow(container).run({
-    input: { inventory_levels: [{ inventory_item_id: inventoryItemId, location_id: stockLocationId, stocked_quantity: stockQty }] },
+    input: {
+      inventory_levels: [
+        {
+          inventory_item_id: inventoryItemId,
+          location_id: stockLocationId,
+          stocked_quantity: stockQty,
+        },
+      ],
+    },
   });
   return true;
 }
 
 function firstInventoryItemId(variant: any): string | null {
   const inventoryItem = asArray<any>(variant?.inventory_items)[0] || null;
-  return inventoryItem?.inventory_item_id || inventoryItem?.id || inventoryItem?.inventory?.id || null;
+  return (
+    inventoryItem?.inventory_item_id ||
+    inventoryItem?.id ||
+    inventoryItem?.inventory?.id ||
+    null
+  );
 }
 
-export default async function seedFirstSupplierProduct({ container }: ExecArgs) {
+export default async function seedFirstSupplierProduct({
+  container,
+}: ExecArgs) {
   const logger = container.resolve(ContainerRegistrationKeys.LOGGER);
-  const query = container.resolve<QueryGraphFn>(ContainerRegistrationKeys.QUERY);
-  const dryRun = process.argv.includes("--dry-run") || process.argv.includes("--dryRun") || process.env.DRY_RUN === "true";
+  const query = container.resolve<QueryGraphFn>(
+    ContainerRegistrationKeys.QUERY,
+  );
+  const dryRun =
+    process.argv.includes("--dry-run") ||
+    process.argv.includes("--dryRun") ||
+    process.env.DRY_RUN === "true";
   const input = readInput();
   const metadata = metadataFor(input);
 
   const existingProductsResult = await query({
     entity: "product",
-    fields: ["id", "handle", "metadata", "variants.id", "variants.inventory_items.id", "variants.inventory_items.inventory_item_id", "variants.inventory_items.inventory.id"],
+    fields: [
+      "id",
+      "handle",
+      "metadata",
+      "variants.id",
+      "variants.inventory_items.id",
+      "variants.inventory_items.inventory_item_id",
+      "variants.inventory_items.inventory.id",
+    ],
     filters: { handle: input.handle },
     pagination: { take: 1 },
   });
-  const existingProduct = asArray<any>(existingProductsResult, ["products"])[0] || null;
+  const existingProduct =
+    asArray<any>(existingProductsResult, ["products"])[0] || null;
   if (existingProduct) {
-    const metadata = existingProduct.metadata && typeof existingProduct.metadata === "object" ? existingProduct.metadata : {};
-    const isRealSupplierProduct = metadata.realSupplierProduct === true && metadata.demo === false;
-    const isSameCjProduct = metadata.supplier === "cj" && metadata.supplierProductId === input.supplierProductId && metadata.supplierSku === input.supplierSku && metadata.sourceUrl === input.sourceUrl;
-    if (!isRealSupplierProduct) {
-      fail("product_handle_exists_but_is_not_first_real_supplier_product", {
-        existingProductId: existingProduct.id,
-        handle: input.handle,
-        instruction: "Choose a new handle or manually review the existing product; this script will not overwrite unrelated products.",
-      });
+    const existingMetadata =
+      existingProduct.metadata && typeof existingProduct.metadata === "object"
+        ? existingProduct.metadata
+        : {};
+    const isFirstSupplierProduct =
+      existingMetadata.demo === false &&
+      (existingMetadata.realSupplierProduct === true ||
+        existingMetadata.realSupplierProduct === false) &&
+      ["verified_for_checkout", "draft_pending_verification"].includes(
+        String(existingMetadata.supplierVerificationStatus || ""),
+      );
+    const isSameCjProduct =
+      existingMetadata.supplier === "cj" &&
+      existingMetadata.supplierProductId === input.supplierProductId &&
+      existingMetadata.supplierSku === input.supplierSku &&
+      existingMetadata.sourceUrl === input.sourceUrl;
+    if (!isFirstSupplierProduct || !isSameCjProduct) {
+      fail(
+        "product_handle_exists_with_different_or_unverified_supplier_metadata",
+        {
+          existingProductId: existingProduct.id,
+          handle: input.handle,
+          requiredMetadata: metadata,
+          instruction:
+            "Choose a new handle or manually review the existing product; this script will not relabel unrelated or mismatched supplier products.",
+        },
+      );
     }
     let inventoryLevelSynced = false;
     if (!dryRun) {
@@ -319,20 +457,36 @@ export default async function seedFirstSupplierProduct({ container }: ExecArgs) 
         fields: ["id", "name"],
         pagination: { take: 20 },
       });
-      const stockLocation = asArray<any>(stockLocationsResult, ["stock_locations"])[0] || null;
-      if (!stockLocation && input.mode === "publish") fail("no_stock_location_found_for_existing_product_publish");
+      const stockLocation =
+        asArray<any>(stockLocationsResult, ["stock_locations"])[0] || null;
+      if (!stockLocation && input.mode === "publish")
+        fail("no_stock_location_found_for_existing_product_publish");
       const variant = asArray<any>(existingProduct.variants)[0] || null;
-      inventoryLevelSynced = await syncInventoryLevel(container, query, firstInventoryItemId(variant), stockLocation?.id, input.stockQty);
+      inventoryLevelSynced = await syncInventoryLevel(
+        container,
+        query,
+        firstInventoryItemId(variant),
+        stockLocation?.id,
+        input.stockQty,
+      );
     }
-    if (!isSameCjProduct) {
-      fail("product_handle_exists_with_different_cj_metadata", {
-        existingProductId: existingProduct.id,
-        handle: input.handle,
-        requiredMetadata: supplierMetadata(input),
-        instruction: "Choose a new handle or manually review the existing product; this script will not relabel mismatched supplier metadata.",
-      });
-    }
-    console.log(JSON.stringify({ success: true, dryRun, createdCount: 0, skippedCount: 1, existingProductId: existingProduct.id, handle: input.handle, realSupplierProduct: true, metadataContract: supplierMetadata(input) }, null, 2));
+    console.log(
+      JSON.stringify(
+        {
+          success: true,
+          dryRun,
+          createdCount: 0,
+          updatedCount: dryRun ? 0 : 1,
+          existingProductId: existingProduct.id,
+          handle: input.handle,
+          realSupplierProduct: metadata.realSupplierProduct,
+          inventoryLevelSynced,
+          metadataContract: metadata,
+        },
+        null,
+        2,
+      ),
+    );
     return;
   }
 
@@ -341,24 +495,35 @@ export default async function seedFirstSupplierProduct({ container }: ExecArgs) 
     fields: ["id", "name", "is_default"],
     pagination: { take: 20 },
   });
-  const salesChannels = asArray<any>(salesChannelsResult, ["sales_channels", "salesChannels"]);
+  const salesChannels = asArray<any>(salesChannelsResult, [
+    "sales_channels",
+    "salesChannels",
+  ]);
 
   const shippingProfilesResult = await query({
     entity: "shipping_profile",
     fields: ["id", "name", "type"],
     pagination: { take: 20 },
   });
-  const shippingProfiles = asArray<any>(shippingProfilesResult, ["shipping_profiles"]);
+  const shippingProfiles = asArray<any>(shippingProfilesResult, [
+    "shipping_profiles",
+  ]);
 
   const stockLocationsResult = await query({
     entity: "stock_location",
     fields: ["id", "name"],
     pagination: { take: 20 },
   });
-  const stockLocations = asArray<any>(stockLocationsResult, ["stock_locations"]);
+  const stockLocations = asArray<any>(stockLocationsResult, [
+    "stock_locations",
+  ]);
 
-  const defaultSalesChannel = salesChannels.find((sc: any) => sc?.is_default) || salesChannels[0] || null;
-  const shippingProfile = shippingProfiles.find((sp: any) => sp?.type === "default") || shippingProfiles[0] || null;
+  const defaultSalesChannel =
+    salesChannels.find((sc: any) => sc?.is_default) || salesChannels[0] || null;
+  const shippingProfile =
+    shippingProfiles.find((sp: any) => sp?.type === "default") ||
+    shippingProfiles[0] ||
+    null;
   const stockLocation = stockLocations[0] || null;
   const diagnostics = {
     counts: {
@@ -372,50 +537,62 @@ export default async function seedFirstSupplierProduct({ container }: ExecArgs) 
   if (!shippingProfile) fail("no_shipping_profile_found", diagnostics);
   if (!stockLocation) fail("no_stock_location_found", diagnostics);
 
-  const productInput = {
-    title: input.title,
-    description: input.description,
-    handle: input.handle,
-    thumbnail: input.imageUrl,
-    images: [{ url: input.imageUrl }],
-    status: "published" as const,
-    sales_channels: [{ id: defaultSalesChannel.id }],
-    shipping_profile_id: shippingProfile.id,
-    options: [{ title: "Variant", values: ["Default"] }],
-    metadata: supplierMetadata(input),
-    variants: [
-      {
-        title: "Default",
-        sku: input.supplierSku,
-        manage_inventory: true,
-        prices: [{ amount: input.priceAmount, currency_code: "usd" }],
-        options: { Variant: "Default" },
-        metadata: supplierMetadata(input),
-      },
-    ],
-  };
+  const productInput = productInputFor(
+    input,
+    defaultSalesChannel.id,
+    shippingProfile.id,
+  );
 
   if (dryRun) {
-    logger.info(`First supplier product ${input.mode} dry-run for ${input.handle}`);
-    console.log(JSON.stringify({ success: true, dryRun: true, mode: input.mode, wouldCreateCount: 1, product: productInput, diagnostics }, null, 2));
+    logger.info(
+      `First supplier product ${input.mode} dry-run for ${input.handle}`,
+    );
+    console.log(
+      JSON.stringify(
+        {
+          success: true,
+          dryRun: true,
+          mode: input.mode,
+          wouldCreateCount: 1,
+          product: productInput,
+          diagnostics,
+        },
+        null,
+        2,
+      ),
+    );
     return;
   }
 
-  const created = await createProductsWorkflow(container).run({ input: { products: [productInput] } });
+  const created = await createProductsWorkflow(container).run({
+    input: { products: [productInput] },
+  });
   const createdProduct = asArray<any>(created?.result)[0] || null;
   const variant = asArray<any>(createdProduct?.variants)[0] || null;
   const inventoryItemId = firstInventoryItemId(variant);
-  const inventoryLevelCreated = await syncInventoryLevel(container, query, inventoryItemId, stockLocation.id, input.stockQty);
+  const inventoryLevelCreated = await syncInventoryLevel(
+    container,
+    query,
+    inventoryItemId,
+    stockLocation.id,
+    input.stockQty,
+  );
 
-  console.log(JSON.stringify({
-    success: true,
-    mode: input.mode,
-    createdCount: createdProduct ? 1 : 0,
-    updatedCount: 0,
-    productId: createdProduct?.id || null,
-    variantId: variant?.id || null,
-    inventoryLevelCreated,
-    handle: input.handle,
-    metadataContract: productInput.metadata,
-  }, null, 2));
+  console.log(
+    JSON.stringify(
+      {
+        success: true,
+        mode: input.mode,
+        createdCount: createdProduct ? 1 : 0,
+        updatedCount: 0,
+        productId: createdProduct?.id || null,
+        variantId: variant?.id || null,
+        inventoryLevelCreated,
+        handle: input.handle,
+        metadataContract: productInput.metadata,
+      },
+      null,
+      2,
+    ),
+  );
 }

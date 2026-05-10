@@ -284,7 +284,8 @@ Required CJ/manual inputs before running Telegram discovery:
 - [ ] CJ SKU
 - [ ] CJ source URL (`http://` or `https://` only)
 - [ ] Product image URL (`http://` or `https://` only)
-- [ ] Selling price
+- [ ] Supplier cost in USD minor units (`DBX_FIRST_PRODUCT_COST_USD_MINOR=419` for the selected CJ product)
+- [ ] Selling price (`DBX_FIRST_PRODUCT_PRICE_USD_MINOR=999` or another operator-approved margin-safe price)
 - [ ] Stock quantity
 - [ ] Shipping country
 - [ ] Margin note reviewed outside Telegram; internal supplier cost/margin is never printed to customers
@@ -297,6 +298,8 @@ Expected Medusa metadata contract for Telegram to classify the product as real:
   "supplierProductId": "<CJ product ID>",
   "supplierSku": "<CJ SKU>",
   "sourceUrl": "<CJ source URL>",
+  "supplierCostAmount": 419,
+  "supplierCostCurrency": "usd",
   "realSupplierProduct": true,
   "demo": false
 }
@@ -308,11 +311,12 @@ Seed command:
 DBX_FIRST_PRODUCT_TITLE='<CJ product title>' \
 DBX_FIRST_PRODUCT_HANDLE='<customer-safe-handle>' \
 DBX_FIRST_PRODUCT_DESCRIPTION='<customer-safe description>' \
-DBX_FIRST_PRODUCT_PRICE_USD_MINOR='<selling price in cents>' \
+DBX_FIRST_PRODUCT_PRICE_USD_MINOR='999' \
+DBX_FIRST_PRODUCT_COST_USD_MINOR='419' \
 DBX_FIRST_PRODUCT_SUPPLIER='cj' \
-DBX_FIRST_PRODUCT_SUPPLIER_PRODUCT_ID='<CJ product ID>' \
-DBX_FIRST_PRODUCT_SUPPLIER_SKU='<CJ SKU>' \
-DBX_FIRST_PRODUCT_SOURCE_URL='<https://...>' \
+DBX_FIRST_PRODUCT_SUPPLIER_PRODUCT_ID='2408300732091605000' \
+DBX_FIRST_PRODUCT_SUPPLIER_SKU='CJDS212420173UF' \
+DBX_FIRST_PRODUCT_SOURCE_URL='https://cjdropshipping.com/product/new-mens-casual-blouse-cotton-linen-shirt-loose-tops-long-sleeve-tee-shirt-spring-autumn-casual-handsome-mens-shirts-p-2408300732091605000.html' \
 DBX_FIRST_PRODUCT_IMAGE_URL='<https://...>' \
 DBX_FIRST_PRODUCT_STOCK_QTY='<positive stock quantity>' \
 pnpm first-product:seed
