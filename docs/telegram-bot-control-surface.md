@@ -267,3 +267,58 @@ node --check scripts/telegram-webhook-info.mjs
 - Add backend read-only status endpoints for planned/partial modules before exposing richer Telegram diagnostics.
 - Add backend-approved preview endpoints for any future operational write before Telegram can call it.
 - Keep payout approval, settlement, wallet crediting, fulfillment, and supplier import workflows outside Telegram until backend proof/audit policies are complete.
+
+## Live response and first-transaction ops readiness contract
+
+`GET /ready` is intentionally public-safe and returns flags only. It never returns the bot token, webhook secret, internal token, or token-bearing Telegram API URLs. The required response fields are:
+
+- `success`
+- `blockers`
+- `telegramRuntimeStarted`
+- `botPublicBaseUrlPresent`
+- `telegramBotPublicBaseUrlPresent`
+- `botBaseUrlPresent`
+- `apiBaseUrlPresent`
+- `medusaBaseUrlPresent`
+- `fastapiBaseUrlPresent`
+- `adminGuardConfigured`
+- `telegramWebhookSecretPresent`
+- `internalTokenPresent`
+- `webhookPath`
+- `healthPath`
+- `readyPath`
+- `safeMode`
+- `timestamp`
+
+The bot accepts these environment aliases consistently:
+
+- Bot public origin: `BOT_PUBLIC_BASE_URL`, `TELEGRAM_BOT_PUBLIC_BASE_URL`, or `BOT_BASE_URL`.
+- Nest/API origin: `API_BASE_URL` or `API_URL`.
+- Medusa origin: `MEDUSA_BASE_URL` or `MEDUSA_URL`.
+- FastAPI origin: `FASTAPI_BASE_URL` or `FASTAPI_URL`.
+
+The canonical Telegram webhook URL is always:
+
+```text
+https://<BOT_PUBLIC_BASE_URL>/webhook/telegram
+```
+
+`POST /webhook/telegram` is canonical and `POST /webhook` remains a compatibility endpoint. When `TELEGRAM_WEBHOOK_SECRET` is configured, both endpoints require Telegram's `x-telegram-bot-api-secret-token` header. Health and readiness endpoints do not require this header.
+
+### First transaction Telegram proof commands
+
+The first controlled Stripe transaction uses Telegram for read-only proof and operator diagnostics only. The verified commands are:
+
+- `/status`
+- `/payments_status`
+- `/stripe_storage`
+- `/stripe_first_tx_status`
+- `/stripe_settlement <session>`
+- `/medusa_status`
+- `/commerce_status`
+
+These commands must remain proof-only. They do not mark paid, settle orders, approve payouts, credit wallets, fulfill orders, import suppliers, fake paid state, fake reward state, or override live money controls.
+
+### Token rotation rule
+
+If `TELEGRAM_BOT_TOKEN` appears in runtime logs, screenshots, chat, tickets, or terminal recordings, immediately rotate the token in BotFather, update the deployment secret store, redeploy the bot, and re-register the webhook with `scripts/telegram-set-webhook.mjs`. Helper scripts print only sanitized Telegram API endpoints such as `https://api.telegram.org/bot<redacted>/setWebhook`.

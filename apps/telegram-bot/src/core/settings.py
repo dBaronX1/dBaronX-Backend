@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import os
 from functools import lru_cache
 
 from pydantic import AliasChoices, Field
@@ -31,13 +32,21 @@ class Settings(BaseSettings):
     TELEGRAM_ADMIN_USERNAMES: str = Field(default="")
     TELEGRAM_ADMIN_CHAT_IDS: str = Field(default="")
 
-    API_BASE_URL: str = Field(default="https://dbaronx-api-unified.onrender.com", validation_alias=AliasChoices("API_BASE_URL", "NESTJS_BASE_URL"))
-    NESTJS_BASE_URL: str = Field(default="https://dbaronx-api-unified.onrender.com")
-    FASTAPI_BASE_URL: str = ""
-    MEDUSA_BASE_URL: str = "https://dbaronx-medusa.onrender.com"
+    API_BASE_URL: str = Field(default="", validation_alias=AliasChoices("API_BASE_URL", "API_URL", "NESTJS_BASE_URL", "NESTJS_API_URL"))
+    API_URL: str = ""
+    NESTJS_BASE_URL: str = ""
+    NESTJS_API_URL: str = ""
+    FASTAPI_BASE_URL: str = Field(default="", validation_alias=AliasChoices("FASTAPI_BASE_URL", "FASTAPI_URL"))
+    FASTAPI_URL: str = ""
+    MEDUSA_BASE_URL: str = Field(default="", validation_alias=AliasChoices("MEDUSA_BASE_URL", "MEDUSA_URL", "MEDUSA_BACKEND_URL", "NEXT_PUBLIC_MEDUSA_BACKEND_URL"))
+    MEDUSA_URL: str = ""
+    MEDUSA_BACKEND_URL: str = ""
+    NEXT_PUBLIC_MEDUSA_BACKEND_URL: str = ""
     INTERNAL_SERVICE_TOKEN: str = ""
-    BOT_PUBLIC_BASE_URL: str = Field(default="", validation_alias=AliasChoices("BOT_PUBLIC_BASE_URL", "TELEGRAM_BOT_PUBLIC_BASE_URL"))
+    BOT_PUBLIC_BASE_URL: str = Field(default="", validation_alias=AliasChoices("BOT_PUBLIC_BASE_URL", "TELEGRAM_BOT_PUBLIC_BASE_URL", "BOT_BASE_URL", "TELEGRAM_BOT_BASE_URL"))
     TELEGRAM_BOT_PUBLIC_BASE_URL: str = ""
+    BOT_BASE_URL: str = ""
+    TELEGRAM_BOT_BASE_URL: str = ""
 
     REQUEST_TIMEOUT_SECONDS: int = Field(default=12)
     REQUEST_RETRY_COUNT: int = Field(default=2)
@@ -46,15 +55,15 @@ class Settings(BaseSettings):
 
     @property
     def api_base_url(self) -> str:
-        return (self.API_BASE_URL or self.NESTJS_BASE_URL).rstrip("/")
+        return (self.API_BASE_URL or self.API_URL or self.NESTJS_BASE_URL or self.NESTJS_API_URL).rstrip("/")
 
     @property
     def fastapi_base_url(self) -> str:
-        return self.FASTAPI_BASE_URL.rstrip("/")
+        return (self.FASTAPI_BASE_URL or self.FASTAPI_URL).rstrip("/")
 
     @property
     def medusa_base_url(self) -> str:
-        return self.MEDUSA_BASE_URL.rstrip("/")
+        return (self.MEDUSA_BASE_URL or self.MEDUSA_URL or self.MEDUSA_BACKEND_URL or self.NEXT_PUBLIC_MEDUSA_BACKEND_URL).rstrip("/")
 
     @property
     def admin_id_set(self) -> set[str]:
@@ -83,6 +92,34 @@ class Settings(BaseSettings):
     def admin_chat_id_set(self) -> set[str]:
         return _parse_csv_set(self.TELEGRAM_ADMIN_CHAT_IDS)
 
+    @property
+    def bot_public_base_url(self) -> str:
+        return (self.BOT_PUBLIC_BASE_URL or self.TELEGRAM_BOT_PUBLIC_BASE_URL or self.BOT_BASE_URL or self.TELEGRAM_BOT_BASE_URL).rstrip("/")
+
+    def _env_present(self, *names: str) -> bool:
+        return any(bool(os.getenv(name, "").strip()) for name in names)
+
+    def readiness_flags(self, *, telegram_runtime_started: bool) -> dict[str, object]:
+        blockers = self.startup_blockers()
+        return {
+            "success": telegram_runtime_started and not blockers,
+            "blockers": blockers,
+            "telegramRuntimeStarted": telegram_runtime_started,
+            "botPublicBaseUrlPresent": self._env_present("BOT_PUBLIC_BASE_URL") or bool(self.bot_public_base_url),
+            "telegramBotPublicBaseUrlPresent": self._env_present("TELEGRAM_BOT_PUBLIC_BASE_URL"),
+            "botBaseUrlPresent": self._env_present("BOT_BASE_URL", "TELEGRAM_BOT_BASE_URL"),
+            "apiBaseUrlPresent": bool(self.api_base_url),
+            "medusaBaseUrlPresent": bool(self.medusa_base_url),
+            "fastapiBaseUrlPresent": bool(self.fastapi_base_url),
+            "adminGuardConfigured": bool(self.admin_id_set or self.admin_username_set or self.admin_chat_id_set),
+            "telegramWebhookSecretPresent": bool(self.TELEGRAM_WEBHOOK_SECRET),
+            "internalTokenPresent": bool(self.INTERNAL_SERVICE_TOKEN),
+            "webhookPath": "/webhook/telegram",
+            "healthPath": "/health",
+            "readyPath": "/ready",
+            "safeMode": "proof_only_no_telegram_writes",
+        }
+
     def startup_blockers(self) -> list[str]:
         blockers: list[str] = []
         if not self.TELEGRAM_BOT_TOKEN:
@@ -99,7 +136,7 @@ class Settings(BaseSettings):
             blockers.append("MEDUSA_BASE_URL_missing")
         if not self.INTERNAL_SERVICE_TOKEN:
             blockers.append("INTERNAL_SERVICE_TOKEN_missing")
-        if not (self.BOT_PUBLIC_BASE_URL or self.TELEGRAM_BOT_PUBLIC_BASE_URL):
+        if not self.bot_public_base_url:
             blockers.append("BOT_PUBLIC_BASE_URL_missing")
         return blockers
 

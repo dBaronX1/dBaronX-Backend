@@ -20,6 +20,16 @@ const requiredCommands = [
   'dreams_status','rewards_status','subscriptions_status','airdrop_status','giftcards_status','ebooks_status','idcard_status'
 ];
 
+const firstTransactionProofCommands = [
+  'status',
+  'payments_status',
+  'stripe_storage',
+  'stripe_first_tx_status',
+  'stripe_settlement',
+  'medusa_status',
+  'commerce_status',
+];
+
 const blockers = [];
 const registry = existsSync(registryPath) ? readFileSync(registryPath, 'utf8') : '';
 const envExample = existsSync(envPath) ? readFileSync(envPath, 'utf8') : '';
@@ -30,6 +40,30 @@ const control = existsSync(controlHandlerPath) ? readFileSync(controlHandlerPath
 if (!registry) blockers.push('command_registry_missing');
 const missingCommands = requiredCommands.filter((command) => !registry.includes(`"${command}"`));
 if (missingCommands.length) blockers.push('required_commands_missing');
+const missingFirstTransactionProofCommands = firstTransactionProofCommands.filter((command) => !registry.includes(`"${command}"`));
+if (missingFirstTransactionProofCommands.length) blockers.push('first_transaction_proof_commands_missing');
+
+
+const dispatchChecks = {
+  status: control.includes('if command in {"status", "health"}') && control.includes('_status_payload'),
+  payments_status: control.includes('if command in {"payments_status", "economic_status", "dbx_status"}') && control.includes('Checkout safe: use /stripe_first_tx_status'),
+  stripe_storage: control.includes('if command == "stripe_storage"') && control.includes('/api/checkout/stripe/settlement-storage-readiness'),
+  stripe_first_tx_status: control.includes('if command == "stripe_first_tx_status"') && control.includes('Run node scripts/e2e-first-transaction-with-telegram-ops-smoke.mjs'),
+  stripe_settlement: control.includes('if command == "stripe_settlement"') && control.includes('/api/checkout/stripe/settlement-status') && control.includes('checkout_session_id_required'),
+  medusa_status: control.includes('if command == "medusa_status"') && control.includes('Medusa /health'),
+  commerce_status: control.includes('commerce_status') && control.includes('/api/commerce/health'),
+};
+const unverifiedFirstTransactionProofCommands = Object.entries(dispatchChecks).filter(([, verified]) => !verified).map(([command]) => command);
+if (unverifiedFirstTransactionProofCommands.length) blockers.push('first_transaction_proof_command_dispatch_missing');
+
+const proofOnlyChecks = {
+  settlementRequiresBackendProof: control.includes('Only backend verified settlement proof may mark a Stripe payment settled.'),
+  stripeSettlementValidatesCheckoutSession: control.includes('session_id.startswith("cs_test_")') && control.includes('session_id.startswith("cs_live_")'),
+  storageStatesNotSettlement: control.includes('Checkout safe: not decided by storage alone.') && control.includes('Settlement safe: false until signed Stripe webhook evidence'),
+  firstTxRequiresSmoke: control.includes('checkoutSafeToOpen=true') && control.includes('cs_test_'),
+};
+const missingProofOnlyGuards = Object.entries(proofOnlyChecks).filter(([, verified]) => !verified).map(([guard]) => guard);
+if (missingProofOnlyGuards.length) blockers.push('first_transaction_proof_only_guards_missing');
 
 const placeholderSecrets = ['TELEGRAM_BOT_TOKEN','TELEGRAM_WEBHOOK_SECRET','INTERNAL_SERVICE_TOKEN'];
 for (const key of placeholderSecrets) {
@@ -75,6 +109,10 @@ const result = {
   ecosystemCoverage,
   secretLeakDetected: blockers.some((b) => b.includes('env_example_not_placeholder_only')),
   missingCommands,
+  firstTransactionProofCommandsVerified: missingFirstTransactionProofCommands.length === 0 && unverifiedFirstTransactionProofCommands.length === 0 && missingProofOnlyGuards.length === 0,
+  missingFirstTransactionProofCommands,
+  unverifiedFirstTransactionProofCommands,
+  missingProofOnlyGuards,
   buildReady,
 };
 console.log(JSON.stringify(result, null, 2));

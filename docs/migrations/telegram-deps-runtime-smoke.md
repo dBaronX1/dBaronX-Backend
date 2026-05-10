@@ -27,10 +27,10 @@ source .venv-telegram-smoke/bin/activate
 python -m pip install --upgrade pip
 python -m pip install -r apps/telegram-bot/requirements.txt
 python -m compileall apps/telegram-bot/src
-TELEGRAM_BOT_TOKEN=dummy \
+TELEGRAM_BOT_TOKEN= \
 NESTJS_BASE_URL=http://localhost:3001 \
 FASTAPI_BASE_URL=http://localhost:8080 \
-INTERNAL_SERVICE_TOKEN=dummy \
+INTERNAL_SERVICE_TOKEN= \
 PYTHONPATH=apps/telegram-bot/src \
 python -c "import main; print('import-ok')"
 deactivate
