@@ -3,6 +3,7 @@ const MEDUSA_BASE_URL = normalizeBaseUrl(process.env.MEDUSA_BASE_URL || process.
 const WEB_BASE_URL = normalizeBaseUrl(process.env.WEB_BASE_URL || process.env.NEXT_PUBLIC_WEB_BASE_URL || 'http://localhost:3000');
 const MEDUSA_PUBLISHABLE_KEY = process.env.MEDUSA_PUBLISHABLE_KEY || process.env.NEXT_PUBLIC_MEDUSA_PUBLISHABLE_KEY || '';
 const DEFAULT_REGION_ID = process.env.MEDUSA_REGION_ID || '';
+const EXPECT_SUPPLIER = safeString(process.env.EXPECT_SUPPLIER || '').toLowerCase();
 
 const blockers = [];
 const responseSnippets = {};
@@ -28,34 +29,49 @@ const variantId = variant?.id || null;
 const handle = realProduct?.handle || null;
 const title = realProduct?.title || realProduct?.name || null;
 const metadata = metadataOf(realProduct);
-const supplier = safeString(metadata.supplier || metadata.supplier_name || metadata.supplier_id || metadata.source || '');
-const supplierProductIdPresent = Boolean(safeString(metadata.supplierProductId || metadata.supplier_product_id || metadata.cj_product_id || metadata.external_id));
+const variantMetadata = metadataOf(variant);
+const supplier = safeString(metadata.supplier || metadata.supplier_name || metadata.supplier_id || metadata.source || variantMetadata.supplier || '');
+const supplierProductId = safeString(metadata.supplierProductId || metadata.supplier_product_id || metadata.cj_product_id || metadata.external_id || variantMetadata.supplierProductId || variantMetadata.supplier_product_id || variantMetadata.cj_product_id || variantMetadata.external_id);
+const supplierSku = safeString(metadata.supplierSku || metadata.supplier_sku || variantMetadata.supplierSku || variantMetadata.supplier_sku || variant?.sku);
+const sourceUrl = safeString(metadata.sourceUrl || metadata.source_url || variantMetadata.sourceUrl || variantMetadata.source_url);
+const supplierProductIdPresent = Boolean(supplierProductId);
+const supplierSkuPresent = Boolean(supplierSku);
+const sourceUrlPresent = Boolean(sourceUrl);
+const sourceUrlValid = isHttpUrl(sourceUrl);
+const variantReady = Boolean(variantId && supplierSkuPresent);
 const priceReady = Boolean(variant && hasPrice(variant));
 const stockReady = Boolean(variant && hasAvailabilityProof(variant));
 const productUrl = productUrlFor(realProduct);
 const productUrlReady = Boolean(productUrl && handle);
-const draftSupplierProductPresent = Boolean(draftProduct);
-const verifiedSupplierProductPresent = Boolean(verifiedProduct);
-const realSupplierProductPresent = verifiedSupplierProductPresent;
-const telegramDiscoveryReady = Boolean(products.length > 0 && realProduct && !products.every(isDemoProduct));
+const realSupplierProductPresent = Boolean(realProduct);
+const expectedSupplierReady = !EXPECT_SUPPLIER || supplier.toLowerCase() === EXPECT_SUPPLIER;
+const telegramDiscoveryReady = Boolean(realProduct && telegramWouldClassifyReal(realProduct));
 
-if (!variantId) addBlocker('variant_missing');
+if (!variantReady) addBlocker('variant_missing_or_supplier_sku_missing');
 if (!supplier) addBlocker('supplier_metadata_missing');
+if (EXPECT_SUPPLIER && !expectedSupplierReady) addBlocker(`supplier_mismatch_expected_${EXPECT_SUPPLIER}`);
 if (!supplierProductIdPresent) addBlocker('supplier_product_id_missing');
+if (!supplierSkuPresent) addBlocker('supplier_sku_missing');
+if (!sourceUrlPresent) addBlocker('source_url_missing');
+if (sourceUrlPresent && !sourceUrlValid) addBlocker('source_url_not_http_or_https');
 if (!priceReady) addBlocker('price_missing');
 if (!stockReady) addBlocker('stock_or_availability_proof_missing');
 if (!productUrlReady) addBlocker('product_url_missing');
-if (!telegramDiscoveryReady) addBlocker('telegram_discovery_would_classify_all_products_demo');
+if (!telegramDiscoveryReady) addBlocker('telegram_discovery_would_not_classify_product_real');
+
+const productPage = productUrlReady ? await getText(productUrl, 'webProductPage') : { ok: false, status: 0 };
+const productUrlExists = Boolean(productUrlReady && productPage.ok);
+if (!productUrlExists) addBlocker('web_product_url_unreachable');
 
 const shipping = await verifyShippingOptionForCart(variantId);
 if (!shipping.shippingOptionVisible) addBlocker(shipping.blocker || 'shipping_option_not_visible_for_cart');
-const checkoutPathReady = Boolean(realSupplierProductPresent && variantId && priceReady && stockReady && productUrlReady && shipping.shippingOptionVisible);
+const checkoutPathReady = Boolean(realSupplierProductPresent && expectedSupplierReady && supplierProductIdPresent && supplierSkuPresent && sourceUrlPresent && sourceUrlValid && variantReady && priceReady && stockReady && productUrlExists && shipping.shippingOptionVisible);
 
 const result = {
   success: blockers.length === 0,
   blockers,
-  draftSupplierProductPresent,
-  verifiedSupplierProductPresent,
+  expectedSupplier: EXPECT_SUPPLIER || null,
+  expectedSupplierReady,
   realSupplierProductPresent,
   supplierVerificationStatus: supplierVerificationStatus || null,
   supplierVerificationBlockers,
@@ -65,9 +81,15 @@ const result = {
   title,
   supplier: supplier || null,
   supplierProductIdPresent,
+  supplierSkuPresent,
+  sourceUrlPresent,
+  sourceUrlValid,
+  variantReady,
   priceReady,
   stockReady,
-  productUrlReady,
+  shippingOptionVisible: shipping.shippingOptionVisible,
+  productUrl,
+  productUrlExists,
   checkoutPathReady,
   telegramDiscoveryReady,
   nextManualStep: nextManualStep(),
@@ -80,7 +102,7 @@ process.exit(result.success ? 0 : 1);
 function normalizeBaseUrl(value) { return String(value || '').trim().replace(/\/+$/, ''); }
 function addBlocker(blocker) { if (blocker && !blockers.includes(blocker)) blockers.push(blocker); }
 function safeString(value) { return String(value || '').trim(); }
-function metadataOf(product) { return product && typeof product.metadata === 'object' && product.metadata ? product.metadata : {}; }
+function metadataOf(item) { return item && typeof item.metadata === 'object' && item.metadata ? item.metadata : {}; }
 function extractProducts(payload) {
   const data = payload?.data && typeof payload.data === 'object' ? payload.data : payload;
   for (const key of ['products', 'items', 'data']) {
@@ -110,14 +132,16 @@ function isDemoProduct(product) {
   const metadata = metadataOf(product);
   if (metadata.demo === true || metadata.realSupplierProduct === false) return true;
   const values = [product?.title, product?.name, product?.handle, product?.id, metadata.source, metadata.supplier, metadata.supplier_name, metadata.environment, metadata.type];
-  return /\b(demo|sample|mock|test product)\b/i.test(values.map((value) => String(value || '')).join(' '));
+  return /\b(demo|sample|mock|test)\b/i.test(values.map((value) => String(value || '')).join(' '));
 }
 function hasSupplierSignal(product) {
   const metadata = metadataOf(product);
-  const values = [metadata.supplier, metadata.supplier_name, metadata.supplier_id, metadata.source, metadata.supplierProductId, metadata.supplier_product_id, metadata.cj_product_id, metadata.external_id, metadata.supplierSku, metadata.supplier_sku, metadata.sourceUrl];
+  const variantMetadata = metadataOf(firstVariant(product));
+  const values = [metadata.supplier, metadata.supplier_name, metadata.supplier_id, metadata.source, metadata.supplierProductId, metadata.supplier_product_id, metadata.cj_product_id, metadata.external_id, metadata.supplierSku, metadata.supplier_sku, metadata.sourceUrl, variantMetadata.supplier, variantMetadata.supplierProductId, variantMetadata.supplierSku, variantMetadata.sourceUrl];
   return values.some((value) => safeString(value) && !/\bdemo\b/i.test(String(value)));
 }
-function isRealSupplierProduct(product) { return isVerifiedSupplierProduct(product); }
+function isRealSupplierProduct(product) { return Boolean(product && !isDemoProduct(product) && isExplicitReal(product) && hasSupplierSignal(product)); }
+function telegramWouldClassifyReal(product) { return Boolean(!isDemoProduct(product) && hasSupplierSignal(product) && isExplicitReal(product)); }
 function hasPrice(variant) {
   const calculated = variant.calculated_price;
   if (calculated && typeof calculated === 'object') {
@@ -131,6 +155,14 @@ function hasAvailabilityProof(variant) {
   if (Number(variant.inventory_quantity) > 0) return true;
   if (Number(variant.stocked_quantity) > 0 || Number(variant.available_quantity) > 0) return true;
   return false;
+}
+function isHttpUrl(value) {
+  try {
+    const url = new URL(value);
+    return ['http:', 'https:'].includes(url.protocol);
+  } catch {
+    return false;
+  }
 }
 function productUrlFor(product) {
   const ref = safeString(product?.handle || product?.id);
@@ -179,6 +211,17 @@ async function postJson(url, label, body) {
   } catch (error) {
     responseSnippets[label] = error.name;
     return { ok: false, status: 0, json: null };
+  }
+}
+async function getText(url, label) {
+  try {
+    const response = await fetch(url, { method: 'GET' });
+    const text = await response.text();
+    responseSnippets[label] = snippet(text);
+    return { ok: response.ok, status: response.status };
+  } catch (error) {
+    responseSnippets[label] = error.name;
+    return { ok: false, status: 0 };
   }
 }
 function snippet(value) {

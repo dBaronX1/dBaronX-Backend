@@ -105,6 +105,7 @@ function assertUrl(value: string, name: string): void {
   try {
     const url = new URL(value);
     if (!["http:", "https:"].includes(url.protocol)) fail(`${name}_must_be_http_url`);
+    if (/token|secret|access[_-]?key|api[_-]?key|bearer/i.test(url.search)) fail(`${name}_must_not_include_credentials`);
   } catch {
     fail(`${name}_must_be_valid_url`);
   }
@@ -118,7 +119,22 @@ function parseShippingCountries(raw: string): string[] {
 }
 
 function containsDemoMarker(value: string): boolean {
-  return /\b(demo|sample|mock|test product)\b/i.test(value);
+  return /\b(demo|mock|sample|test)\b/i.test(value);
+}
+
+function normalizeSupplier(value: string): string {
+  return value.trim().toLowerCase();
+}
+
+function supplierMetadata(input: FirstProductInput): Record<string, unknown> {
+  return {
+    supplier: input.supplier,
+    supplierProductId: input.supplierProductId,
+    supplierSku: input.supplierSku,
+    sourceUrl: input.sourceUrl,
+    realSupplierProduct: true,
+    demo: false,
+  };
 }
 
 function verificationBlockersFor(input: Omit<FirstProductInput, "verificationBlockers">): string[] {
@@ -141,8 +157,7 @@ function readInput(): FirstProductInput {
     handle: env("DBX_FIRST_PRODUCT_HANDLE"),
     description: env("DBX_FIRST_PRODUCT_DESCRIPTION"),
     priceAmount: parsePositiveInteger(env("DBX_FIRST_PRODUCT_PRICE_USD_MINOR"), "DBX_FIRST_PRODUCT_PRICE_USD_MINOR"),
-    supplierCostAmount: parsePositiveInteger(env("DBX_FIRST_PRODUCT_COST_USD_MINOR"), "DBX_FIRST_PRODUCT_COST_USD_MINOR"),
-    supplier: env("DBX_FIRST_PRODUCT_SUPPLIER"),
+    supplier: normalizeSupplier(env("DBX_FIRST_PRODUCT_SUPPLIER")),
     supplierProductId: env("DBX_FIRST_PRODUCT_SUPPLIER_PRODUCT_ID"),
     supplierSku: env("DBX_FIRST_PRODUCT_SUPPLIER_SKU"),
     sourceUrl: env("DBX_FIRST_PRODUCT_SOURCE_URL"),
@@ -156,15 +171,12 @@ function readInput(): FirstProductInput {
   assertUrl(input.sourceUrl, "DBX_FIRST_PRODUCT_SOURCE_URL");
   if (input.imageUrl) assertUrl(input.imageUrl, "DBX_FIRST_PRODUCT_IMAGE_URL");
 
-  if (containsDemoMarker(`${input.title} ${input.handle} ${input.supplier} ${input.supplierProductId} ${input.supplierSku}`)) {
-    fail("first_product_must_not_use_demo_sample_mock_or_test_markers");
+  if (input.supplier !== "cj") {
+    fail("DBX_FIRST_PRODUCT_SUPPLIER_must_be_cj", { supplier: input.supplier });
   }
 
-  if (input.mode === "publish" && input.verificationBlockers.length > 0) {
-    fail("first_product_publish_requires_verified_image_stock_shipping_and_delivery", {
-      missingOrUnverified: input.verificationBlockers,
-      requiredEnv: OPTIONAL_VERIFICATION_ENV,
-    });
+  if (containsDemoMarker(`${input.title} ${input.handle} ${input.description}`)) {
+    fail("first_real_product_title_handle_description_must_not_contain_demo_mock_sample_or_test");
   }
 
   return input;
@@ -289,15 +301,11 @@ export default async function seedFirstSupplierProduct({ container }: ExecArgs) 
   });
   const existingProduct = asArray<any>(existingProductsResult, ["products"])[0] || null;
   if (existingProduct) {
-    const existingMetadata = existingProduct.metadata && typeof existingProduct.metadata === "object" ? existingProduct.metadata : {};
-    const sameSupplierProduct =
-      existingMetadata.supplierProductId === input.supplierProductId ||
-      existingMetadata.supplier_product_id === input.supplierProductId ||
-      existingMetadata.cj_product_id === input.supplierProductId ||
-      existingMetadata.external_id === input.supplierProductId;
-    const ownedByFirstProductFlow = sameSupplierProduct || existingMetadata.supplierVerificationStatus === "draft_pending_verification" || existingMetadata.supplierVerificationStatus === "verified_for_checkout";
-    if (!ownedByFirstProductFlow) {
-      fail("product_handle_exists_but_is_not_managed_by_first_supplier_product_flow", {
+    const metadata = existingProduct.metadata && typeof existingProduct.metadata === "object" ? existingProduct.metadata : {};
+    const isRealSupplierProduct = metadata.realSupplierProduct === true && metadata.demo === false;
+    const isSameCjProduct = metadata.supplier === "cj" && metadata.supplierProductId === input.supplierProductId && metadata.supplierSku === input.supplierSku && metadata.sourceUrl === input.sourceUrl;
+    if (!isRealSupplierProduct) {
+      fail("product_handle_exists_but_is_not_first_real_supplier_product", {
         existingProductId: existingProduct.id,
         handle: input.handle,
         instruction: "Choose a new handle or manually review the existing product; this script will not overwrite unrelated products.",
@@ -316,17 +324,15 @@ export default async function seedFirstSupplierProduct({ container }: ExecArgs) 
       const variant = asArray<any>(existingProduct.variants)[0] || null;
       inventoryLevelSynced = await syncInventoryLevel(container, query, firstInventoryItemId(variant), stockLocation?.id, input.stockQty);
     }
-    console.log(JSON.stringify({
-      success: true,
-      dryRun,
-      mode: input.mode,
-      createdCount: 0,
-      updatedCount: dryRun ? 0 : 1,
-      inventoryLevelSynced,
-      existingProductId: existingProduct.id,
-      handle: input.handle,
-      metadataContract: metadata,
-    }, null, 2));
+    if (!isSameCjProduct) {
+      fail("product_handle_exists_with_different_cj_metadata", {
+        existingProductId: existingProduct.id,
+        handle: input.handle,
+        requiredMetadata: supplierMetadata(input),
+        instruction: "Choose a new handle or manually review the existing product; this script will not relabel mismatched supplier metadata.",
+      });
+    }
+    console.log(JSON.stringify({ success: true, dryRun, createdCount: 0, skippedCount: 1, existingProductId: existingProduct.id, handle: input.handle, realSupplierProduct: true, metadataContract: supplierMetadata(input) }, null, 2));
     return;
   }
 
@@ -366,7 +372,28 @@ export default async function seedFirstSupplierProduct({ container }: ExecArgs) 
   if (!shippingProfile) fail("no_shipping_profile_found", diagnostics);
   if (!stockLocation) fail("no_stock_location_found", diagnostics);
 
-  const productInput = productInputFor(input, defaultSalesChannel.id, shippingProfile.id);
+  const productInput = {
+    title: input.title,
+    description: input.description,
+    handle: input.handle,
+    thumbnail: input.imageUrl,
+    images: [{ url: input.imageUrl }],
+    status: "published" as const,
+    sales_channels: [{ id: defaultSalesChannel.id }],
+    shipping_profile_id: shippingProfile.id,
+    options: [{ title: "Variant", values: ["Default"] }],
+    metadata: supplierMetadata(input),
+    variants: [
+      {
+        title: "Default",
+        sku: input.supplierSku,
+        manage_inventory: true,
+        prices: [{ amount: input.priceAmount, currency_code: "usd" }],
+        options: { Variant: "Default" },
+        metadata: supplierMetadata(input),
+      },
+    ],
+  };
 
   if (dryRun) {
     logger.info(`First supplier product ${input.mode} dry-run for ${input.handle}`);

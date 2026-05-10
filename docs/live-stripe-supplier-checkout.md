@@ -794,4 +794,73 @@ WEB_BASE_URL=https://<web-host> \
 pnpm first-product:readiness
 ```
 
-The smoke reports `draftSupplierProductPresent`, `verifiedSupplierProductPresent`, `supplierVerificationStatus`, `supplierVerificationBlockers`, and `nextManualStep`. It passes only when a verified `realSupplierProduct` exists with `supplierVerificationStatus: "verified_for_checkout"`, supplier metadata, price, variant, stock/availability proof, product URL, shipping option visibility for a cart, and Telegram discovery readiness. If it reports a draft or any missing verified supplier product blocker, do not proceed to a real customer transaction.
+The smoke verifies Store API reachability, a non-demo real supplier product, supplier metadata, price, variant, stock/availability proof, product URL, shipping option visibility for a cart, and Telegram discovery readiness. If it reports `real_supplier_product_missing`, do not proceed to a real customer transaction.
+
+## Manual CJ first-product checklist
+
+Use this checklist for the first manually selected CJ product. Do not bulk import CJ catalog data, do not scrape CJ pages, and do not mark demo products as real.
+
+Required CJ/manual inputs:
+
+- [ ] CJ product title: `<approved customer-safe title; must not contain demo/mock/sample/test>`
+- [ ] CJ product ID: `<CJ supplier product ID>`
+- [ ] CJ SKU: `<CJ variant/SKU selected for the first transaction>`
+- [ ] CJ source URL: `<https://... or http://... CJ/public supplier product URL>`
+- [ ] Product image URL: `<https://... or http://... image URL>`
+- [ ] Selling price: `<USD minor units used for DBX_FIRST_PRODUCT_PRICE_USD_MINOR>`
+- [ ] Stock quantity: `<positive quantity confirmed from CJ/manual supplier review>`
+- [ ] Shipping country: `<country used to confirm Medusa shipping option visibility>`
+- [ ] Margin note: `<internal margin reviewed in NestJS/business process; do not expose supplier cost in Telegram>`
+
+Metadata contract created on both product metadata and variant metadata where Medusa supports it:
+
+```json
+{
+  "supplier": "cj",
+  "supplierProductId": "<DBX_FIRST_PRODUCT_SUPPLIER_PRODUCT_ID>",
+  "supplierSku": "<DBX_FIRST_PRODUCT_SUPPLIER_SKU>",
+  "sourceUrl": "<DBX_FIRST_PRODUCT_SOURCE_URL>",
+  "realSupplierProduct": true,
+  "demo": false
+}
+```
+
+Seed command:
+
+```bash
+DBX_FIRST_PRODUCT_TITLE='<CJ product title>' \
+DBX_FIRST_PRODUCT_HANDLE='<customer-safe-handle>' \
+DBX_FIRST_PRODUCT_DESCRIPTION='<customer-safe description>' \
+DBX_FIRST_PRODUCT_PRICE_USD_MINOR='<selling price in cents>' \
+DBX_FIRST_PRODUCT_SUPPLIER='cj' \
+DBX_FIRST_PRODUCT_SUPPLIER_PRODUCT_ID='<CJ product ID>' \
+DBX_FIRST_PRODUCT_SUPPLIER_SKU='<CJ SKU>' \
+DBX_FIRST_PRODUCT_SOURCE_URL='<https://...>' \
+DBX_FIRST_PRODUCT_IMAGE_URL='<https://...>' \
+DBX_FIRST_PRODUCT_STOCK_QTY='<positive stock quantity>' \
+pnpm first-product:seed
+```
+
+Readiness command:
+
+```bash
+EXPECT_SUPPLIER=cj \
+MEDUSA_BASE_URL=https://dbaronx-medusa.onrender.com \
+WEB_BASE_URL=https://dbaronx.com \
+MEDUSA_PUBLISHABLE_KEY='<publishable key if required>' \
+pnpm first-product:readiness
+```
+
+Telegram test commands:
+
+```text
+/shop
+/products
+/product <handle_or_id>
+/checkout_help
+/payment_status <checkout_session_or_order_ref>
+/order_status <order_or_email_or_reference>
+/support
+```
+
+Telegram remains read-only during this process: it may display customer-safe CJ supplier hints, product/storefront URLs, and checkout guidance, but it must not create carts or checkout sessions, mark paid, mark fulfilled, credit wallets/rewards, approve payouts, or mutate supplier imports.
