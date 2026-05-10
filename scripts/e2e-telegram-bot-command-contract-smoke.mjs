@@ -13,7 +13,7 @@ const controlHandlerPath = join(root, 'apps/telegram-bot/src/handlers/control_su
 const requiredCommands = [
   'start','help','status','health','runtime','launch','routes','env_check',
   'commerce_status','medusa_status','shipping_status','catalog_status','orders_status',
-  'payments_status','stripe_status','stripe_storage','stripe_settlement','dbx_status','dbx_payment','economic_status',
+  'payments_status','stripe_status','stripe_first_tx_status','stripe_storage','stripe_settlement','dbx_status','dbx_payment','economic_status',
   'suppliers_status','cj_status','cj_import_ready','aliexpress_status',
   'ads_status','watch_status','affiliate_status','payouts_status','wallet_status',
   'ai_status','ai_stories_status','story_campaigns_status',
@@ -60,7 +60,7 @@ const protectedCommands = (registry.match(/protected_read/g) || []).length;
 const ecosystemCoverage = {
   system: requiredCommands.filter((c) => ['start','help','status','health','runtime','launch','routes','env_check'].includes(c)).every((c) => registry.includes(`"${c}"`)),
   commerce: ['commerce_status','medusa_status','shipping_status','catalog_status','orders_status'].every((c) => registry.includes(`"${c}"`)),
-  payments: ['payments_status','stripe_status','stripe_storage','stripe_settlement','dbx_status','dbx_payment','economic_status'].every((c) => registry.includes(`"${c}"`)),
+  payments: ['payments_status','stripe_status','stripe_first_tx_status','stripe_storage','stripe_settlement','dbx_status','dbx_payment','economic_status'].every((c) => registry.includes(`"${c}"`)),
   suppliers: ['suppliers_status','cj_status','cj_import_ready','aliexpress_status'].every((c) => registry.includes(`"${c}"`)),
   engagement: ['ads_status','watch_status','affiliate_status','payouts_status','wallet_status'].every((c) => registry.includes(`"${c}"`)),
   ai: ['ai_status','ai_stories_status','story_campaigns_status'].every((c) => registry.includes(`"${c}"`)),

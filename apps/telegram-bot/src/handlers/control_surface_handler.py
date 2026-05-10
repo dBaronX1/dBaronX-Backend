@@ -76,17 +76,38 @@ class ControlSurfaceService:
             paths = ["/api/payments/readiness", "/api/payments/economic-readiness"]
             if command == "dbx_status":
                 paths.append("/api/system/controller-registry")
-            return await self._api_summary(f"/{command}", paths, actor_id, "Configure DBX_TOKEN_MINT server-side if DBX mint blocker appears.")
+            summary = await self._api_summary(f"/{command}", paths, actor_id, "Configure DBX_TOKEN_MINT server-side if DBX mint blocker appears; Telegram remains read-only/proof-only for settlement.")
+            if command == "payments_status":
+                summary += "\n\nCheckout safe: use /stripe_first_tx_status plus the first-transaction smoke. Settlement safe: backend verified proof only. Order sync ready: verify with /stripe_settlement <cs_test_...>."
+            return summary
         if command == "stripe_status":
             return await self._api_summary("/stripe_status", ["/api/checkout/stripe/readiness"], actor_id, "Do not bypass signed Stripe webhook verification.")
+        if command == "stripe_first_tx_status":
+            readiness = await self.http.get(self.api_base_url, "/api/checkout/stripe/readiness", actor_id=actor_id, internal=False)
+            storage = await self.http.get(self.api_base_url, "/api/checkout/stripe/settlement-storage-readiness", actor_id=actor_id)
+            payments = await self.http.get(self.api_base_url, "/api/payments/readiness", actor_id=actor_id, internal=False)
+            sections = [
+                summarize_response("Stripe readiness", readiness),
+                summarize_response("Settlement storage", storage),
+                summarize_response("Payments readiness", payments),
+                "Checkout safe: only when backend smoke returns checkoutSafeToOpen=true and sessionId starts with cs_test_.",
+                "Settlement safe: only when backend returns verifiedStripeEventReady, paymentRecordReady, economicEventVerified, medusaOrderCompletionReady, orderSyncReady, and duplicateWebhookSafe.",
+                SAFE_SETTLEMENT_REQUIRED,
+            ]
+            return diagnostic("/stripe_first_tx_status", sections, next_action="Run node scripts/e2e-first-transaction-with-telegram-ops-smoke.mjs; open only a cs_test_* Checkout URL if checkoutSafeToOpen=true.")
         if command == "stripe_storage":
-            return await self._api_summary("/stripe_storage", ["/api/checkout/stripe/settlement-storage-readiness"], actor_id, "If tables are missing: apply Supabase migration, restart API, replay checkout.session.completed.")
+            payload = await self.http.get(self.api_base_url, "/api/checkout/stripe/settlement-storage-readiness", actor_id=actor_id)
+            sections = [summarize_response("Settlement storage readiness", payload), "Checkout safe: not decided by storage alone.", "Settlement safe: false until signed Stripe webhook evidence and order sync proof exist.", SAFE_SETTLEMENT_REQUIRED]
+            return diagnostic("/stripe_storage", sections, next_action="If tables are missing: apply Supabase migration, restart API, replay checkout.session.completed.")
         if command == "stripe_settlement":
             if not args:
                 return diagnostic("/stripe_settlement", ["Usage: /stripe_settlement <cs_test_or_cs_live_session_id>", SAFE_SETTLEMENT_REQUIRED], next_action="Provide a checkout session ID returned by Stripe/backend.")
             session_id = args[0].strip()
+            if not (session_id.startswith("cs_test_") or session_id.startswith("cs_live_")):
+                return diagnostic("/stripe_settlement", ["Blockers: checkout_session_id_required", "Expected: cs_test_* or cs_live_*; evt_* is an event ID, pi_* is a PaymentIntent ID, and py_*/ch_* is charge-like evidence.", SAFE_SETTLEMENT_REQUIRED], next_action="Rerun with the Checkout Session ID from Stripe Checkout, not an event/payment/charge ID.")
             payload = await self.http.get(self.api_base_url, "/api/checkout/stripe/settlement-status", actor_id=actor_id, params={"sessionId": session_id})
-            return diagnostic("/stripe_settlement", [summarize_response("Settlement proof", payload), SAFE_SETTLEMENT_REQUIRED], next_action="If proof missing, apply migration/restart API/replay checkout.session.completed; do not claim settled manually.")
+            proof = self._payment_proof_lines(payload)
+            return diagnostic("/stripe_settlement", [summarize_response("Settlement proof", payload), *proof, SAFE_SETTLEMENT_REQUIRED], next_action="If proof missing, apply migration/restart API/replay checkout.session.completed; do not claim settled manually.")
         if command == "dbx_payment":
             if not args:
                 return diagnostic("/dbx_payment", ["Usage: /dbx_payment <reference>", "DBX verification is backend-only."], next_action="Provide a DBX payment reference.")
@@ -119,6 +140,28 @@ class ControlSurfaceService:
         if command in planned:
             return self._planned(f"/{command}", "planned_or_partial", f"Create backend readiness endpoint for {command.removesuffix('_status')} before Telegram operations.")
         return self._planned(f"/{command}", "endpoint_not_available_yet", "Register a backend endpoint and command handler.")
+
+
+    def _payment_proof_lines(self, payload: dict[str, Any]) -> list[str]:
+        data = payload.get("data") if isinstance(payload.get("data"), dict) else payload
+        proof_flags = {
+            "verifiedStripeEventReady": data.get("verifiedStripeEventReady") is True,
+            "paymentRecordReady": data.get("paymentRecordReady") is True,
+            "economicEventVerified": data.get("economicEventVerified") is True,
+            "medusaOrderCompletionReady": data.get("medusaOrderCompletionReady") is True,
+            "orderSyncReady": data.get("orderSyncReady") is True,
+            "duplicateWebhookSafe": data.get("duplicateWebhookSafe") is True,
+        }
+        settlement_safe = all(proof_flags.values()) and data.get("paymentMarkedPaid") is True
+        checkout_safe = "n/a for existing session; open Checkout only from first smoke checkoutSafeToOpen=true and cs_test_* session"
+        blockers = data.get("blockers") if isinstance(data.get("blockers"), list) else []
+        return [
+            f"Checkout safe: {checkout_safe}",
+            f"Settlement safe: {'true' if settlement_safe else 'false'}",
+            f"Order sync ready: {'true' if proof_flags['orderSyncReady'] else 'false'}",
+            "Proof flags: " + ", ".join(f"{key}={str(value).lower()}" for key, value in proof_flags.items()),
+            "Blockers: " + (", ".join(str(item) for item in blockers[:8]) if blockers else "none reported"),
+        ]
 
     async def _status_payload(self, actor_id: str) -> dict[str, Any]:
         return {

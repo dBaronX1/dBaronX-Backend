@@ -79,7 +79,7 @@ def register_handlers(application: Application) -> None:
     control_commands = [
         "start", "help", "commands", "status", "health", "runtime", "launch", "routes", "env_check",
         "commerce_status", "medusa_status", "shipping_status", "catalog_status", "orders_status",
-        "payments_status", "stripe_status", "stripe_storage", "stripe_settlement", "dbx_status", "dbx_payment", "economic_status",
+        "payments_status", "stripe_status", "stripe_first_tx_status", "stripe_storage", "stripe_settlement", "dbx_status", "dbx_payment", "economic_status",
         "suppliers_status", "cj_status", "cj_import_ready", "aliexpress_status",
         "ads_status", "watch_status", "affiliate_status", "payouts_status", "wallet_status",
         "ai_status", "ai_stories_status", "story_campaigns_status",

@@ -50,7 +50,11 @@ async function telegramApi(method, body) {
 }
 
 function sanitizeTelegramPayload(payload) {
-  return JSON.parse(JSON.stringify(payload || {}).replaceAll(token, '<redacted>').replaceAll(webhookSecret, '<redacted>'));
+  let serialized = JSON.stringify(payload || {});
+  if (token) serialized = serialized.replaceAll(token, '<redacted>');
+  if (webhookSecret) serialized = serialized.replaceAll(webhookSecret, '<redacted>');
+  serialized = serialized.replace(/bot[0-9]{6,12}:[A-Za-z0-9_-]{20,}/g, 'bot<redacted>');
+  return JSON.parse(serialized);
 }
 
 function printResult(result) {

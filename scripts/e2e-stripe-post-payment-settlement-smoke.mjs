@@ -125,6 +125,33 @@ async function getApiWithFallback(label, canonicalPath, legacyPath) {
   return { probe: legacy, path: legacyPath };
 }
 
+function internalInit(jsonBody) {
+  return {
+    method: "POST",
+    headers: {
+      "content-type": "application/json",
+      ...(INTERNAL_SERVICE_TOKEN ? { "x-internal-token": INTERNAL_SERVICE_TOKEN } : {}),
+    },
+    body: JSON.stringify(jsonBody || {}),
+  };
+}
+
+async function postInternalApiWithFallback(label, canonicalPath, legacyPath, jsonBody) {
+  const canonical = await requestJson(
+    `${label} ${canonicalPath}`,
+    api(canonicalPath),
+    internalInit(jsonBody),
+  );
+  if (canonical.status !== 404)
+    return { probe: canonical, path: canonicalPath };
+  const legacy = await requestJson(
+    `${label} ${legacyPath}`,
+    api(legacyPath),
+    internalInit(jsonBody),
+  );
+  return { probe: legacy, path: legacyPath };
+}
+
 async function getInternalApiWithFallback(label, canonicalPath, legacyPath) {
   const init = INTERNAL_SERVICE_TOKEN
     ? { headers: { "x-internal-token": INTERNAL_SERVICE_TOKEN } }
@@ -233,6 +260,11 @@ const out = {
   paymentMarkedPaid: false,
   orderSyncReady: false,
   duplicateWebhookSafe: false,
+  telegramOpsReady: false,
+  settlementSafeToClaim: false,
+  orderSyncPreviewPath: null,
+  orderSyncPreviewHttp: null,
+  orderSyncPreviewBlockers: [],
   settlementStorageReady: false,
   settlementStorageReadinessHttp: null,
   missingSettlementTables: [],
@@ -264,6 +296,7 @@ const out = {
   idClassification,
   acceptedLookupKeys,
   rejectedLookupKeys,
+  lookupWarnings: rejectedLookupKeys.map((key) => `${key.name}:${key.classification}:expected_${key.expected}`),
   lookupAdvice:
     "Use a Checkout Session ID (cs_test_* or cs_live_*) from the Stripe Checkout completion, or provide CART_ID plus ORDER_REF/CHECKOUT_REF from checkout metadata. evt_* is an event ID, pi_* is a PaymentIntent ID, and ch_*/py_* is a charge-like ID; these are diagnostic lookup keys, not sessionId values.",
   exactExpectedIdFormat: "cs_test_* or cs_live_*",
@@ -371,6 +404,52 @@ if (hasAnyAcceptedLookupKey) {
     addBlocker(blocker, route.path);
 }
 
+
+if (hasAnyAcceptedLookupKey) {
+  const sessionId = acceptedLookupKeys.find((key) => key.queryParam === "sessionId")?.value;
+  const previewRoute = await postInternalApiWithFallback(
+    "order sync preview",
+    "/api/checkout/stripe/order-sync-preview",
+    "/api/v1/checkout/stripe/order-sync-preview",
+    {
+      sessionId,
+      checkoutSessionId: sessionId,
+      stripeEventId: acceptedLookupKeys.find((key) => key.queryParam === "stripeEventId")?.value,
+      paymentIntentId: acceptedLookupKeys.find((key) => key.queryParam === "paymentIntentId")?.value,
+      cartId: CART_ID || acceptedLookupKeys.find((key) => key.queryParam === "cartId")?.value,
+      orderRef: ORDER_REF || acceptedLookupKeys.find((key) => key.queryParam === "orderRef")?.value,
+      checkoutRef: CHECKOUT_REF || acceptedLookupKeys.find((key) => key.queryParam === "checkoutRef")?.value,
+    },
+  );
+  checks.orderSyncPreviewHttp = previewRoute.probe.status;
+  checks.orderSyncPreviewPath = previewRoute.path;
+  out.orderSyncPreviewHttp = previewRoute.probe.status;
+  out.orderSyncPreviewPath = previewRoute.path;
+  const preview = previewRoute.probe.data || {};
+  out.orderSyncPreviewBlockers = Array.isArray(preview.blockers) ? preview.blockers : [];
+  if ([401, 403].includes(previewRoute.probe.status))
+    addBlocker(
+      INTERNAL_SERVICE_TOKEN ? "internal_token_present_but_rejected" : "protected_route_requires_internal_token",
+      previewRoute.path,
+    );
+  else if (!previewRoute.probe.ok)
+    addBlocker(
+      previewRoute.probe.status === 404
+        ? "order_sync_preview_route_missing"
+        : `order_sync_preview_http_${previewRoute.probe.status}`,
+      previewRoute.path,
+    );
+  for (const blocker of out.orderSyncPreviewBlockers) addBlocker(blocker, previewRoute.path);
+  out.orderSyncReady = out.orderSyncReady || (previewRoute.probe.ok && preview.orderSyncReady === true && out.orderSyncPreviewBlockers.length === 0);
+  out.medusaOrderCompletionReady = out.medusaOrderCompletionReady || preview.medusaOrderCompletionReady === true;
+  out.medusaOrderId = out.medusaOrderId || preview.medusaOrderId || null;
+  out.duplicateWebhookSafe = out.duplicateWebhookSafe || preview.duplicateWebhookSafe === true;
+  out.paymentRecordReady = out.paymentRecordReady || preview.paymentRecordReady === true;
+  out.verifiedStripeEventReady = out.verifiedStripeEventReady || preview.verifiedStripeEventReady === true;
+  out.economicEventVerified = out.economicEventVerified || preview.economicEventVerified === true;
+  out.paymentMarkedPaid = out.paymentMarkedPaid || preview.paymentMarkedPaid === true;
+}
+
 if (out.paymentMarkedPaid)
   checks.paymentMarkedPaidFromVerifiedStripeWebhookEvidence = true;
 if (!out.paymentRecordReady)
@@ -389,6 +468,23 @@ if (!out.medusaOrderCompletionReady)
     "settlement_status_result",
   );
 
-out.success = blockers.length === 0;
+out.settlementSafeToClaim = Boolean(
+  out.verifiedStripeEventReady &&
+    out.paymentRecordReady &&
+    out.economicEventVerified &&
+    out.medusaOrderCompletionReady &&
+    out.orderSyncReady &&
+    out.duplicateWebhookSafe &&
+    out.paymentMarkedPaid,
+);
+out.telegramOpsReady = Boolean(out.settlementStorageReady && out.settlementLookupPath);
+if (!out.duplicateWebhookSafe) addBlocker("duplicate_webhook_safety_unverified", "settlement_status_result");
+if (!out.settlementSafeToClaim) addBlocker("settlement_proof_incomplete", "settlement_status_result");
+out.success = blockers.length === 0 && out.settlementSafeToClaim === true;
+out.nextManualStep = out.settlementSafeToClaim
+  ? "Backend proof is complete: signed Stripe webhook evidence, payment record linkage, economic event persistence, duplicate webhook safety, and Medusa order sync are ready. Claim settled only from backend verified records."
+  : out.migrationActionRequired
+    ? out.migrationReplayInstruction
+    : "Do not claim payment/order settled. Provide the correct cs_test_* Checkout Session ID after completing Stripe test Checkout and receiving a signed checkout.session.completed webhook, then rerun this smoke.";
 console.log(JSON.stringify(out, null, 2));
 process.exit(out.success ? 0 : 1);

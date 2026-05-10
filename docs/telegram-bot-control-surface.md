@@ -58,7 +58,7 @@ Recommended production URLs:
 
 ### Safe helper scripts
 
-Use the repository helper when possible so the bot token is never printed:
+Use the repository helper when possible so the bot token is never printed. If `TELEGRAM_BOT_TOKEN` ever appears in logs, screenshots, tickets, or chat, rotate the token immediately in BotFather, update the runtime secret store, redeploy, and re-register the webhook:
 
 ```bash
 export TELEGRAM_BOT_TOKEN
@@ -67,33 +67,25 @@ BOT_PUBLIC_BASE_URL=https://<bot-public-host> node scripts/telegram-set-webhook.
 node scripts/telegram-webhook-info.mjs
 ```
 
-`BOT_PUBLIC_BASE_URL` may be replaced with `TELEGRAM_BOT_PUBLIC_BASE_URL`. The helper sends Telegram the webhook URL `https://<bot-public-host>/webhook/telegram` and the `secret_token` value, but it prints only `https://api.telegram.org/bot<redacted>/...` for Telegram API calls.
+`BOT_PUBLIC_BASE_URL` is the public HTTPS origin for the deployed bot, for example `https://<bot-public-host>`. `TELEGRAM_BOT_PUBLIC_BASE_URL` is the equivalent deployment-specific alias; either variable may be used and both resolve to the webhook URL `https://<bot-public-host>/webhook/telegram`. The helper sends Telegram that webhook URL and the `secret_token` value, but it prints only `https://api.telegram.org/bot<redacted>/...` for Telegram API calls.
 
 ### Raw Telegram API commands
 
-If a manual setup is required, use these exact URL formats. Do not paste the bot token into logs, tickets, screenshots, or committed files.
+Prefer the helper scripts above. If manual setup is unavoidable, use a local shell variable and disable shell tracing before running any command. Never paste a token-bearing Telegram URL into logs, tickets, screenshots, or committed files; display it only as `https://api.telegram.org/bot<redacted>/...`.
 
-Set the webhook:
+Set the webhook with the public webhook URL `https://<bot-public-host>/webhook/telegram`:
 
 ```bash
-curl -sS -X POST "https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/setWebhook" \
+set +x
+telegram_api="https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}"
+curl -sS -X POST "${telegram_api}/setWebhook" \
   -H "Content-Type: application/json" \
-  -d '{"url":"https://<bot-public-host>/webhook/telegram","secret_token":"'"${TELEGRAM_WEBHOOK_SECRET}"'","allowed_updates":["message","callback_query"],"drop_pending_updates":false}'
+  -d '{"url":"https://<bot-public-host>/webhook/telegram","secret_token":"'"${TELEGRAM_WEBHOOK_SECRET}"'","allowed_updates":["message","callback_query"],"drop_pending_updates":false}' >/tmp/telegram-set-webhook.json
+node -e 'const fs=require("fs"); const p=JSON.parse(fs.readFileSync("/tmp/telegram-set-webhook.json","utf8")); delete p.result?.url; console.log(JSON.stringify(p,null,2));'
+rm -f /tmp/telegram-set-webhook.json
 ```
 
-Delete the webhook:
-
-```bash
-curl -sS -X POST "https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/deleteWebhook" \
-  -H "Content-Type: application/json" \
-  -d '{"drop_pending_updates":false}'
-```
-
-Inspect webhook info:
-
-```bash
-curl -sS "https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/getWebhookInfo"
-```
+Delete the webhook or inspect webhook info only from a private terminal with `set +x`; do not print the expanded `telegram_api` variable.
 
 `TELEGRAM_WEBHOOK_SECRET` must be a high-entropy value stored only in the runtime secret store. Telegram stores it during `setWebhook` and includes the same value in the `x-telegram-bot-api-secret-token` header on webhook deliveries. The bot rejects webhook requests when `ENABLE_WEBHOOK_SIGNATURE_CHECK=true` and the header does not match.
 
@@ -144,6 +136,7 @@ The bot never echoes:
 
 - `/payments_status`
 - `/stripe_status`
+- `/stripe_first_tx_status`
 - `/stripe_storage`
 - `/stripe_settlement <cs_test_or_cs_live_session_id>`
 - `/dbx_status`
@@ -214,7 +207,7 @@ If a module does not yet expose a safe status endpoint, the bot returns `endpoin
 
 ## Payment safety rules
 
-Telegram must never mark paid, completed, rewarded, fulfilled, or settled. It may only display backend-returned readiness and proof.
+Telegram is read-only/proof-only for payment settlement. It must never mark paid, completed, rewarded, fulfilled, credited, or settled. It may only display backend-returned readiness and proof.
 
 ### Stripe settlement rules
 
