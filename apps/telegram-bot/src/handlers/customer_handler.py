@@ -102,7 +102,7 @@ class CustomerCommandService:
                 ],
                 next_action="Open the product listing. If it is empty, publish/import one approved real supplier product outside Telegram.",
             )
-        real_supplier_present = any(not _is_demo_product(product) and _has_supplier_signal(product) for product in products)
+        real_supplier_present = any(_is_real_supplier_product(product) for product in products)
         demo_only = all(_is_demo_product(product) for product in products)
         sections = [PRODUCT_SOURCE_RULE, f"Returned {len(products)} public products (Telegram limit: 5)."]
         if demo_only or not real_supplier_present:
@@ -139,6 +139,7 @@ class CustomerCommandService:
                 next_action="Open the lookup link, use /products for published products, or contact /support with the product reference.",
             )
         demo = _is_demo_product(product)
+        source_url = _public_source_url(product)
         sections = [
             PRODUCT_SOURCE_RULE,
             f"Product: {'DEMO — ' if demo else ''}{_product_title(product)}",
@@ -147,9 +148,12 @@ class CustomerCommandService:
             f"Supplier: {_supplier_hint(product)}",
             f"Product URL: {_product_link(product, self.web_base_url)}",
             f"Checkout URL: {_product_link(product, self.web_base_url)}",
-            "Checkout must run through the storefront and Stripe; Telegram does not mark paid or fulfilled.",
+            "Checkout guidance: open the product URL, add to cart on the storefront, choose shipping, then pay only through Stripe-hosted checkout.",
+            "Checkout must run through the storefront and Stripe; Telegram does not create carts, create checkout sessions, mark paid, or mark fulfilled.",
         ]
-        if demo or not _has_supplier_signal(product):
+        if source_url and _is_real_supplier_product(product):
+            sections.append(f"Supplier source URL: {source_url}")
+        if not _is_real_supplier_product(product):
             sections.append("Blockers: real_supplier_product_missing")
         return diagnostic(
             "/product",
@@ -340,12 +344,39 @@ def _availability_hint(product: dict[str, Any]) -> str:
 
 def _supplier_hint(product: dict[str, Any]) -> str:
     metadata = product.get("metadata") if isinstance(product.get("metadata"), dict) else {}
-    supplier = metadata.get("supplier") or metadata.get("supplier_name") or metadata.get("supplier_id") or metadata.get("source") or product.get("supplier")
+    supplier = str(metadata.get("supplier") or metadata.get("supplier_name") or metadata.get("supplier_id") or metadata.get("source") or product.get("supplier") or "").strip()
+    if supplier.lower() == "cj":
+        if _is_real_supplier_product(product):
+            return "CJ Dropshipping supplier source verified by product metadata"
+        return "CJ metadata present, but first-real-product proof is incomplete"
     if supplier:
-        return str(supplier)[:100]
+        return _safe_public_value(supplier)
     if _is_demo_product(product):
         return "DEMO only; real supplier product missing"
     return "not publicly listed"
+
+
+def _is_real_supplier_product(product: dict[str, Any]) -> bool:
+    metadata = product.get("metadata") if isinstance(product.get("metadata"), dict) else {}
+    return metadata.get("realSupplierProduct") is True and metadata.get("demo") is False and _has_supplier_signal(product)
+
+
+def _public_source_url(product: dict[str, Any]) -> str | None:
+    metadata = product.get("metadata") if isinstance(product.get("metadata"), dict) else {}
+    source_url = str(metadata.get("sourceUrl") or metadata.get("source_url") or "").strip()
+    if not source_url.startswith(("https://", "http://")):
+        return None
+    if any(marker in source_url.lower() for marker in ("token=", "secret=", "access_key=", "apikey=", "api_key=", "bearer")):
+        return None
+    return source_url[:300]
+
+
+def _safe_public_value(value: Any) -> str:
+    text = str(value or "").strip()
+    forbidden = ("key", "token", "secret", "cost", "margin", "access", "bearer")
+    if any(marker in text.lower() for marker in forbidden):
+        return "supplier metadata present; hidden from Telegram"
+    return text[:100]
 
 
 def _is_demo_product(product: dict[str, Any]) -> bool:

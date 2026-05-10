@@ -78,14 +78,30 @@ function parseNonNegativeInteger(raw: string, name: string): number {
 function assertUrl(value: string, name: string): void {
   try {
     const url = new URL(value);
-    if (!['http:', 'https:'].includes(url.protocol)) fail(`${name}_must_be_http_url`);
+    if (!["http:", "https:"].includes(url.protocol)) fail(`${name}_must_be_http_url`);
+    if (/token|secret|access[_-]?key|api[_-]?key|bearer/i.test(url.search)) fail(`${name}_must_not_include_credentials`);
   } catch {
     fail(`${name}_must_be_valid_url`);
   }
 }
 
 function containsDemoMarker(value: string): boolean {
-  return /\b(demo|sample|mock|test product)\b/i.test(value);
+  return /\b(demo|mock|sample|test)\b/i.test(value);
+}
+
+function normalizeSupplier(value: string): string {
+  return value.trim().toLowerCase();
+}
+
+function supplierMetadata(input: FirstProductInput): Record<string, unknown> {
+  return {
+    supplier: input.supplier,
+    supplierProductId: input.supplierProductId,
+    supplierSku: input.supplierSku,
+    sourceUrl: input.sourceUrl,
+    realSupplierProduct: true,
+    demo: false,
+  };
 }
 
 function readInput(): FirstProductInput {
@@ -97,7 +113,7 @@ function readInput(): FirstProductInput {
     handle: env("DBX_FIRST_PRODUCT_HANDLE"),
     description: env("DBX_FIRST_PRODUCT_DESCRIPTION"),
     priceAmount: parsePositiveInteger(env("DBX_FIRST_PRODUCT_PRICE_USD_MINOR"), "DBX_FIRST_PRODUCT_PRICE_USD_MINOR"),
-    supplier: env("DBX_FIRST_PRODUCT_SUPPLIER"),
+    supplier: normalizeSupplier(env("DBX_FIRST_PRODUCT_SUPPLIER")),
     supplierProductId: env("DBX_FIRST_PRODUCT_SUPPLIER_PRODUCT_ID"),
     supplierSku: env("DBX_FIRST_PRODUCT_SUPPLIER_SKU"),
     sourceUrl: env("DBX_FIRST_PRODUCT_SOURCE_URL"),
@@ -108,8 +124,12 @@ function readInput(): FirstProductInput {
   assertUrl(input.sourceUrl, "DBX_FIRST_PRODUCT_SOURCE_URL");
   assertUrl(input.imageUrl, "DBX_FIRST_PRODUCT_IMAGE_URL");
 
-  if (containsDemoMarker(`${input.title} ${input.handle} ${input.supplier} ${input.supplierProductId} ${input.supplierSku}`)) {
-    fail("first_real_product_must_not_use_demo_sample_mock_or_test_markers");
+  if (input.supplier !== "cj") {
+    fail("DBX_FIRST_PRODUCT_SUPPLIER_must_be_cj", { supplier: input.supplier });
+  }
+
+  if (containsDemoMarker(`${input.title} ${input.handle} ${input.description}`)) {
+    fail("first_real_product_title_handle_description_must_not_contain_demo_mock_sample_or_test");
   }
   if (input.stockQty <= 0) fail("DBX_FIRST_PRODUCT_STOCK_QTY_must_prove_available_stock");
 
@@ -132,6 +152,7 @@ export default async function seedFirstRealSupplierProduct({ container }: ExecAr
   if (existingProduct) {
     const metadata = existingProduct.metadata && typeof existingProduct.metadata === "object" ? existingProduct.metadata : {};
     const isRealSupplierProduct = metadata.realSupplierProduct === true && metadata.demo === false;
+    const isSameCjProduct = metadata.supplier === "cj" && metadata.supplierProductId === input.supplierProductId && metadata.supplierSku === input.supplierSku && metadata.sourceUrl === input.sourceUrl;
     if (!isRealSupplierProduct) {
       fail("product_handle_exists_but_is_not_first_real_supplier_product", {
         existingProductId: existingProduct.id,
@@ -139,7 +160,15 @@ export default async function seedFirstRealSupplierProduct({ container }: ExecAr
         instruction: "Choose a new handle or manually review the existing product; this script will not replace demo/non-real products.",
       });
     }
-    console.log(JSON.stringify({ success: true, dryRun, createdCount: 0, skippedCount: 1, existingProductId: existingProduct.id, handle: input.handle, realSupplierProduct: true }, null, 2));
+    if (!isSameCjProduct) {
+      fail("product_handle_exists_with_different_cj_metadata", {
+        existingProductId: existingProduct.id,
+        handle: input.handle,
+        requiredMetadata: supplierMetadata(input),
+        instruction: "Choose a new handle or manually review the existing product; this script will not relabel mismatched supplier metadata.",
+      });
+    }
+    console.log(JSON.stringify({ success: true, dryRun, createdCount: 0, skippedCount: 1, existingProductId: existingProduct.id, handle: input.handle, realSupplierProduct: true, metadataContract: supplierMetadata(input) }, null, 2));
     return;
   }
 
@@ -189,14 +218,7 @@ export default async function seedFirstRealSupplierProduct({ container }: ExecAr
     sales_channels: [{ id: defaultSalesChannel.id }],
     shipping_profile_id: shippingProfile.id,
     options: [{ title: "Variant", values: ["Default"] }],
-    metadata: {
-      supplier: input.supplier,
-      supplierProductId: input.supplierProductId,
-      supplierSku: input.supplierSku,
-      sourceUrl: input.sourceUrl,
-      realSupplierProduct: true,
-      demo: false,
-    },
+    metadata: supplierMetadata(input),
     variants: [
       {
         title: "Default",
@@ -204,14 +226,7 @@ export default async function seedFirstRealSupplierProduct({ container }: ExecAr
         manage_inventory: true,
         prices: [{ amount: input.priceAmount, currency_code: "usd" }],
         options: { Variant: "Default" },
-        metadata: {
-          supplier: input.supplier,
-          supplierProductId: input.supplierProductId,
-          supplierSku: input.supplierSku,
-          sourceUrl: input.sourceUrl,
-          realSupplierProduct: true,
-          demo: false,
-        },
+        metadata: supplierMetadata(input),
       },
     ],
   };
