@@ -34,7 +34,8 @@
     "variant:inventory:ensure": "pnpm exec medusa exec ./src/scripts/ensure-variant-inventory-link.ts",
     "shipping:visibility:diagnose": "pnpm exec medusa exec ./src/scripts/diagnose-shipping-option-visibility.ts",
     "store:shipping:verify": "pnpm exec medusa exec ./src/scripts/verify-store-shipping-options.ts",
-    "first-product:seed": "pnpm exec medusa exec ./src/scripts/seed-first-real-supplier-product.ts"
+    "first-product:seed": "pnpm exec medusa exec ./src/scripts/seed-first-real-supplier-product.ts",
+    "first-product:seed:cj-shirt": "pnpm exec medusa exec ./src/scripts/seed-cj-first-shirt-product.ts"
   },
   "dependencies": {
     "@medusajs/admin-sdk": "2.13.6",

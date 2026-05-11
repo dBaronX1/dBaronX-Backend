@@ -15,9 +15,9 @@ type QueryGraphFn = (input: {
   pagination?: Record<string, unknown>;
 }) => Promise<QueryGraphResult>;
 
-type FirstProductMode = "draft" | "publish";
+export type FirstProductMode = "draft" | "publish";
 
-type FirstProductInput = {
+export type FirstProductInput = {
   mode: FirstProductMode;
   title: string;
   handle: string;
@@ -162,7 +162,7 @@ function supplierMetadata(input: FirstProductInput): Record<string, unknown> {
   return metadataFor(input);
 }
 
-function verificationBlockersFor(
+export function verificationBlockersFor(
   input: Omit<FirstProductInput, "verificationBlockers">,
 ): string[] {
   const blockers: string[] = [];
@@ -237,7 +237,7 @@ function readInput(): FirstProductInput {
   return input;
 }
 
-function metadataFor(input: FirstProductInput) {
+export function metadataFor(input: FirstProductInput) {
   const verified =
     input.mode === "publish" && input.verificationBlockers.length === 0;
   return {
@@ -390,9 +390,10 @@ function firstInventoryItemId(variant: any): string | null {
   );
 }
 
-export default async function seedFirstSupplierProduct({
-  container,
-}: ExecArgs) {
+export async function seedFirstSupplierProductWithInput(
+  { container }: ExecArgs,
+  input: FirstProductInput,
+) {
   const logger = container.resolve(ContainerRegistrationKeys.LOGGER);
   const query = container.resolve<QueryGraphFn>(
     ContainerRegistrationKeys.QUERY,
@@ -401,7 +402,6 @@ export default async function seedFirstSupplierProduct({
     process.argv.includes("--dry-run") ||
     process.argv.includes("--dryRun") ||
     process.env.DRY_RUN === "true";
-  const input = readInput();
   const metadata = metadataFor(input);
 
   const existingProductsResult = await query({
@@ -595,4 +595,8 @@ export default async function seedFirstSupplierProduct({
       2,
     ),
   );
+}
+
+export default async function seedFirstSupplierProduct(args: ExecArgs) {
+  return seedFirstSupplierProductWithInput(args, readInput());
 }
