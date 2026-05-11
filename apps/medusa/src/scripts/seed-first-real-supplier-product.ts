@@ -260,6 +260,35 @@ export function metadataFor(input: FirstProductInput) {
   };
 }
 
+function seedConfirmationOutput(
+  input: FirstProductInput,
+  details: Record<string, unknown>,
+) {
+  const metadata = metadataFor(input);
+  return {
+    success: true,
+    mode: input.mode,
+    productId: details.productId ?? null,
+    variantId: details.variantId ?? null,
+    handle: input.handle,
+    supplier: input.supplier,
+    supplierProductId: input.supplierProductId,
+    supplierSku: input.supplierSku,
+    realSupplierProduct: metadata.realSupplierProduct,
+    supplierVerificationStatus: metadata.supplierVerificationStatus,
+    stockQty: input.stockQty,
+    priceAmount: input.priceAmount,
+    supplierCostAmount: input.supplierCostAmount,
+    shippingCountries: input.shippingCountries,
+    deliveryEstimate: input.deliveryEstimate,
+    nextManualStep:
+      input.mode === "publish" && metadata.realSupplierProduct
+        ? `Run pnpm first-product:readiness against deployed Medusa/Web, then run pnpm first-sale:readiness before sending a customer to ${input.handle}.`
+        : "Resolve supplier verification blockers, rerun this seed in publish mode, then run readiness checks.",
+    ...details,
+  };
+}
+
 function productInputFor(
   input: FirstProductInput,
   defaultSalesChannelId: string,
@@ -473,15 +502,16 @@ export async function seedFirstSupplierProductWithInput(
     console.log(
       JSON.stringify(
         {
-          success: true,
-          dryRun,
-          createdCount: 0,
-          updatedCount: dryRun ? 0 : 1,
-          existingProductId: existingProduct.id,
-          handle: input.handle,
-          realSupplierProduct: metadata.realSupplierProduct,
-          inventoryLevelSynced,
-          metadataContract: metadata,
+          ...seedConfirmationOutput(input, {
+            dryRun,
+            createdCount: 0,
+            updatedCount: dryRun ? 0 : 1,
+            productId: existingProduct.id,
+            existingProductId: existingProduct.id,
+            variantId: asArray<any>(existingProduct.variants)[0]?.id || null,
+            inventoryLevelSynced,
+            metadataContract: metadata,
+          }),
         },
         null,
         2,
@@ -550,12 +580,12 @@ export async function seedFirstSupplierProductWithInput(
     console.log(
       JSON.stringify(
         {
-          success: true,
-          dryRun: true,
-          mode: input.mode,
-          wouldCreateCount: 1,
-          product: productInput,
-          diagnostics,
+          ...seedConfirmationOutput(input, {
+            dryRun: true,
+            wouldCreateCount: 1,
+            product: productInput,
+            diagnostics,
+          }),
         },
         null,
         2,
@@ -581,15 +611,14 @@ export async function seedFirstSupplierProductWithInput(
   console.log(
     JSON.stringify(
       {
-        success: true,
-        mode: input.mode,
-        createdCount: createdProduct ? 1 : 0,
-        updatedCount: 0,
-        productId: createdProduct?.id || null,
-        variantId: variant?.id || null,
-        inventoryLevelCreated,
-        handle: input.handle,
-        metadataContract: productInput.metadata,
+        ...seedConfirmationOutput(input, {
+          createdCount: createdProduct ? 1 : 0,
+          updatedCount: 0,
+          productId: createdProduct?.id || null,
+          variantId: variant?.id || null,
+          inventoryLevelCreated,
+          metadataContract: productInput.metadata,
+        }),
       },
       null,
       2,

@@ -18,7 +18,8 @@
     "first-product:seed": "pnpm --filter @dbaronx/medusa first-product:seed",
     "first-product:readiness": "node scripts/e2e-first-real-supplier-product-readiness-smoke.mjs",
     "first-sale:readiness": "node scripts/e2e-first-real-sale-readiness-closure.mjs",
-    "first-product:seed:cj-shirt": "pnpm --filter @dbaronx/medusa first-product:seed:cj-shirt"
+    "first-product:seed:cj-shirt": "pnpm --filter @dbaronx/medusa first-product:seed:cj-shirt",
+    "first-product:render-seed-command": "node scripts/print-cj-first-shirt-render-seed-command.mjs"
   },
   "pnpm": {
     "onlyBuiltDependencies": [

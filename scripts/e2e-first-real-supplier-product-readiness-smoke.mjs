@@ -1,4 +1,10 @@
 #!/usr/bin/env node
+const EXPECTED_CJ_HANDLE = 'mens-cotton-linen-long-sleeve-casual-shirt';
+const EXPECTED_CJ_SUPPLIER = 'cj';
+const EXPECTED_CJ_SUPPLIER_PRODUCT_ID = '2408300732091605000';
+const EXPECTED_CJ_SUPPLIER_SKU = 'CJDS212420104DW';
+const EXPECTED_CJ_SOURCE_URL = 'https://cjdropshipping.com/product/new-mens-casual-blouse-cotton-linen-shirt-loose-tops-long-sleeve-tee-shirt-spring-autumn-casual-handsome-mens-shirts-p-2408300732091605000.html';
+
 const MEDUSA_BASE_URL = normalizeBaseUrl(
   process.env.MEDUSA_BASE_URL ||
     process.env.NEXT_PUBLIC_MEDUSA_BACKEND_URL ||
@@ -22,19 +28,36 @@ const blockers = [];
 const responseSnippets = {};
 
 const productsResponse = await getJson(
-  `${MEDUSA_BASE_URL}/store/products?limit=20`,
+  `${MEDUSA_BASE_URL}/store/products?limit=100`,
   "storeProducts",
   medusaHeaders(),
 );
 if (!productsResponse.ok) addBlocker("medusa_store_api_unreachable");
 
-const products = extractProducts(productsResponse.json);
+const handleResponse = await getJson(
+  `${MEDUSA_BASE_URL}/store/products?handle=${encodeURIComponent(EXPECTED_CJ_HANDLE)}&limit=5`,
+  "storeProductsByExpectedHandle",
+  medusaHeaders(),
+);
+
+const products = uniqueProducts([
+  ...extractProducts(productsResponse.json),
+  ...extractProducts(handleResponse.json),
+]);
 const draftProduct =
   products.find((product) => isDraftSupplierProduct(product)) || null;
+const exactCjProduct = selectExactCjProduct(products);
 const verifiedProduct =
-  products.find((product) => isVerifiedSupplierProduct(product)) || null;
+  (exactCjProduct && isVerifiedSupplierProduct(exactCjProduct)
+    ? exactCjProduct
+    : null) || products.find((product) => isExactVerifiedCjProduct(product)) || null;
 const realProduct = verifiedProduct;
-if (!verifiedProduct) addBlocker("verified_supplier_product_missing");
+const verifiedSupplierProductPresent = Boolean(verifiedProduct);
+const exactCjProductPresent = Boolean(exactCjProduct);
+const demoProducts = products.filter((product) => isOldDemoProduct(product));
+const demoProductsPresent = demoProducts.length > 0;
+if (!verifiedProduct) addBlocker("verified_cj_supplier_product_missing");
+if (!exactCjProductPresent) addBlocker("exact_cj_first_shirt_missing");
 
 const draftMetadata = metadataOf(draftProduct);
 const verifiedMetadata = metadataOf(verifiedProduct);
@@ -108,10 +131,16 @@ const variantReady = Boolean(variantId && supplierSkuPresent);
 const priceReady = Boolean(variant && hasPrice(variant));
 const stockReady = Boolean(variant && hasAvailabilityProof(variant));
 const productUrl = productUrlFor(realProduct);
+const productUrlChecked = productUrl || null;
 const productUrlReady = Boolean(productUrl && handle);
 const realSupplierProductPresent = Boolean(realProduct);
 const expectedSupplierReady =
-  !EXPECT_SUPPLIER || supplier.toLowerCase() === EXPECT_SUPPLIER;
+  (!EXPECT_SUPPLIER || supplier.toLowerCase() === EXPECT_SUPPLIER) &&
+  (!supplier || supplier.toLowerCase() === EXPECTED_CJ_SUPPLIER);
+const sourceUrlMatchesExpected = sourceUrl === EXPECTED_CJ_SOURCE_URL;
+const supplierProductIdMatchesExpected =
+  supplierProductId === EXPECTED_CJ_SUPPLIER_PRODUCT_ID;
+const supplierSkuMatchesExpected = supplierSku === EXPECTED_CJ_SUPPLIER_SKU;
 const telegramDiscoveryReady = Boolean(
   realProduct && telegramWouldClassifyReal(realProduct),
 );
@@ -122,6 +151,12 @@ if (EXPECT_SUPPLIER && !expectedSupplierReady)
   addBlocker(`supplier_mismatch_expected_${EXPECT_SUPPLIER}`);
 if (EXPECT_SUPPLIER === "cj" && !supplierCostPresent)
   addBlocker("supplier_cost_missing");
+if (supplier && supplier.toLowerCase() !== EXPECTED_CJ_SUPPLIER)
+  addBlocker("exact_cj_supplier_mismatch");
+if (!supplierProductIdMatchesExpected) addBlocker("exact_cj_supplier_product_id_missing_or_mismatch");
+if (!supplierSkuMatchesExpected) addBlocker("exact_cj_supplier_sku_missing_or_mismatch");
+if (sourceUrlPresent && !sourceUrlMatchesExpected)
+  addBlocker("exact_cj_source_url_mismatch");
 if (!supplierProductIdPresent) addBlocker("supplier_product_id_missing");
 if (!supplierSkuPresent) addBlocker("supplier_sku_missing");
 if (!sourceUrlPresent) addBlocker("source_url_missing");
@@ -162,7 +197,10 @@ const result = {
   blockers,
   expectedSupplier: EXPECT_SUPPLIER || null,
   expectedSupplierReady,
+  verifiedSupplierProductPresent,
   realSupplierProductPresent,
+  exactCjProductPresent,
+  demoProductsPresent,
   supplierVerificationStatus: supplierVerificationStatus || null,
   supplierVerificationBlockers,
   productId,
@@ -171,6 +209,9 @@ const result = {
   title,
   supplier: supplier || null,
   supplierCostPresent,
+  supplierProductIdMatchesExpected,
+  supplierSkuMatchesExpected,
+  sourceUrlMatchesExpected,
   supplierCostAmount: supplierCostPresent ? supplierCostAmount : null,
   supplierProductIdPresent,
   supplierSkuPresent,
@@ -180,10 +221,14 @@ const result = {
   priceReady,
   stockReady,
   shippingOptionVisible: shipping.shippingOptionVisible,
-  productUrl,
+  productUrl: productUrlChecked,
+  productUrlChecked,
+  productUrlReady: productUrlExists,
   productUrlExists,
   checkoutPathReady,
   telegramDiscoveryReady,
+  telegramDiscoveryExpectation:
+    "Telegram /products and /product mens-cotton-linen-long-sleeve-casual-shirt should show the verified CJ shirt as customer-safe, not DEMO or supplier draft, and should only guide users to web checkout.",
   nextManualStep: nextManualStep(),
   responseSnippets,
 };
@@ -206,6 +251,17 @@ function metadataOf(item) {
   return item && typeof item.metadata === "object" && item.metadata
     ? item.metadata
     : {};
+}
+function uniqueProducts(items) {
+  const seen = new Set();
+  const unique = [];
+  for (const item of items) {
+    const key = item?.id || `${item?.handle || ""}:${item?.title || ""}`;
+    if (!key || seen.has(key)) continue;
+    seen.add(key);
+    unique.push(item);
+  }
+  return unique;
 }
 function extractProducts(payload) {
   const data =
@@ -247,6 +303,60 @@ function isVerifiedSupplierProduct(product) {
     hasSupplierSignal(product),
   );
 }
+function selectExactCjProduct(items) {
+  return (
+    items.find((product) => cleanHandle(product) === EXPECTED_CJ_HANDLE) ||
+    items.find((product) => supplierProductIdOf(product) === EXPECTED_CJ_SUPPLIER_PRODUCT_ID) ||
+    items.find((product) => supplierSkuOf(product) === EXPECTED_CJ_SUPPLIER_SKU) ||
+    null
+  );
+}
+function isExactVerifiedCjProduct(product) {
+  return Boolean(
+    isVerifiedSupplierProduct(product) &&
+      (cleanHandle(product) === EXPECTED_CJ_HANDLE ||
+        supplierProductIdOf(product) === EXPECTED_CJ_SUPPLIER_PRODUCT_ID ||
+        supplierSkuOf(product) === EXPECTED_CJ_SUPPLIER_SKU),
+  );
+}
+function cleanHandle(product) {
+  return safeString(product?.handle);
+}
+function supplierProductIdOf(product) {
+  const metadata = metadataOf(product);
+  const variantMetadata = metadataOf(firstVariant(product));
+  return safeString(
+    metadata.supplierProductId ||
+      metadata.supplier_product_id ||
+      metadata.cj_product_id ||
+      metadata.external_id ||
+      variantMetadata.supplierProductId ||
+      variantMetadata.supplier_product_id ||
+      variantMetadata.cj_product_id ||
+      variantMetadata.external_id,
+  );
+}
+function supplierSkuOf(product) {
+  const metadata = metadataOf(product);
+  const variant = firstVariant(product);
+  const variantMetadata = metadataOf(variant);
+  return safeString(
+    metadata.supplierSku ||
+      metadata.supplier_sku ||
+      variantMetadata.supplierSku ||
+      variantMetadata.supplier_sku ||
+      variant?.sku,
+  );
+}
+function isOldDemoProduct(product) {
+  const metadata = metadataOf(product);
+  const values = [product?.title, product?.name, product?.handle, metadata.source, metadata.environment, metadata.type];
+  return Boolean(
+    product &&
+      !isExplicitReal(product) &&
+      (metadata.demo === true || /\b(demo|sample|mock|test)\b/i.test(values.map((value) => String(value || "")).join(" "))),
+  );
+}
 function normalizeBlockers(value) {
   if (Array.isArray(value))
     return value.map((item) => safeString(item)).filter(Boolean);
@@ -260,8 +370,7 @@ function normalizeBlockers(value) {
 function isDemoProduct(product) {
   if (isExplicitReal(product)) return false;
   const metadata = metadataOf(product);
-  if (metadata.demo === true || metadata.realSupplierProduct === false)
-    return true;
+  if (metadata.demo === true) return true;
   const values = [
     product?.title,
     product?.name,

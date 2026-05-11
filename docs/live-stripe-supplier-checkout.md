@@ -1017,7 +1017,7 @@ If `TURNSTILE_SECRET_KEY` is missing, first sale must still proceed when `HCAPTC
 
 ### Required before first sale
 
-- Keep the selected CJ product seeding path intact for supplier product `2408300732091605000` / SKU `CJDS212420173UF`.
+- Keep the selected CJ product seeding path intact for supplier product `2408300732091605000` / SKU `CJDS212420104DW`.
 - Keep hCaptcha configured in the FastAPI environment, or leave checkout CAPTCHA optional with `CAPTCHA_REQUIRED_FOR_CHECKOUT=false` for the controlled buyer checkout.
 - Keep Stripe checkout and signed webhook proof as the source of truth for payment state.
 - Keep Telegram money, fulfillment, payout, wallet, reward, and supplier mutation actions read-only or blocked unless protected by existing admin/internal controls.
@@ -1032,3 +1032,54 @@ If `TURNSTILE_SECRET_KEY` is missing, first sale must still proceed when `HCAPTC
 ### Phase two after first sale
 
 After the first controlled sale, implement and test real MFA/passkey step-up for admin, seller, supplier, advertiser, payout, wallet, DBX token, crowdfunding, and destructive actions. Until that work exists, readiness output must warn with `MFA_PASSKEY_REQUIRED_FOR_ADMIN_PHASE_TWO` rather than pretending the controls are complete.
+
+## Render-safe one-command CJ first-shirt seed closure
+
+Use this closure for the selected first CJ product only:
+
+- title: `Men's Cotton Linen Long Sleeve Casual Shirt`
+- handle: `mens-cotton-linen-long-sleeve-casual-shirt`
+- supplier product ID: `2408300732091605000`
+- supplier SKU: `CJDS212420104DW`
+- selling price: `1999` USD minor units
+- supplier cost: `419` USD minor units
+- stock quantity: `32`
+- shipping country: `US`
+- delivery estimate: `7-15 business days`
+
+Do **not** seed this product from a laptop by copying Render's internal `DATABASE_URL`. Render internal database hostnames are only reachable from Render private networking, and copying them into a local terminal also increases secret-exposure risk. Run the seed inside the Render Medusa service process by temporarily changing that service's Start Command.
+
+Print the exact operator commands without secrets:
+
+```bash
+pnpm first-product:render-seed-command
+```
+
+Temporary Render Medusa Start Command for the one-time seed deploy:
+
+```bash
+DBX_CONFIRM_CJ_FIRST_PRODUCT_SEED=true pnpm --filter @dbaronx/medusa first-product:seed:cj-shirt && pnpm --filter @dbaronx/medusa start
+```
+
+Normal Render Medusa Start Command to restore immediately after the seed deploy succeeds:
+
+```bash
+pnpm --filter @dbaronx/medusa start
+```
+
+Readiness command after restoring the normal start command and redeploying/restarting Medusa:
+
+```bash
+EXPECT_SUPPLIER=cj MEDUSA_BASE_URL=https://dbaronx-medusa.onrender.com WEB_BASE_URL=https://dbaronx.com pnpm first-product:readiness
+```
+
+The seed confirmation JSON must include `success`, `mode`, `productId`, `variantId`, `handle`, `supplier`, `supplierProductId`, `supplierSku`, `realSupplierProduct`, `supplierVerificationStatus`, `stockQty`, `priceAmount`, `supplierCostAmount`, `shippingCountries`, `deliveryEstimate`, and `nextManualStep`. Treat missing IDs, `realSupplierProduct: false`, or any non-`verified_for_checkout` publish result as a blocker for customer checkout.
+
+After seed readiness passes, run first transaction smokes in this order:
+
+1. `pnpm first-product:readiness`
+2. `pnpm first-sale:readiness`
+3. `node scripts/e2e-telegram-customer-first-checkout-journey-smoke.mjs`
+4. `node scripts/e2e-first-transaction-with-telegram-ops-smoke.mjs`
+
+If a database URL, CJ access token, Telegram token, Stripe secret, Supabase service role key, or any other production secret was pasted into a local shell, ticket, chat, or log while attempting the seed, rotate that credential before inviting a real customer to checkout.
