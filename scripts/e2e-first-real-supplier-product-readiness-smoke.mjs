@@ -4,6 +4,7 @@ const EXPECTED_CJ_SUPPLIER = 'cj';
 const EXPECTED_CJ_SUPPLIER_PRODUCT_ID = '2408300732091605000';
 const EXPECTED_CJ_SUPPLIER_SKU = 'CJDS212420104DW';
 const EXPECTED_CJ_SOURCE_URL = 'https://cjdropshipping.com/product/new-mens-casual-blouse-cotton-linen-shirt-loose-tops-long-sleeve-tee-shirt-spring-autumn-casual-handsome-mens-shirts-p-2408300732091605000.html';
+const EXPECTED_CJ_PRICE_USD_MINOR = 1999;
 
 const MEDUSA_BASE_URL = normalizeBaseUrl(
   process.env.MEDUSA_BASE_URL ||
@@ -128,8 +129,10 @@ const supplierSkuPresent = Boolean(supplierSku);
 const sourceUrlPresent = Boolean(sourceUrl);
 const sourceUrlValid = isHttpUrl(sourceUrl);
 const variantReady = Boolean(variantId && supplierSkuPresent);
-const priceReady = Boolean(variant && hasPrice(variant));
+const sellingPriceAmount = variant ? firstPriceAmount(variant) : 0;
+const priceReady = sellingPriceAmount === EXPECTED_CJ_PRICE_USD_MINOR;
 const stockReady = Boolean(variant && hasAvailabilityProof(variant));
+const productImageReady = Boolean(realProduct && hasProductImage(realProduct));
 const productUrl = productUrlFor(realProduct);
 const productUrlChecked = productUrl || null;
 const productUrlReady = Boolean(productUrl && handle);
@@ -162,17 +165,24 @@ if (!supplierSkuPresent) addBlocker("supplier_sku_missing");
 if (!sourceUrlPresent) addBlocker("source_url_missing");
 if (sourceUrlPresent && !sourceUrlValid)
   addBlocker("source_url_not_http_or_https");
-if (!priceReady) addBlocker("price_missing");
+if (!priceReady) addBlocker(sellingPriceAmount > 0 ? "price_mismatch_expected_1999_usd_minor" : "price_missing");
 if (!stockReady) addBlocker("stock_or_availability_proof_missing");
+if (!productImageReady) addBlocker("product_image_missing");
 if (!productUrlReady) addBlocker("product_url_missing");
 if (!telegramDiscoveryReady)
   addBlocker("telegram_discovery_would_not_classify_product_real");
 
 const productPage = productUrlReady
   ? await getText(productUrl, "webProductPage")
-  : { ok: false, status: 0 };
+  : { ok: false, status: 0, text: "" };
 const productUrlExists = Boolean(productUrlReady && productPage.ok);
+const storefrontCheckoutGuidanceReady = Boolean(
+  productUrlExists &&
+    /Stripe-hosted checkout|Add-to-cart|checkout path/i.test(productPage.text || ""),
+);
 if (!productUrlExists) addBlocker("web_product_url_unreachable");
+if (productUrlExists && !storefrontCheckoutGuidanceReady)
+  addBlocker("web_product_checkout_guidance_missing");
 
 const shipping = await verifyShippingOptionForCart(variantId);
 if (!shipping.shippingOptionVisible)
@@ -188,7 +198,9 @@ const checkoutPathReady = Boolean(
   variantReady &&
   priceReady &&
   stockReady &&
+  productImageReady &&
   productUrlExists &&
+  storefrontCheckoutGuidanceReady &&
   shipping.shippingOptionVisible,
 );
 
@@ -213,6 +225,8 @@ const result = {
   supplierSkuMatchesExpected,
   sourceUrlMatchesExpected,
   supplierCostAmount: supplierCostPresent ? supplierCostAmount : null,
+  sellingPriceAmount: sellingPriceAmount > 0 ? sellingPriceAmount : null,
+  expectedSellingPriceAmount: EXPECTED_CJ_PRICE_USD_MINOR,
   supplierProductIdPresent,
   supplierSkuPresent,
   sourceUrlPresent,
@@ -220,11 +234,13 @@ const result = {
   variantReady,
   priceReady,
   stockReady,
+  productImageReady,
   shippingOptionVisible: shipping.shippingOptionVisible,
   productUrl: productUrlChecked,
   productUrlChecked,
   productUrlReady: productUrlExists,
   productUrlExists,
+  storefrontCheckoutGuidanceReady,
   checkoutPathReady,
   telegramDiscoveryReady,
   telegramDiscoveryExpectation:
@@ -425,16 +441,22 @@ function telegramWouldClassifyReal(product) {
     isExplicitReal(product),
   );
 }
-function hasPrice(variant) {
+function firstPriceAmount(variant) {
   const calculated = variant.calculated_price;
   if (calculated && typeof calculated === "object") {
-    const amount = calculated.calculated_amount ?? calculated.amount;
-    if (Number(amount) > 0) return true;
+    const amount = Number(calculated.calculated_amount ?? calculated.amount);
+    if (Number.isSafeInteger(amount) && amount > 0) return amount;
   }
-  return (
-    Array.isArray(variant.prices) &&
-    variant.prices.some((price) => Number(price?.amount) > 0)
-  );
+  if (Array.isArray(variant.prices)) {
+    const price = variant.prices.find((item) => Number(item?.amount) > 0);
+    const amount = Number(price?.amount || 0);
+    if (Number.isSafeInteger(amount) && amount > 0) return amount;
+  }
+  return 0;
+}
+function hasProductImage(product) {
+  if (safeString(product?.thumbnail)) return true;
+  return Array.isArray(product?.images) && product.images.some((image) => safeString(image?.url));
 }
 function hasAvailabilityProof(variant) {
   if (variant.manage_inventory === false) return true;
@@ -566,10 +588,10 @@ async function getText(url, label) {
     const response = await fetch(url, { method: "GET" });
     const text = await response.text();
     responseSnippets[label] = snippet(text);
-    return { ok: response.ok, status: response.status };
+    return { ok: response.ok, status: response.status, text };
   } catch (error) {
     responseSnippets[label] = error.name;
-    return { ok: false, status: 0 };
+    return { ok: false, status: 0, text: "" };
   }
 }
 function snippet(value) {

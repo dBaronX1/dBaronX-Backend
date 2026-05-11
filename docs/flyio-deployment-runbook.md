@@ -72,7 +72,13 @@ fly secrets set NESTJS_BASE_URL=... FASTAPI_BASE_URL=... \
 fly secrets set NEXT_PUBLIC_SUPABASE_URL=... NEXT_PUBLIC_SUPABASE_ANON_KEY=... --app dbaronx-web
 fly secrets set NEXT_PUBLIC_API_BASE_URL=... --app dbaronx-web
 
-fly secrets set DATABASE_URL=... REDIS_URL=... STORE_CORS=... ADMIN_CORS=... AUTH_CORS=... --app dbaronx-medusa
+fly secrets set \
+  DATABASE_URL= \
+  REDIS_URL= \
+  STORE_CORS= \
+  ADMIN_CORS= \
+  AUTH_CORS= \
+  --app dbaronx-medusa
 ```
 
 ## Health checks
