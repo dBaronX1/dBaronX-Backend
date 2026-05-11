@@ -16,7 +16,8 @@
     "check:env-contracts": "node scripts/check-env-contracts.mjs",
     "security:readiness": "node scripts/security-readiness-check.mjs",
     "first-product:seed": "pnpm --filter @dbaronx/medusa first-product:seed",
-    "first-product:readiness": "node scripts/e2e-first-real-supplier-product-readiness-smoke.mjs"
+    "first-product:readiness": "node scripts/e2e-first-real-supplier-product-readiness-smoke.mjs",
+    "first-sale:readiness": "node scripts/e2e-first-real-sale-readiness-closure.mjs"
   },
   "pnpm": {
     "onlyBuiltDependencies": [

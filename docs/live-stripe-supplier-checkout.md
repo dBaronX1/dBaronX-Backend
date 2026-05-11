@@ -877,3 +877,89 @@ Telegram test commands:
 ```
 
 Telegram remains read-only during this process: it may display customer-safe CJ supplier hints, product/storefront URLs, and checkout guidance, but it must not create carts or checkout sessions, mark paid, mark fulfilled, credit wallets/rewards, approve payouts, or mutate supplier imports.
+
+## Final first-sale readiness closure
+
+The first real customer must not be invited until the final closure smoke returns `success: true` with no blockers. This is stricter than the first-product smoke: it verifies deployed Medusa and web reachability, the selected CJ product metadata contract, Store API product visibility, positive price and stock signals, cart creation, add-to-cart, visible shipping options, optional shipping-method selection, Node runtime, Redis production readiness, session-store production readiness, and optional Telegram/Stripe proof flags without printing secrets.
+
+### Final first-sale env contract
+
+Required for the selected CJ product before publish:
+
+```bash
+DBX_FIRST_PRODUCT_MODE=publish
+DBX_FIRST_PRODUCT_TITLE='<customer-safe product title>'
+DBX_FIRST_PRODUCT_HANDLE='<customer-safe product handle>'
+DBX_FIRST_PRODUCT_DESCRIPTION='<customer-safe product description>'
+DBX_FIRST_PRODUCT_PRICE_USD_MINOR='999'
+DBX_FIRST_PRODUCT_COST_USD_MINOR='419'
+DBX_FIRST_PRODUCT_SUPPLIER='cj'
+DBX_FIRST_PRODUCT_SUPPLIER_PRODUCT_ID='2408300732091605000'
+DBX_FIRST_PRODUCT_SUPPLIER_SKU='CJDS212420173UF'
+DBX_FIRST_PRODUCT_SOURCE_URL='https://cjdropshipping.com/product/new-mens-casual-blouse-cotton-linen-shirt-loose-tops-long-sleeve-tee-shirt-spring-autumn-casual-handsome-mens-shirts-p-2408300732091605000.html'
+DBX_FIRST_PRODUCT_IMAGE_URL='<approved https product image url with no credential query/hash>'
+DBX_FIRST_PRODUCT_STOCK_QTY='<confirmed positive CJ/manual stock quantity>'
+DBX_FIRST_PRODUCT_SHIPPING_COUNTRIES='US'
+DBX_FIRST_PRODUCT_DELIVERY_ESTIMATE='<confirmed customer-safe delivery estimate>'
+```
+
+The selected product must remain `supplier=cj`, `supplierProductId=2408300732091605000`, and `supplierSku=CJDS212420173UF`. Do not mark any demo/sample/mock/test product as real, and do not set `realSupplierProduct=true` unless supplier cost, image, stock, supported shipping country, delivery estimate, source URL, supplier product ID, supplier SKU, price, and metadata validation are all present and valid.
+
+### Final seed command for the selected CJ product
+
+```bash
+DBX_FIRST_PRODUCT_MODE=publish \
+DBX_FIRST_PRODUCT_TITLE="Men's Cotton Linen Long Sleeve Casual Shirt" \
+DBX_FIRST_PRODUCT_HANDLE="mens-cotton-linen-long-sleeve-casual-shirt-cjds212420101az" \
+DBX_FIRST_PRODUCT_DESCRIPTION="<customer-safe product description>" \
+DBX_FIRST_PRODUCT_PRICE_USD_MINOR="999" \
+DBX_FIRST_PRODUCT_COST_USD_MINOR="419" \
+DBX_FIRST_PRODUCT_SUPPLIER="cj" \
+DBX_FIRST_PRODUCT_SUPPLIER_PRODUCT_ID="2408300732091605000" \
+DBX_FIRST_PRODUCT_SUPPLIER_SKU="CJDS212420173UF" \
+DBX_FIRST_PRODUCT_SOURCE_URL="https://cjdropshipping.com/product/new-mens-casual-blouse-cotton-linen-shirt-loose-tops-long-sleeve-tee-shirt-spring-autumn-casual-handsome-mens-shirts-p-2408300732091605000.html" \
+DBX_FIRST_PRODUCT_IMAGE_URL="https://<approved product image url>" \
+DBX_FIRST_PRODUCT_STOCK_QTY="<confirmed stock quantity greater than zero>" \
+DBX_FIRST_PRODUCT_SHIPPING_COUNTRIES="US" \
+DBX_FIRST_PRODUCT_DELIVERY_ESTIMATE="<confirmed customer-safe delivery estimate>" \
+pnpm first-product:seed
+```
+
+### Final deployed readiness command
+
+Use Node 20 locally and on Render. The repo has `.nvmrc=20.19.0`, root and Medusa `engines.node >=20 <21`, and Render `NODE_VERSION=20.19.0`. On Windows, run `nvm install 20.19.0 && nvm use 20.19.0` before validation; do not use Node 24 for Medusa production builds.
+
+```bash
+FIRST_SALE_PRODUCTION_READINESS=true \
+EXPECT_SUPPLIER=cj \
+MEDUSA_BASE_URL=https://dbaronx-medusa.onrender.com \
+WEB_BASE_URL=https://dbaronx.com \
+MEDUSA_PUBLISHABLE_KEY='<publishable key if required>' \
+REDIS_URL='<Render Redis/Key Value internal URL or equivalent>' \
+MEDUSA_PRODUCTION_SESSION_STORE_READY='<true only after a production-safe Medusa session store is configured/proven>' \
+pnpm first-sale:readiness
+```
+
+Optional proof flags may be supplied only after evidence exists:
+
+```bash
+TELEGRAM_READINESS_REQUIRED=true \
+BOT_PUBLIC_BASE_URL='<deployed Telegram bot public base URL>' \
+STRIPE_TEST_CHECKOUT_PROOF=true \
+STRIPE_SIGNED_WEBHOOK_PROOF=true \
+DURABLE_ORDER_PAYMENT_PROOF=true \
+pnpm first-sale:readiness
+```
+
+### Stripe, webhook, order, and Telegram proof requirements
+
+- Stripe test checkout proof: complete a `cs_test_*` Checkout Session for the seeded product and confirm the checkout path was not blocked before payment.
+- Signed webhook proof: confirm the Stripe Dashboard test webhook posts a valid signed `checkout.session.completed` event to the deployed webhook endpoint.
+- Durable order/payment proof: confirm the durable order/payment record exists after webhook processing and can be read by the API/status path.
+- Telegram customer journey proof: run the Telegram customer first-checkout journey smoke against deployed URLs and confirm `/products`, `/product <handle_or_id>`, `/checkout_help`, `/payment_status`, and `/order_status` remain customer-safe and read-only.
+
+### No-go conditions before a real customer
+
+Do not send a real customer if any final closure blocker remains, including `NODE_RUNTIME_MUST_BE_20_X`, `MEDUSA_PRODUCTION_REDIS_REQUIRED`, `MEDUSA_PRODUCTION_SESSION_STORE_REQUIRED`, product image missing/unsafe, stock not positive, shipping country missing, delivery estimate missing/unsafe, cart/add-to-cart failure, shipping option invisibility, Stripe test checkout proof missing, signed webhook proof missing, durable order/payment proof missing, or Telegram ops proof missing when Telegram is part of the launch path.
+
+Redis is already supported by `apps/medusa/medusa-config.ts` through `REDIS_URL` for Medusa cache and event bus. Local/dev may still use Medusa fallback behavior, but production readiness must not treat fake Redis as safe. The current Medusa session-store warning is not safely fixed here without deeper Medusa session integration; therefore final production readiness explicitly blocks on `MEDUSA_PRODUCTION_SESSION_STORE_REQUIRED` until a production-safe session store is configured and proven.
