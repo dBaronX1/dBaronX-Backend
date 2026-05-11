@@ -46,6 +46,16 @@ class Settings(BaseSettings):
     gemini_api_key: str | None = None
     gemini_model: str = "gemini-1.5-pro"
 
+    hcaptcha_secret: str | None = None
+    captcha_primary: Literal["hcaptcha", "turnstile", "disabled"] = "hcaptcha"
+    captcha_fallback: Literal["hcaptcha", "turnstile", "disabled"] = "turnstile"
+    captcha_required_for_checkout: bool = False
+    captcha_required_for_watch_reward: bool = True
+    captcha_verify_timeout_seconds: float = 5.0
+    mfa_required_for_admin: bool = True
+    passkeys_enabled: bool = False
+    turnstile_site_key: str | None = None
+    turnstile_secret_key: str | None = None
     cloudflare_turnstile_secret: str | None = None
 
     request_timeout_seconds: float = 20.0
@@ -91,6 +101,17 @@ class Settings(BaseSettings):
     def has_ai_provider(self) -> bool:
         return bool(self.openai_api_key or self.anthropic_api_key or self.gemini_api_key)
 
+    @field_validator("turnstile_secret_key")
+    @classmethod
+    def normalize_turnstile_secret_key(cls, value: str | None) -> str | None:
+        if value and value.strip():
+            return value.strip()
+        return None
+
+    @property
+    def effective_turnstile_secret_key(self) -> str | None:
+        return self.turnstile_secret_key or self.cloudflare_turnstile_secret
+
 
 @lru_cache(maxsize=1)
 def get_settings() -> Settings:
@@ -118,4 +139,6 @@ Settings.GEMINI_MODEL = property(lambda self: self.gemini_model)
 Settings.INTERNAL_SERVICE_TOKEN = property(lambda self: self.internal_service_token)
 Settings.JWT_SECRET = property(lambda self: self.jwt_secret)
 Settings.REDIS_URL = property(lambda self: self.redis_url)
+Settings.TURNSTILE_SECRET_KEY = property(lambda self: self.effective_turnstile_secret_key)
+Settings.HCAPTCHA_SECRET = property(lambda self: self.hcaptcha_secret)
 Settings.ENVIRONMENT = property(lambda self: self.app_env)

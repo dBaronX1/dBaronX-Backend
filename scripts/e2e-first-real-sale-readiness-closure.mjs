@@ -26,6 +26,17 @@ const MEDUSA_PUBLISHABLE_KEY = process.env.MEDUSA_PUBLISHABLE_KEY || process.env
 const MEDUSA_REGION_ID = clean(process.env.MEDUSA_REGION_ID);
 const FIRST_PRODUCT_HANDLE = clean(process.env.DBX_FIRST_PRODUCT_HANDLE || process.env.FIRST_PRODUCT_HANDLE);
 const PRODUCTION_TARGET = isProductionTarget(MEDUSA_BASE_URL, WEB_BASE_URL);
+const CAPTCHA_PRIMARY = normalizeCaptchaProvider(process.env.CAPTCHA_PRIMARY || process.env.CAPTCHA_PROVIDER || 'hcaptcha');
+const CAPTCHA_FALLBACK = normalizeCaptchaProvider(process.env.CAPTCHA_FALLBACK || 'turnstile');
+const hcaptchaConfigured = Boolean(clean(process.env.HCAPTCHA_SECRET));
+const turnstileConfigured = Boolean(clean(process.env.TURNSTILE_SECRET_KEY || process.env.CLOUDFLARE_TURNSTILE_SECRET));
+const captchaConfigured = Boolean(hcaptchaConfigured || turnstileConfigured);
+const checkoutCaptchaRequired = truthy(process.env.CAPTCHA_REQUIRED_FOR_CHECKOUT);
+const mfaImplemented = truthy(process.env.MFA_IMPLEMENTED) || truthy(process.env.TOTP_IMPLEMENTED);
+const passkeyImplemented = truthy(process.env.PASSKEYS_IMPLEMENTED) || truthy(process.env.WEBAUTHN_IMPLEMENTED);
+const mfaRoadmapReady = Boolean(process.env.MFA_REQUIRED_FOR_ADMIN === undefined || truthy(process.env.MFA_REQUIRED_FOR_ADMIN));
+const passkeyRoadmapReady = process.env.PASSKEYS_ENABLED === undefined || !truthy(process.env.PASSKEYS_ENABLED) || passkeyImplemented;
+const firstSaleSecurityReady = Boolean(captchaConfigured || !checkoutCaptchaRequired);
 
 const blockers = [];
 const warnings = [];
@@ -45,6 +56,11 @@ if (!sessionProductionReady) addBlocker('MEDUSA_PRODUCTION_SESSION_STORE_REQUIRE
 if (!truthy(process.env.MEDUSA_PRODUCTION_SESSION_STORE_READY)) {
   addWarning('MEDUSA_SESSION_STORE_PRODUCTION_SAFETY_NOT_CONFIRMED');
 }
+
+if (checkoutCaptchaRequired && !captchaConfigured) addBlocker('CAPTCHA_PROVIDER_REQUIRED');
+if (!captchaConfigured) addWarning('CAPTCHA_PROVIDER_NOT_CONFIGURED_CHECKOUT_ONLY_ALLOWED_WHEN_OPTIONAL');
+if (!turnstileConfigured && hcaptchaConfigured) addWarning('TURNSTILE_NOT_CONFIGURED_HCAPTCHA_FIRST_SALE_FALLBACK_ACTIVE');
+if (!mfaImplemented || !passkeyImplemented) addWarning('MFA_PASSKEY_REQUIRED_FOR_ADMIN_PHASE_TWO');
 
 const medusaReachability = await reachable(MEDUSA_BASE_URL, 'medusaBase');
 if (!medusaReachability.ok) addBlocker('MEDUSA_BASE_URL_UNREACHABLE');
@@ -143,6 +159,17 @@ const result = {
   productReady,
   cartReady,
   checkoutPathReady,
+  captchaConfigured,
+  captchaPrimary: CAPTCHA_PRIMARY,
+  captchaFallback: CAPTCHA_FALLBACK,
+  hcaptchaConfigured,
+  turnstileConfigured,
+  checkoutCaptchaRequired,
+  firstSaleSecurityReady,
+  mfaRoadmapReady,
+  passkeyRoadmapReady,
+  mfaImplemented,
+  passkeyImplemented,
   supplierReady,
   shippingReady,
   stockReady,
@@ -175,6 +202,11 @@ const result = {
 
 console.log(JSON.stringify(result, null, 2));
 process.exit(result.success ? 0 : 1);
+
+function normalizeCaptchaProvider(value) {
+  const provider = clean(value).toLowerCase();
+  return ['hcaptcha', 'turnstile', 'disabled'].includes(provider) ? provider : 'hcaptcha';
+}
 
 function selectFirstProduct(items) {
   const realItems = items.filter((product) => metadataOf(product).realSupplierProduct === true && !isDemoProduct(product));

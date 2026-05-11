@@ -412,3 +412,43 @@ No-go before sending a real customer through Telegram:
 - Medusa session-store production safety is not proven (`MEDUSA_PRODUCTION_SESSION_STORE_REQUIRED` remains a launch blocker);
 - Stripe test checkout, signed webhook, and durable order/payment proof are incomplete;
 - Telegram customer first-checkout journey and first-transaction-with-ops smokes have not passed against deployed URLs.
+
+## First-sale security ladder for Telegram control surface
+
+Telegram remains the control/distribution surface, not the risk engine or economic brain. The first controlled sale keeps buyer checkout low-friction while protecting operator actions through existing admin/internal controls.
+
+### Current provider contract
+
+FastAPI performs server-side CAPTCHA verification. hCaptcha is the existing provider and remains valid for the first sale. Turnstile may be used as optional primary bot protection if configured.
+
+```bash
+HCAPTCHA_SECRET=
+TURNSTILE_SECRET_KEY=
+TURNSTILE_SITE_KEY=
+CAPTCHA_PRIMARY=hcaptcha
+CAPTCHA_FALLBACK=turnstile
+CAPTCHA_REQUIRED_FOR_CHECKOUT=false
+CAPTCHA_REQUIRED_FOR_WATCH_REWARD=true
+MFA_REQUIRED_FOR_ADMIN=true
+PASSKEYS_ENABLED=false
+```
+
+Provider selection is environment-driven. Do not require both Turnstile and hCaptcha for every normal action. If Turnstile is not configured, hCaptcha can still satisfy the first-sale security requirement. If checkout CAPTCHA is explicitly required and both providers are missing, readiness must block with `CAPTCHA_PROVIDER_REQUIRED`.
+
+### Telegram action ladder
+
+- Public discovery commands such as `/shop`, `/products`, and `/product` stay public-read and customer-safe.
+- Normal buyer first checkout must not require passkeys or TOTP yet.
+- Watch/ad reward confirmation remains CAPTCHA-gated through FastAPI/NestJS orchestration before economic reward decisions.
+- Admin/operator commands must continue to use existing Telegram admin IDs, roles, internal service tokens, and read-only/blocking behavior for unsafe mutations.
+- Payout, wallet, supplier admin, advertiser funding, DBX token, crowdfunding, and destructive actions are phase-two MFA/passkey step-up candidates; do not mark them production-ready until real code/config/tests exist.
+
+### No-go conditions
+
+- Telegram must not approve payouts, credit wallets/rewards, mark payments paid, mark orders fulfilled, import supplier products, or override live money state.
+- Telegram must not expose secrets or print configured token values in logs, docs, fixtures, or smoke output.
+- Telegram must not force passkeys/TOTP onto a normal buyer checkout before the first controlled sale.
+
+### Phase two after first sale
+
+Implement real passkey plus authenticator/TOTP step-up for high-risk and critical operator actions after the first controlled sale. Until then, readiness should surface `MFA_PASSKEY_REQUIRED_FOR_ADMIN_PHASE_TWO` as a warning and keep the existing admin/internal protections in force.

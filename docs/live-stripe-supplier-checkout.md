@@ -963,3 +963,50 @@ pnpm first-sale:readiness
 Do not send a real customer if any final closure blocker remains, including `NODE_RUNTIME_MUST_BE_20_X`, `MEDUSA_PRODUCTION_REDIS_REQUIRED`, `MEDUSA_PRODUCTION_SESSION_STORE_REQUIRED`, product image missing/unsafe, stock not positive, shipping country missing, delivery estimate missing/unsafe, cart/add-to-cart failure, shipping option invisibility, Stripe test checkout proof missing, signed webhook proof missing, durable order/payment proof missing, or Telegram ops proof missing when Telegram is part of the launch path.
 
 Redis is already supported by `apps/medusa/medusa-config.ts` through `REDIS_URL` for Medusa cache and event bus. Local/dev may still use Medusa fallback behavior, but production readiness must not treat fake Redis as safe. The current Medusa session-store warning is not safely fixed here without deeper Medusa session integration; therefore final production readiness explicitly blocks on `MEDUSA_PRODUCTION_SESSION_STORE_REQUIRED` until a production-safe session store is configured and proven.
+
+## First controlled sale security ladder
+
+The first controlled sale uses the dBaronX risk-based ladder without delaying a normal buyer checkout:
+
+- **Low-risk buyer checkout:** invisible or low-friction bot protection when available; CAPTCHA is optional unless `CAPTCHA_REQUIRED_FOR_CHECKOUT=true`.
+- **Medium-risk watch/ad reward confirmation:** CAPTCHA is required by default with `CAPTCHA_REQUIRED_FOR_WATCH_REWARD=true` because reward abuse creates direct economic exposure.
+- **High-risk admin, seller, supplier, advertiser, payout, wallet, DBX token, crowdfunding, and destructive actions:** existing admin/internal controls remain required now; MFA/passkey step-up is phase-two and must not be claimed production-ready until real TOTP/passkey implementation, config, and tests exist.
+- **Critical actions after first sale:** passkey plus authenticator/TOTP plus risk review is the target phase-two posture.
+
+### CAPTCHA provider contract
+
+FastAPI is the server-side verification brain for CAPTCHA/risk checks. hCaptcha remains supported and can carry the first sale by itself. Cloudflare Turnstile is optional primary bot protection when configured.
+
+Use these environment variables without committing real secrets:
+
+```bash
+HCAPTCHA_SECRET=
+TURNSTILE_SECRET_KEY=
+TURNSTILE_SITE_KEY=
+CAPTCHA_PRIMARY=hcaptcha      # hcaptcha or turnstile
+CAPTCHA_FALLBACK=turnstile    # turnstile or hcaptcha
+CAPTCHA_REQUIRED_FOR_CHECKOUT=false
+CAPTCHA_REQUIRED_FOR_WATCH_REWARD=true
+MFA_REQUIRED_FOR_ADMIN=true
+PASSKEYS_ENABLED=false
+```
+
+If `TURNSTILE_SECRET_KEY` is missing, first sale must still proceed when `HCAPTCHA_SECRET` is configured. If `HCAPTCHA_SECRET` is configured and Turnstile is not, hCaptcha is the active first-sale provider/fallback. Do not force both providers on every normal user action.
+
+### Required before first sale
+
+- Keep the selected CJ product seeding path intact for supplier product `2408300732091605000` / SKU `CJDS212420173UF`.
+- Keep hCaptcha configured in the FastAPI environment, or leave checkout CAPTCHA optional with `CAPTCHA_REQUIRED_FOR_CHECKOUT=false` for the controlled buyer checkout.
+- Keep Stripe checkout and signed webhook proof as the source of truth for payment state.
+- Keep Telegram money, fulfillment, payout, wallet, reward, and supplier mutation actions read-only or blocked unless protected by existing admin/internal controls.
+
+### No-go conditions
+
+- `CAPTCHA_REQUIRED_FOR_CHECKOUT=true` while neither `HCAPTCHA_SECRET` nor `TURNSTILE_SECRET_KEY` is configured.
+- Any buyer checkout flow that requires passkeys/TOTP before the first controlled sale.
+- Any claim that passkeys/TOTP are production-ready without real implementation, environment configuration, and tests.
+- Any Medusa change that moves dBaronX economic/risk business logic into commerce-only code.
+
+### Phase two after first sale
+
+After the first controlled sale, implement and test real MFA/passkey step-up for admin, seller, supplier, advertiser, payout, wallet, DBX token, crowdfunding, and destructive actions. Until that work exists, readiness output must warn with `MFA_PASSKEY_REQUIRED_FOR_ADMIN_PHASE_TWO` rather than pretending the controls are complete.

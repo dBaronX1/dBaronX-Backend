@@ -90,6 +90,18 @@ ROUTE_MOUNTS: tuple[RouteMount, ...] = (
         required=False,
     ),
     RouteMount(
+        module_path="app.api.routes.captcha",
+        prefix="",
+        tags=("captcha",),
+        required=True,
+    ),
+    RouteMount(
+        module_path="app.api.routes.first_sale_risk_policy",
+        prefix="/first-sale-risk-policy",
+        tags=("first-sale-risk-policy",),
+        required=False,
+    ),
+    RouteMount(
         module_path="src.wallet.routes.wallet",
         prefix="/wallet",
         tags=("wallet",),
