@@ -285,7 +285,7 @@ Required CJ/manual inputs before running Telegram discovery:
 - [ ] CJ source URL (`http://` or `https://` only)
 - [ ] Product image URL (`http://` or `https://` only)
 - [ ] Supplier cost in USD minor units (`DBX_FIRST_PRODUCT_COST_USD_MINOR=419` for the selected CJ product)
-- [ ] Selling price (`DBX_FIRST_PRODUCT_PRICE_USD_MINOR=999` or another operator-approved margin-safe price)
+- [ ] Selling price (`DBX_FIRST_PRODUCT_PRICE_USD_MINOR=1999` for the selected first CJ shirt unless an operator-approved margin-safe price replaces it)
 - [ ] Stock quantity
 - [ ] Shipping country
 - [ ] Margin note reviewed outside Telegram; internal supplier cost/margin is never printed to customers
@@ -311,11 +311,11 @@ Seed command:
 DBX_FIRST_PRODUCT_TITLE='<CJ product title>' \
 DBX_FIRST_PRODUCT_HANDLE='<customer-safe-handle>' \
 DBX_FIRST_PRODUCT_DESCRIPTION='<customer-safe description>' \
-DBX_FIRST_PRODUCT_PRICE_USD_MINOR='999' \
+DBX_FIRST_PRODUCT_PRICE_USD_MINOR='1999' \
 DBX_FIRST_PRODUCT_COST_USD_MINOR='419' \
 DBX_FIRST_PRODUCT_SUPPLIER='cj' \
 DBX_FIRST_PRODUCT_SUPPLIER_PRODUCT_ID='2408300732091605000' \
-DBX_FIRST_PRODUCT_SUPPLIER_SKU='CJDS212420173UF' \
+DBX_FIRST_PRODUCT_SUPPLIER_SKU='CJDS212420104DW' \
 DBX_FIRST_PRODUCT_SOURCE_URL='https://cjdropshipping.com/product/new-mens-casual-blouse-cotton-linen-shirt-loose-tops-long-sleeve-tee-shirt-spring-autumn-casual-handsome-mens-shirts-p-2408300732091605000.html' \
 DBX_FIRST_PRODUCT_IMAGE_URL='<https://...>' \
 DBX_FIRST_PRODUCT_STOCK_QTY='<positive stock quantity>' \
@@ -355,11 +355,11 @@ DBX_FIRST_PRODUCT_MODE=publish
 DBX_FIRST_PRODUCT_TITLE='<customer-safe product title>'
 DBX_FIRST_PRODUCT_HANDLE='<customer-safe product handle>'
 DBX_FIRST_PRODUCT_DESCRIPTION='<customer-safe product description>'
-DBX_FIRST_PRODUCT_PRICE_USD_MINOR='999'
+DBX_FIRST_PRODUCT_PRICE_USD_MINOR='1999'
 DBX_FIRST_PRODUCT_COST_USD_MINOR='419'
 DBX_FIRST_PRODUCT_SUPPLIER='cj'
 DBX_FIRST_PRODUCT_SUPPLIER_PRODUCT_ID='2408300732091605000'
-DBX_FIRST_PRODUCT_SUPPLIER_SKU='CJDS212420173UF'
+DBX_FIRST_PRODUCT_SUPPLIER_SKU='CJDS212420104DW'
 DBX_FIRST_PRODUCT_SOURCE_URL='https://cjdropshipping.com/product/new-mens-casual-blouse-cotton-linen-shirt-loose-tops-long-sleeve-tee-shirt-spring-autumn-casual-handsome-mens-shirts-p-2408300732091605000.html'
 DBX_FIRST_PRODUCT_IMAGE_URL='<approved https product image url>'
 DBX_FIRST_PRODUCT_STOCK_QTY='<confirmed stock quantity greater than zero>'
@@ -372,13 +372,13 @@ Final seed command:
 ```bash
 DBX_FIRST_PRODUCT_MODE=publish \
 DBX_FIRST_PRODUCT_TITLE="Men's Cotton Linen Long Sleeve Casual Shirt" \
-DBX_FIRST_PRODUCT_HANDLE="mens-cotton-linen-long-sleeve-casual-shirt-cjds212420101az" \
+DBX_FIRST_PRODUCT_HANDLE="mens-cotton-linen-long-sleeve-casual-shirt" \
 DBX_FIRST_PRODUCT_DESCRIPTION="<customer-safe product description>" \
-DBX_FIRST_PRODUCT_PRICE_USD_MINOR="999" \
+DBX_FIRST_PRODUCT_PRICE_USD_MINOR="1999" \
 DBX_FIRST_PRODUCT_COST_USD_MINOR="419" \
 DBX_FIRST_PRODUCT_SUPPLIER="cj" \
 DBX_FIRST_PRODUCT_SUPPLIER_PRODUCT_ID="2408300732091605000" \
-DBX_FIRST_PRODUCT_SUPPLIER_SKU="CJDS212420173UF" \
+DBX_FIRST_PRODUCT_SUPPLIER_SKU="CJDS212420104DW" \
 DBX_FIRST_PRODUCT_SOURCE_URL="https://cjdropshipping.com/product/new-mens-casual-blouse-cotton-linen-shirt-loose-tops-long-sleeve-tee-shirt-spring-autumn-casual-handsome-mens-shirts-p-2408300732091605000.html" \
 DBX_FIRST_PRODUCT_IMAGE_URL="https://<approved product image url>" \
 DBX_FIRST_PRODUCT_STOCK_QTY="<confirmed stock quantity greater than zero>" \
@@ -452,3 +452,36 @@ Provider selection is environment-driven. Do not require both Turnstile and hCap
 ### Phase two after first sale
 
 Implement real passkey plus authenticator/TOTP step-up for high-risk and critical operator actions after the first controlled sale. Until then, readiness should surface `MFA_PASSKEY_REQUIRED_FOR_ADMIN_PHASE_TWO` as a warning and keep the existing admin/internal protections in force.
+
+## Render-safe CJ first-shirt seed and Telegram discovery closure
+
+The first customer-facing Telegram discovery path expects the selected CJ shirt to be seeded in Medusa with `handle=mens-cotton-linen-long-sleeve-casual-shirt`, `supplierProductId=2408300732091605000`, and `supplierSku=CJDS212420104DW`. Telegram remains read-only: it may discover the product and guide the customer to web checkout, but it must not seed products, create carts, create checkout sessions, mark paid, fulfill, or mutate supplier state.
+
+Do not seed from a laptop with Render's internal `DATABASE_URL`. Use Render's Medusa service Start Command for a one-time seed, then restore the normal command:
+
+```bash
+DBX_CONFIRM_CJ_FIRST_PRODUCT_SEED=true pnpm --filter @dbaronx/medusa first-product:seed:cj-shirt && pnpm --filter @dbaronx/medusa start
+```
+
+Restore immediately after the seed succeeds:
+
+```bash
+pnpm --filter @dbaronx/medusa start
+```
+
+Then verify customer discovery readiness:
+
+```bash
+EXPECT_SUPPLIER=cj MEDUSA_BASE_URL=https://dbaronx-medusa.onrender.com WEB_BASE_URL=https://dbaronx.com pnpm first-product:readiness
+```
+
+The readiness smoke reports old demo products separately from the verified CJ shirt. Demo products may still exist during cleanup, but they must not be relabeled as real and must not block readiness when the exact verified CJ product is present and customer-checkout-ready. Telegram `/products` and `/product mens-cotton-linen-long-sleeve-casual-shirt` should show the verified CJ shirt as customer-safe, not `DEMO` or `Supplier draft — not ready for checkout`.
+
+First transaction smoke order before inviting a real customer:
+
+1. `pnpm first-product:readiness`
+2. `pnpm first-sale:readiness`
+3. `node scripts/e2e-telegram-customer-first-checkout-journey-smoke.mjs`
+4. `node scripts/e2e-first-transaction-with-telegram-ops-smoke.mjs`
+
+Rotate any database password or other production credential that was copied into a laptop terminal, chat, support ticket, or log while attempting the seed.

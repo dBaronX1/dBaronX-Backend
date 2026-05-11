@@ -3,7 +3,7 @@ import { spawnSync } from 'node:child_process';
 
 const EXPECTED_SUPPLIER = 'cj';
 const EXPECTED_SUPPLIER_PRODUCT_ID = '2408300732091605000';
-const EXPECTED_SUPPLIER_SKU = 'CJDS212420173UF';
+const EXPECTED_SUPPLIER_SKU = 'CJDS212420104DW';
 const REQUIRED_SUPPLIER_BLOCKERS = [
   'supplier_cost_missing',
   'product_image_missing',
