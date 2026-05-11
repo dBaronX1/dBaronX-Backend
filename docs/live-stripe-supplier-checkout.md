@@ -1083,3 +1083,40 @@ After seed readiness passes, run first transaction smokes in this order:
 4. `node scripts/e2e-first-transaction-with-telegram-ops-smoke.mjs`
 
 If a database URL, CJ access token, Telegram token, Stripe secret, Supabase service role key, or any other production secret was pasted into a local shell, ticket, chat, or log while attempting the seed, rotate that credential before inviting a real customer to checkout.
+
+## Post-seed CJ product verification checklist
+
+After the one-command Render seed and normal Medusa restart, verify the exact first product through the Store API and storefront before sending any buyer to checkout:
+
+1. Run `EXPECT_SUPPLIER=cj MEDUSA_BASE_URL=https://dbaronx-medusa.onrender.com WEB_BASE_URL=https://dbaronx.com pnpm first-product:readiness`.
+2. Confirm the JSON includes `success: true`, `blockers: []`, `realSupplierProductPresent: true`, `verifiedSupplierProductPresent: true`, `supplier: "cj"`, `supplierProductIdPresent: true`, `supplierSkuPresent: true`, `supplierCostPresent: true`, `sourceUrlPresent: true`, `priceReady: true`, `stockReady: true`, `productUrlReady: true`, `checkoutPathReady: true`, `telegramDiscoveryReady: true`, and a concrete `nextManualStep`.
+3. Confirm the exact Store API product handle is `mens-cotton-linen-long-sleeve-casual-shirt`, supplier product ID is `2408300732091605000`, supplier SKU is `CJDS212420104DW`, supplier cost currency is `usd`, sale price is `1999` USD minor units, and the image is present.
+4. Confirm the product is **not** demo metadata, is `realSupplierProduct: true`, and has `supplierVerificationStatus: "verified_for_checkout"`.
+5. Confirm the Store API can create a cart with the selected variant and returns at least one shipping option for the checkout cart. Do not fake stock or shipping readiness.
+
+## First Stripe test checkout checklist
+
+Use Stripe test mode before live money:
+
+1. Run the controlled first Stripe smoke with deployed URLs and the internal token available only in the shell/runtime environment, never pasted into docs or chat:
+
+   ```bash
+   MEDUSA_URL=https://dbaronx-medusa.onrender.com \
+   API_URL=https://dbaronx-api-unified.onrender.com \
+   WEB_BASE_URL=https://dbaronx.com \
+   node scripts/e2e-first-stripe-test-transaction-smoke.mjs
+   ```
+
+2. Confirm the smoke creates the checkout session only through `/api/checkout/stripe/session` or `/api/v1/checkout/stripe/session`, returns a `https://checkout.stripe.com/` URL, detects a `cs_test_*` session, proves the signed webhook route is reachable, and confirms unsigned webhook attempts are rejected.
+3. Open the Stripe-hosted test checkout URL and pay with Stripe test-card credentials only.
+4. Run `node scripts/e2e-stripe-post-payment-settlement-smoke.mjs` with the returned checkout/session/order reference to verify signed webhook settlement handling and durable payment/order lookup.
+5. Do not mark paid, fulfill, credit wallets, or approve payouts from Telegram, Medusa metadata, browser state, or manual database edits. Payment is proven only by signed Stripe webhook evidence and durable backend records.
+
+## Deployment order before first live buyer
+
+1. Deploy Medusa with the selected CJ seed command only long enough to seed the product, then immediately restore `pnpm --filter @dbaronx/medusa start` and redeploy/restart Medusa.
+2. Deploy Web so `/products` and `/products/mens-cotton-linen-long-sleeve-casual-shirt` resolve to the Store API-backed storefront surfaces.
+3. Deploy NestJS/API with Stripe checkout session and signed webhook routes configured.
+4. Deploy Telegram bot after customer-discovery docs/commands match the storefront route.
+5. Run first-product readiness, first-sale readiness, Telegram journey smoke, first-transaction-with-ops smoke, first Stripe test transaction smoke, and post-payment settlement smoke.
+6. Rotate the Medusa database password before live money if an old `DATABASE_URL` was exposed in a local shell, ticket, chat, logs, or screenshots during seed attempts.

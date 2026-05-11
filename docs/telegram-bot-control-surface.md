@@ -485,3 +485,17 @@ First transaction smoke order before inviting a real customer:
 4. `node scripts/e2e-first-transaction-with-telegram-ops-smoke.mjs`
 
 Rotate any database password or other production credential that was copied into a laptop terminal, chat, support ticket, or log while attempting the seed.
+
+## Post-seed Telegram customer verification commands
+
+After the CJ shirt seed is visible in Medusa and the storefront is deployed, verify the Telegram customer surface with customer-safe commands only:
+
+1. `/shop` should return the storefront URL, product listing URL, and explain that checkout happens through the dBaronX storefront and Stripe-hosted payment.
+2. `/products` should list `Men's Cotton Linen Long Sleeve Casual Shirt` as a verified real supplier product, not `DEMO` and not `Supplier draft — not ready for checkout`.
+3. `/product mens-cotton-linen-long-sleeve-casual-shirt` should show the product title, public price, CJ supplier hint, product URL, checkout URL/guidance, and only a safe public supplier source URL.
+4. `/checkout_help` should describe the safe path: Telegram discovery → product page → web checkout → Stripe-hosted checkout → signed webhook → order confirmation.
+5. `/payment_status <checkout_session_or_order_ref>` must return `paid_verified` only when backend settlement proof says paid; otherwise it remains `pending_verification`, `not_found`, or `support_required`.
+6. `/order_status <order_or_email_or_reference>` must not claim fulfilled unless backend order proof says fulfilled; current customer copy stays conservative and does not expose admin internals.
+7. Admin/ops diagnostics such as `/env_check`, `/runtime`, `/routes`, supplier readiness, wallet, payout, and Stripe settlement commands remain protected by the admin guard and are not part of customer discovery.
+
+Telegram remains read-only for customers. It must never mark paid, mark fulfilled, create fake stock, create fake supplier metadata, credit wallets/rewards, approve payouts, import supplier products, expose secrets, or bypass the Stripe signed-webhook proof requirement.
