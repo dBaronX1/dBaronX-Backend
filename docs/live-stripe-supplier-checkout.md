@@ -754,6 +754,28 @@ Before inviting the first real customer to pay real money:
 - [ ] Run Stripe test checkout first.
 - [ ] Move to live money only after signed Stripe webhook proof and durable order/payment records are verified.
 
+### One-command Render seed for selected CJ shirt
+
+Use this short command in the Render Medusa runtime after confirming the selected CJ product is still the intended first real product:
+
+```bash
+DBX_CONFIRM_CJ_FIRST_PRODUCT_SEED=true pnpm --filter @dbaronx/medusa run first-product:seed:cj-shirt
+```
+
+Temporary Render Medusa start command for one deploy cycle that seeds the selected CJ product, verifies shipping and commerce prerequisites, then starts Medusa:
+
+```bash
+DBX_CONFIRM_CJ_FIRST_PRODUCT_SEED=true pnpm --filter @dbaronx/medusa run first-product:seed:cj-shirt && pnpm --filter @dbaronx/medusa run shipping:ensure && pnpm --filter @dbaronx/medusa run commerce:ensure && pnpm --filter @dbaronx/medusa start
+```
+
+After the seed succeeds once and the readiness smoke passes, restore the normal Medusa start command so future deploys do not keep reseeding during startup:
+
+```bash
+pnpm --filter @dbaronx/medusa start
+```
+
+This profile is intentionally narrow: it requires `DBX_CONFIRM_CJ_FIRST_PRODUCT_SEED=true`, uses publish mode, seeds only `mens-cotton-linen-long-sleeve-casual-shirt`, does not scrape CJ, does not bulk import, does not expose secrets, and refuses to relabel unrelated products under the same handle.
+
 ### Controlled seed command
 
 Set the required environment values from a manually approved supplier product, then run:
@@ -762,31 +784,31 @@ Set the required environment values from a manually approved supplier product, t
 # Draft/review mode for the selected CJ product when image, stock, shipping, or delivery is unverified.
 DBX_FIRST_PRODUCT_MODE=draft \
 DBX_FIRST_PRODUCT_TITLE="Men's Cotton Linen Long Sleeve Casual Shirt" \
-DBX_FIRST_PRODUCT_HANDLE="mens-cotton-linen-long-sleeve-casual-shirt-cjds212420101az" \
+DBX_FIRST_PRODUCT_HANDLE="mens-cotton-linen-long-sleeve-casual-shirt" \
 DBX_FIRST_PRODUCT_DESCRIPTION="CJ supplier draft pending image, stock, shipping country, and delivery estimate verification." \
-DBX_FIRST_PRODUCT_PRICE_USD_MINOR="999" \
+DBX_FIRST_PRODUCT_PRICE_USD_MINOR="1999" \
 DBX_FIRST_PRODUCT_COST_USD_MINOR="419" \
 DBX_FIRST_PRODUCT_SUPPLIER="cj" \
 DBX_FIRST_PRODUCT_SUPPLIER_PRODUCT_ID="2408300732091605000" \
-DBX_FIRST_PRODUCT_SUPPLIER_SKU="CJDS212420173UF" \
+DBX_FIRST_PRODUCT_SUPPLIER_SKU="CJDS212420104DW" \
 DBX_FIRST_PRODUCT_SOURCE_URL="https://cjdropshipping.com/product/new-mens-casual-blouse-cotton-linen-shirt-loose-tops-long-sleeve-tee-shirt-spring-autumn-casual-handsome-mens-shirts-p-2408300732091605000.html" \
 pnpm first-product:seed
 
 # Publish mode only after all verification fields are confirmed.
 DBX_FIRST_PRODUCT_MODE=publish \
 DBX_FIRST_PRODUCT_TITLE="Men's Cotton Linen Long Sleeve Casual Shirt" \
-DBX_FIRST_PRODUCT_HANDLE="mens-cotton-linen-long-sleeve-casual-shirt-cjds212420101az" \
+DBX_FIRST_PRODUCT_HANDLE="mens-cotton-linen-long-sleeve-casual-shirt" \
 DBX_FIRST_PRODUCT_DESCRIPTION="<customer-safe product description>" \
-DBX_FIRST_PRODUCT_PRICE_USD_MINOR="999" \
+DBX_FIRST_PRODUCT_PRICE_USD_MINOR="1999" \
 DBX_FIRST_PRODUCT_COST_USD_MINOR="419" \
 DBX_FIRST_PRODUCT_SUPPLIER="cj" \
 DBX_FIRST_PRODUCT_SUPPLIER_PRODUCT_ID="2408300732091605000" \
-DBX_FIRST_PRODUCT_SUPPLIER_SKU="CJDS212420173UF" \
+DBX_FIRST_PRODUCT_SUPPLIER_SKU="CJDS212420104DW" \
 DBX_FIRST_PRODUCT_SOURCE_URL="https://cjdropshipping.com/product/new-mens-casual-blouse-cotton-linen-shirt-loose-tops-long-sleeve-tee-shirt-spring-autumn-casual-handsome-mens-shirts-p-2408300732091605000.html" \
-DBX_FIRST_PRODUCT_IMAGE_URL="https://<approved product image url>" \
-DBX_FIRST_PRODUCT_STOCK_QTY="<confirmed stock quantity greater than zero>" \
+DBX_FIRST_PRODUCT_IMAGE_URL="https://oss-cf.cjdropshipping.com/product/2024/08/30/07/ada82fd9-6efb-4629-86e8-1112d16a7a35.jpg?x-oss-process=image%2Fformat%2Cwebp" \
+DBX_FIRST_PRODUCT_STOCK_QTY="32" \
 DBX_FIRST_PRODUCT_SHIPPING_COUNTRIES="US" \
-DBX_FIRST_PRODUCT_DELIVERY_ESTIMATE="<confirmed customer-safe delivery estimate>" \
+DBX_FIRST_PRODUCT_DELIVERY_ESTIMATE="7-15 business days" \
 pnpm first-product:seed
 ```
 
@@ -817,7 +839,7 @@ Required CJ/manual inputs:
 - [ ] CJ source URL: `<https://... or http://... CJ/public supplier product URL>`
 - [ ] Product image URL: `<https://... or http://... image URL>`
 - [ ] Supplier cost: `<USD minor units used for DBX_FIRST_PRODUCT_COST_USD_MINOR; selected CJ product public cost is 419>`
-- [ ] Selling price: `<USD minor units used for DBX_FIRST_PRODUCT_PRICE_USD_MINOR; use 999 or another operator-approved margin-safe price>`
+- [ ] Selling price: `<USD minor units used for DBX_FIRST_PRODUCT_PRICE_USD_MINOR; use 1999 or another operator-approved margin-safe price>`
 - [ ] Stock quantity: `<positive quantity confirmed from CJ/manual supplier review>`
 - [ ] Shipping country: `<country used to confirm Medusa shipping option visibility>`
 - [ ] Margin note: `<internal margin reviewed in NestJS/business process; do not expose supplier cost in Telegram>`
@@ -843,11 +865,11 @@ Seed command:
 DBX_FIRST_PRODUCT_TITLE='<CJ product title>' \
 DBX_FIRST_PRODUCT_HANDLE='<customer-safe-handle>' \
 DBX_FIRST_PRODUCT_DESCRIPTION='<customer-safe description>' \
-DBX_FIRST_PRODUCT_PRICE_USD_MINOR='999' \
+DBX_FIRST_PRODUCT_PRICE_USD_MINOR='1999' \
 DBX_FIRST_PRODUCT_COST_USD_MINOR='419' \
 DBX_FIRST_PRODUCT_SUPPLIER='cj' \
 DBX_FIRST_PRODUCT_SUPPLIER_PRODUCT_ID='2408300732091605000' \
-DBX_FIRST_PRODUCT_SUPPLIER_SKU='CJDS212420173UF' \
+DBX_FIRST_PRODUCT_SUPPLIER_SKU='CJDS212420104DW' \
 DBX_FIRST_PRODUCT_SOURCE_URL='https://cjdropshipping.com/product/new-mens-casual-blouse-cotton-linen-shirt-loose-tops-long-sleeve-tee-shirt-spring-autumn-casual-handsome-mens-shirts-p-2408300732091605000.html' \
 DBX_FIRST_PRODUCT_IMAGE_URL='<https://...>' \
 DBX_FIRST_PRODUCT_STOCK_QTY='<positive stock quantity>' \
@@ -891,11 +913,11 @@ DBX_FIRST_PRODUCT_MODE=publish
 DBX_FIRST_PRODUCT_TITLE='<customer-safe product title>'
 DBX_FIRST_PRODUCT_HANDLE='<customer-safe product handle>'
 DBX_FIRST_PRODUCT_DESCRIPTION='<customer-safe product description>'
-DBX_FIRST_PRODUCT_PRICE_USD_MINOR='999'
+DBX_FIRST_PRODUCT_PRICE_USD_MINOR='1999'
 DBX_FIRST_PRODUCT_COST_USD_MINOR='419'
 DBX_FIRST_PRODUCT_SUPPLIER='cj'
 DBX_FIRST_PRODUCT_SUPPLIER_PRODUCT_ID='2408300732091605000'
-DBX_FIRST_PRODUCT_SUPPLIER_SKU='CJDS212420173UF'
+DBX_FIRST_PRODUCT_SUPPLIER_SKU='CJDS212420104DW'
 DBX_FIRST_PRODUCT_SOURCE_URL='https://cjdropshipping.com/product/new-mens-casual-blouse-cotton-linen-shirt-loose-tops-long-sleeve-tee-shirt-spring-autumn-casual-handsome-mens-shirts-p-2408300732091605000.html'
 DBX_FIRST_PRODUCT_IMAGE_URL='<approved https product image url with no credential query/hash>'
 DBX_FIRST_PRODUCT_STOCK_QTY='<confirmed positive CJ/manual stock quantity>'
@@ -903,25 +925,25 @@ DBX_FIRST_PRODUCT_SHIPPING_COUNTRIES='US'
 DBX_FIRST_PRODUCT_DELIVERY_ESTIMATE='<confirmed customer-safe delivery estimate>'
 ```
 
-The selected product must remain `supplier=cj`, `supplierProductId=2408300732091605000`, and `supplierSku=CJDS212420173UF`. Do not mark any demo/sample/mock/test product as real, and do not set `realSupplierProduct=true` unless supplier cost, image, stock, supported shipping country, delivery estimate, source URL, supplier product ID, supplier SKU, price, and metadata validation are all present and valid.
+The selected product must remain `supplier=cj`, `supplierProductId=2408300732091605000`, and `supplierSku=CJDS212420104DW`. Do not mark any demo/sample/mock/test product as real, and do not set `realSupplierProduct=true` unless supplier cost, image, stock, supported shipping country, delivery estimate, source URL, supplier product ID, supplier SKU, price, and metadata validation are all present and valid.
 
 ### Final seed command for the selected CJ product
 
 ```bash
 DBX_FIRST_PRODUCT_MODE=publish \
 DBX_FIRST_PRODUCT_TITLE="Men's Cotton Linen Long Sleeve Casual Shirt" \
-DBX_FIRST_PRODUCT_HANDLE="mens-cotton-linen-long-sleeve-casual-shirt-cjds212420101az" \
+DBX_FIRST_PRODUCT_HANDLE="mens-cotton-linen-long-sleeve-casual-shirt" \
 DBX_FIRST_PRODUCT_DESCRIPTION="<customer-safe product description>" \
-DBX_FIRST_PRODUCT_PRICE_USD_MINOR="999" \
+DBX_FIRST_PRODUCT_PRICE_USD_MINOR="1999" \
 DBX_FIRST_PRODUCT_COST_USD_MINOR="419" \
 DBX_FIRST_PRODUCT_SUPPLIER="cj" \
 DBX_FIRST_PRODUCT_SUPPLIER_PRODUCT_ID="2408300732091605000" \
-DBX_FIRST_PRODUCT_SUPPLIER_SKU="CJDS212420173UF" \
+DBX_FIRST_PRODUCT_SUPPLIER_SKU="CJDS212420104DW" \
 DBX_FIRST_PRODUCT_SOURCE_URL="https://cjdropshipping.com/product/new-mens-casual-blouse-cotton-linen-shirt-loose-tops-long-sleeve-tee-shirt-spring-autumn-casual-handsome-mens-shirts-p-2408300732091605000.html" \
-DBX_FIRST_PRODUCT_IMAGE_URL="https://<approved product image url>" \
-DBX_FIRST_PRODUCT_STOCK_QTY="<confirmed stock quantity greater than zero>" \
+DBX_FIRST_PRODUCT_IMAGE_URL="https://oss-cf.cjdropshipping.com/product/2024/08/30/07/ada82fd9-6efb-4629-86e8-1112d16a7a35.jpg?x-oss-process=image%2Fformat%2Cwebp" \
+DBX_FIRST_PRODUCT_STOCK_QTY="32" \
 DBX_FIRST_PRODUCT_SHIPPING_COUNTRIES="US" \
-DBX_FIRST_PRODUCT_DELIVERY_ESTIMATE="<confirmed customer-safe delivery estimate>" \
+DBX_FIRST_PRODUCT_DELIVERY_ESTIMATE="7-15 business days" \
 pnpm first-product:seed
 ```
 
