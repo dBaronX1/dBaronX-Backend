@@ -343,3 +343,72 @@ Telegram test commands:
 /order_status <order_or_email_or_reference>
 /support
 ```
+
+## First-sale closure gate for Telegram-controlled launch
+
+Before Telegram is used as the control/distribution surface for a real customer, run the final first-sale readiness closure. This does not let Telegram mutate commerce state; it proves the deployed web, Medusa Store API, selected CJ product, cart/add-to-cart path, shipping options, Node runtime, Redis production configuration, session-store production safety, and optional Telegram/Stripe proof flags are ready.
+
+Required real product values remain:
+
+```bash
+DBX_FIRST_PRODUCT_MODE=publish
+DBX_FIRST_PRODUCT_TITLE='<customer-safe product title>'
+DBX_FIRST_PRODUCT_HANDLE='<customer-safe product handle>'
+DBX_FIRST_PRODUCT_DESCRIPTION='<customer-safe product description>'
+DBX_FIRST_PRODUCT_PRICE_USD_MINOR='999'
+DBX_FIRST_PRODUCT_COST_USD_MINOR='419'
+DBX_FIRST_PRODUCT_SUPPLIER='cj'
+DBX_FIRST_PRODUCT_SUPPLIER_PRODUCT_ID='2408300732091605000'
+DBX_FIRST_PRODUCT_SUPPLIER_SKU='CJDS212420173UF'
+DBX_FIRST_PRODUCT_SOURCE_URL='https://cjdropshipping.com/product/new-mens-casual-blouse-cotton-linen-shirt-loose-tops-long-sleeve-tee-shirt-spring-autumn-casual-handsome-mens-shirts-p-2408300732091605000.html'
+DBX_FIRST_PRODUCT_IMAGE_URL='<approved https product image url>'
+DBX_FIRST_PRODUCT_STOCK_QTY='<confirmed stock quantity greater than zero>'
+DBX_FIRST_PRODUCT_SHIPPING_COUNTRIES='US'
+DBX_FIRST_PRODUCT_DELIVERY_ESTIMATE='<confirmed customer-safe delivery estimate>'
+```
+
+Final seed command:
+
+```bash
+DBX_FIRST_PRODUCT_MODE=publish \
+DBX_FIRST_PRODUCT_TITLE="Men's Cotton Linen Long Sleeve Casual Shirt" \
+DBX_FIRST_PRODUCT_HANDLE="mens-cotton-linen-long-sleeve-casual-shirt-cjds212420101az" \
+DBX_FIRST_PRODUCT_DESCRIPTION="<customer-safe product description>" \
+DBX_FIRST_PRODUCT_PRICE_USD_MINOR="999" \
+DBX_FIRST_PRODUCT_COST_USD_MINOR="419" \
+DBX_FIRST_PRODUCT_SUPPLIER="cj" \
+DBX_FIRST_PRODUCT_SUPPLIER_PRODUCT_ID="2408300732091605000" \
+DBX_FIRST_PRODUCT_SUPPLIER_SKU="CJDS212420173UF" \
+DBX_FIRST_PRODUCT_SOURCE_URL="https://cjdropshipping.com/product/new-mens-casual-blouse-cotton-linen-shirt-loose-tops-long-sleeve-tee-shirt-spring-autumn-casual-handsome-mens-shirts-p-2408300732091605000.html" \
+DBX_FIRST_PRODUCT_IMAGE_URL="https://<approved product image url>" \
+DBX_FIRST_PRODUCT_STOCK_QTY="<confirmed stock quantity greater than zero>" \
+DBX_FIRST_PRODUCT_SHIPPING_COUNTRIES="US" \
+DBX_FIRST_PRODUCT_DELIVERY_ESTIMATE="<confirmed customer-safe delivery estimate>" \
+pnpm first-product:seed
+```
+
+Final deployed readiness command:
+
+```bash
+FIRST_SALE_PRODUCTION_READINESS=true \
+EXPECT_SUPPLIER=cj \
+MEDUSA_BASE_URL=https://dbaronx-medusa.onrender.com \
+WEB_BASE_URL=https://dbaronx.com \
+MEDUSA_PUBLISHABLE_KEY='<publishable key if required>' \
+REDIS_URL='<Render Redis/Key Value internal URL or equivalent>' \
+MEDUSA_PRODUCTION_SESSION_STORE_READY='<true only after a production-safe Medusa session store is configured/proven>' \
+TELEGRAM_READINESS_REQUIRED=true \
+BOT_PUBLIC_BASE_URL='<deployed Telegram bot public base URL>' \
+pnpm first-sale:readiness
+```
+
+No-go before sending a real customer through Telegram:
+
+- final closure `success` is not `true` or any blocker remains;
+- the CJ product image URL, positive stock quantity, supported shipping country, or customer-safe delivery estimate is missing;
+- `realSupplierProduct` is not true or supplier blockers remain;
+- Node production runtime is not Node 20 (`>=20 <21`);
+- Redis production readiness is not proven with real `REDIS_URL`/equivalent;
+- Medusa session-store production safety is not proven (`MEDUSA_PRODUCTION_SESSION_STORE_REQUIRED` remains a launch blocker);
+- Stripe test checkout, signed webhook, and durable order/payment proof are incomplete;
+- Telegram customer first-checkout journey and first-transaction-with-ops smokes have not passed against deployed URLs.
