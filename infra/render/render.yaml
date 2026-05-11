@@ -55,6 +55,24 @@ services:
         sync: false
       - key: SUPABASE_SERVICE_ROLE_KEY
         sync: false
+      - key: HCAPTCHA_SECRET
+        sync: false
+      - key: TURNSTILE_SECRET_KEY
+        sync: false
+      - key: TURNSTILE_SITE_KEY
+        sync: false
+      - key: CAPTCHA_PRIMARY
+        value: hcaptcha
+      - key: CAPTCHA_FALLBACK
+        value: turnstile
+      - key: CAPTCHA_REQUIRED_FOR_CHECKOUT
+        value: false
+      - key: CAPTCHA_REQUIRED_FOR_WATCH_REWARD
+        value: true
+      - key: MFA_REQUIRED_FOR_ADMIN
+        value: true
+      - key: PASSKEYS_ENABLED
+        value: false
 
   - type: web
     name: dbaronx-medusa

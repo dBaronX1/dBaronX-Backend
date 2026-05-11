@@ -24,10 +24,4 @@ async def verify_captcha(
         ip=ip,
     )
 
-    return CaptchaVerifyResponse(
-        success=result["success"],
-        verified=result["verified"],
-        provider=result["provider"],
-        score=result.get("score"),
-        reasons=result.get("reasons", []),
-    )
+    return CaptchaVerifyResponse(**result)

@@ -39,6 +39,7 @@ from app.api.routes.final_operational_closure import (
     router as final_operational_closure_router,
 )
 from app.api.routes.fraud_decision import router as fraud_decision_router
+from app.api.routes.first_sale_risk_policy import router as first_sale_risk_policy_router
 from app.api.routes.intelligence_bootstrap_manifest import (
     router as intelligence_bootstrap_manifest_router,
 )
@@ -342,6 +343,13 @@ def get_router_registrations() -> list[RouterRegistration]:
             "decision_policy_registry",
             "/decision-policy-registry",
             decision_policy_registry_router,
+            False,
+            False,
+        ),
+        RouterRegistration(
+            "first_sale_risk_policy",
+            "/first-sale-risk-policy",
+            first_sale_risk_policy_router,
             False,
             False,
         ),

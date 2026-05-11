@@ -2,9 +2,12 @@ from __future__ import annotations
 
 from fastapi import APIRouter, Depends
 
-from app.api.dependencies import captcha_service_dep
 from app.schemas.captcha import CaptchaVerifyRequest, CaptchaVerifyResponse
 from app.services.captcha_service import CaptchaService
+
+
+def captcha_service_dep() -> CaptchaService:
+    return CaptchaService()
 
 router = APIRouter(prefix="/captcha", tags=["captcha"])
 
