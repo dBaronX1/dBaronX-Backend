@@ -19,7 +19,17 @@
     "first-product:readiness": "node scripts/e2e-first-real-supplier-product-readiness-smoke.mjs",
     "first-sale:readiness": "node scripts/e2e-first-real-sale-readiness-closure.mjs",
     "first-product:seed:cj-shirt": "pnpm --filter @dbaronx/medusa first-product:seed:cj-shirt",
-    "first-product:render-seed-command": "node scripts/print-cj-first-shirt-render-seed-command.mjs"
+    "first-product:render-seed-command": "node scripts/print-cj-first-shirt-render-seed-command.mjs",
+    "deploy:fly:telegram": "flyctl deploy --config apps/telegram-bot/fly.toml --app dbaronx-telegram-bot",
+    "deploy:fly:fastapi": "flyctl deploy --config apps/services-fastapi/fly.toml --app dbaronx-fastapi",
+    "deploy:fly:web": "flyctl deploy --config apps/web/fly.toml --app dbaronx-web",
+    "deploy:fly:telegram:build-only": "flyctl deploy --config apps/telegram-bot/fly.toml --app dbaronx-telegram-bot --build-only --push",
+    "deploy:fly:fastapi:build-only": "flyctl deploy --config apps/services-fastapi/fly.toml --app dbaronx-fastapi --build-only --push",
+    "deploy:fly:web:build-only": "flyctl deploy --config apps/web/fly.toml --app dbaronx-web --build-only --push",
+    "deploy:fly:runtime-services": "pnpm deploy:fly:telegram && pnpm deploy:fly:fastapi",
+    "release:first-transaction:smokes": "pnpm runtime:fly:readiness && pnpm first-product:readiness && node scripts/e2e-telegram-customer-first-checkout-journey-smoke.mjs && node scripts/e2e-first-stripe-test-transaction-smoke.mjs && node scripts/e2e-first-transaction-with-telegram-ops-smoke.mjs",
+    "first-transaction:commands": "node scripts/print-first-transaction-final-commands.mjs",
+    "runtime:fly:readiness": "node scripts/e2e-fly-runtime-release-readiness-smoke.mjs"
   },
   "pnpm": {
     "onlyBuiltDependencies": [

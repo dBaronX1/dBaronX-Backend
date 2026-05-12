@@ -1,5 +1,7 @@
 # Fresh Render Postgres Medusa rebuild
 
+> Final first-transaction operator pack: see [docs/first-transaction-final-operator-pack.md](./first-transaction-final-operator-pack.md) for the canonical Render/Fly release commands, safe publishable-key retrieval, CJ shirt seed cycle, smoke sequence, and stop/go checklist.
+
 The old exposed Render Postgres database was deleted and replaced. Treat the new Render Postgres database as a fresh Medusa schema rebuild: product/order data from the old database is gone unless it was separately backed up.
 
 ## Required Render environment change

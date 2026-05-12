@@ -1,5 +1,7 @@
 # Live Stripe + Supplier Checkout (dbaronx.com)
 
+> Final first-transaction operator pack: see [docs/first-transaction-final-operator-pack.md](./first-transaction-final-operator-pack.md) for the canonical Render/Fly release commands, safe publishable-key retrieval, CJ shirt seed cycle, smoke sequence, and stop/go checklist.
+
 ## DNS map
 
 - web: `https://dbaronx.com`
