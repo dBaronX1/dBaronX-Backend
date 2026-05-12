@@ -95,6 +95,7 @@ const styles = {
     outline: "none",
     fontSize: 15,
   },
+  fieldError: { color: "#fecdd3", fontSize: 12, fontWeight: 800 },
   button: {
     border: 0,
     borderRadius: 18,
@@ -134,6 +135,14 @@ export type RocketAuthShellProps = {
   onEmailChange: (value: string) => void;
   onPasswordChange: (value: string) => void;
   onSubmit: (event: FormEvent<HTMLFormElement>) => void;
+  fullName?: string;
+  confirmPassword?: string;
+  referralCode?: string;
+  fieldErrors?: Partial<Record<"fullName" | "email" | "password" | "confirmPassword", string>>;
+  submitting?: boolean;
+  onFullNameChange?: (value: string) => void;
+  onConfirmPasswordChange?: (value: string) => void;
+  onReferralCodeChange?: (value: string) => void;
   onMagicLink?: () => void;
   children?: ReactNode;
 };
@@ -149,10 +158,19 @@ export function RocketAuthShell({
   onEmailChange,
   onPasswordChange,
   onSubmit,
+  fullName = "",
+  confirmPassword = "",
+  referralCode = "",
+  fieldErrors = {},
+  submitting = false,
+  onFullNameChange,
+  onConfirmPasswordChange,
+  onReferralCodeChange,
   onMagicLink,
   children,
 }: RocketAuthShellProps) {
   const isRegister = mode === "register";
+  const submitDisabled = !configReady || submitting;
   const params = new URLSearchParams();
   for (const key of ["ref", "invite", "init"] as const) {
     const value = referral[key];
@@ -208,20 +226,44 @@ export function RocketAuthShell({
               {referral.init ? <span style={styles.chip}>Init: {referral.init}</span> : null}
             </div>
 
-            <form onSubmit={onSubmit} style={{ ...styles.form, marginTop: 18 }}>
+            <form onSubmit={onSubmit} style={{ ...styles.form, marginTop: 18 }} noValidate>
+              {isRegister ? (
+                <label style={styles.label}>
+                  Full Name
+                  <input required minLength={2} type="text" autoComplete="name" value={fullName} onChange={(event) => onFullNameChange?.(event.target.value)} style={styles.input} aria-invalid={Boolean(fieldErrors.fullName)} />
+                  {fieldErrors.fullName ? <span style={styles.fieldError}>{fieldErrors.fullName}</span> : null}
+                </label>
+              ) : null}
               <label style={styles.label}>
                 Email
-                <input required type="email" autoComplete="email" value={email} onChange={(event) => onEmailChange(event.target.value)} style={styles.input} />
+                <input required type="email" autoComplete="email" value={email} onChange={(event) => onEmailChange(event.target.value)} style={styles.input} aria-invalid={Boolean(fieldErrors.email)} />
+                {fieldErrors.email ? <span style={styles.fieldError}>{fieldErrors.email}</span> : null}
               </label>
               <label style={styles.label}>
                 Password
-                <input required minLength={isRegister ? 8 : undefined} type="password" autoComplete={isRegister ? "new-password" : "current-password"} value={password} onChange={(event) => onPasswordChange(event.target.value)} style={styles.input} />
+                <input required minLength={isRegister ? 8 : undefined} type="password" autoComplete={isRegister ? "new-password" : "current-password"} value={password} onChange={(event) => onPasswordChange(event.target.value)} style={styles.input} aria-invalid={Boolean(fieldErrors.password)} />
+                {fieldErrors.password ? <span style={styles.fieldError}>{fieldErrors.password}</span> : null}
               </label>
-              <button type="submit" disabled={!configReady} style={{ ...styles.button, opacity: configReady ? 1 : .55, cursor: configReady ? "pointer" : "not-allowed" }}>
-                {isRegister ? "Create account" : "Log in"}
+              {isRegister ? (
+                <>
+                  <label style={styles.label}>
+                    Confirm Password
+                    <input required minLength={8} type="password" autoComplete="new-password" value={confirmPassword} onChange={(event) => onConfirmPasswordChange?.(event.target.value)} style={styles.input} aria-invalid={Boolean(fieldErrors.confirmPassword)} />
+                    {fieldErrors.confirmPassword ? <span style={styles.fieldError}>{fieldErrors.confirmPassword}</span> : null}
+                  </label>
+                  <label style={styles.label}>
+                    Referral Code <span style={{ color: "#94a3b8", fontWeight: 700 }}>(optional)</span>
+                    <input type="text" autoComplete="off" value={referralCode} onChange={(event) => onReferralCodeChange?.(event.target.value)} style={styles.input} />
+                  </label>
+                  <input type="hidden" name="invite" value={referral.invite || ""} />
+                  <input type="hidden" name="init" value={referral.init || ""} />
+                </>
+              ) : null}
+              <button type="submit" disabled={submitDisabled} style={{ ...styles.button, opacity: submitDisabled ? .55 : 1, cursor: submitDisabled ? "not-allowed" : "pointer" }}>
+                {submitting ? (isRegister ? "Creating account…" : "Signing in…") : isRegister ? "Create account" : "Log in"}
               </button>
               {onMagicLink ? (
-                <button type="button" onClick={onMagicLink} disabled={!configReady || !email} style={{ ...styles.secondaryButton, opacity: configReady && email ? 1 : .55, cursor: configReady && email ? "pointer" : "not-allowed" }}>
+                <button type="button" onClick={onMagicLink} disabled={!configReady || !email || submitting} style={{ ...styles.secondaryButton, opacity: configReady && email && !submitting ? 1 : .55, cursor: configReady && email && !submitting ? "pointer" : "not-allowed" }}>
                   Email me a magic link
                 </button>
               ) : null}

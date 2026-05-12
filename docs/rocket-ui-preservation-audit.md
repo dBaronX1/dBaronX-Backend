@@ -37,3 +37,16 @@ pnpm web:auth:readiness
 ```
 
 The smoke checks auth route reachability/redirects, safe public-config keys, Supabase public config readiness when env is set, absence of unsafe env instructions in page HTML, social-link presence, and likely Rocket UI preservation.
+
+## Supabase Auth email-confirmation checklist
+
+- `/register` must keep the polished Rocket-style design while collecting full name, email, password, confirm password, and optional referral code.
+- Signup metadata must preserve `full_name`, `display_name`, `referral_code`, `invite_code`, `initiation_code`, `source`, and `onboarding_target` for Supabase Auth users.
+- Supabase Email provider must be enabled, and operators must decide whether **Confirm Email** is enabled.
+- Supabase Auth **Site URL** must be `https://dbaronx.com`.
+- Supabase Auth redirect URLs must include:
+  - `https://dbaronx.com/auth/callback`
+  - `https://www.dbaronx.com/auth/callback`
+  - `https://dbaronx-web.fly.dev/auth/callback`
+- Production email reliability requires custom SMTP. During tests, check spam/promotions and verify the **Resend confirmation email** action.
+- Do not expose the Supabase service role key or other backend secrets to the frontend.

@@ -1,33 +1,67 @@
 "use client";
 
 import { FormEvent, Suspense, useEffect, useMemo, useState } from "react";
-import { useSearchParams } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 
 import { RocketAuthShell } from "@/components/auth/RocketAuthShell";
 import { appendReferralParams, captureReferralParams, referralMetadata } from "@/lib/auth/referral-capture";
 import { safeLocalPath } from "@/lib/auth/routes";
 import { CUSTOMER_AUTH_UNAVAILABLE_MESSAGE, getBrowserPublicConfig, hasSupabasePublicConfig } from "@/lib/public-config";
-import { authRedirectTo } from "@/lib/supabase/client";
 import { getSupabaseRuntimeBrowserClient } from "@/lib/supabase/runtime-client";
+
+const supportHref = "mailto:support@dbaronx.com";
+const EMAIL_PATTERN = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+const CONFIRMATION_MESSAGE = "Account created. Check your email to confirm your account, then return to sign in.";
+
+type FieldErrors = Partial<Record<"fullName" | "email" | "password" | "confirmPassword", string>>;
 
 function humanSignupError(message: string) {
   if (/password/i.test(message)) return "Password must meet the security requirements. Try at least 8 characters.";
   if (/already|registered|exists/i.test(message)) return "An account may already exist for this email. Try logging in.";
+  if (/rate|limit/i.test(message)) return "Please wait a few minutes before trying again.";
   if (/network|fetch/i.test(message)) return "Signup is temporarily unavailable. Please try again shortly or contact support.";
   return message && !/NEXT_PUBLIC|SUPABASE_|DATABASE_URL|SECRET|TOKEN/i.test(message)
     ? message
     : "Signup failed. Please try again.";
 }
 
+function validateSignup(fullName: string, email: string, password: string, confirmPassword: string): FieldErrors {
+  const errors: FieldErrors = {};
+  if (fullName.trim().length < 2) errors.fullName = "Enter your full name.";
+  if (!EMAIL_PATTERN.test(email.trim())) errors.email = "Enter a valid email address.";
+  if (password.length < 8) errors.password = "Password must be at least 8 characters.";
+  if (confirmPassword !== password) errors.confirmPassword = "Passwords must match.";
+  return errors;
+}
+
+function resolveEmailRedirect(siteUrl: string, callbackPath: string) {
+  const base = siteUrl || (typeof window !== "undefined" ? window.location.origin : "");
+  if (!base) return callbackPath;
+  return `${base.replace(/\/+$/, "")}${callbackPath.startsWith("/") ? callbackPath : `/${callbackPath}`}`;
+}
+
 function RegisterForm() {
+  const router = useRouter();
   const params = useSearchParams();
   const referral = useMemo(() => captureReferralParams(params), [params]);
   const nextPath = safeLocalPath(params.get("next"), "/onboarding");
-  const metadata = useMemo(() => referralMetadata(referral), [referral]);
+  const initialReferralCode = referral.ref || "";
+  const [fullName, setFullName] = useState("");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
+  const [confirmPassword, setConfirmPassword] = useState("");
+  const [referralCode, setReferralCode] = useState(initialReferralCode);
   const [message, setMessage] = useState("");
+  const [fieldErrors, setFieldErrors] = useState<FieldErrors>({});
   const [configReady, setConfigReady] = useState(false);
+  const [submitting, setSubmitting] = useState(false);
+  const [confirmationPending, setConfirmationPending] = useState(false);
+  const [resending, setResending] = useState(false);
+  const [resendMessage, setResendMessage] = useState("");
+
+  useEffect(() => {
+    setReferralCode(referral.ref || "");
+  }, [referral.ref]);
 
   useEffect(() => {
     let mounted = true;
@@ -43,24 +77,82 @@ function RegisterForm() {
     };
   }, []);
 
+  function buildCallbackPath() {
+    return appendReferralParams(`/auth/callback?next=${encodeURIComponent(nextPath)}`, referral);
+  }
+
   async function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
+    setResendMessage("");
+    setConfirmationPending(false);
+    const errors = validateSignup(fullName, email, password, confirmPassword);
+    setFieldErrors(errors);
+    if (Object.keys(errors).length > 0) {
+      setMessage("Please fix the highlighted fields and try again.");
+      return;
+    }
     if (!configReady) {
       setMessage(CUSTOMER_AUTH_UNAVAILABLE_MESSAGE);
       return;
     }
+    setSubmitting(true);
     setMessage("Creating your account…");
     try {
-      const supabase = await getSupabaseRuntimeBrowserClient();
-      const callbackPath = appendReferralParams(`/auth/callback?next=${encodeURIComponent(nextPath)}`, referral);
-      const { error } = await supabase.auth.signUp({
-        email,
+      const [supabase, config] = await Promise.all([getSupabaseRuntimeBrowserClient(), getBrowserPublicConfig()]);
+      const metadata = {
+        ...referralMetadata({ ...referral, ref: referralCode.trim() || referral.ref }),
+        full_name: fullName.trim(),
+        display_name: fullName.trim(),
+        source: "web_register",
+        onboarding_target: "/onboarding",
+      };
+      const { data, error } = await supabase.auth.signUp({
+        email: email.trim(),
         password,
-        options: { emailRedirectTo: authRedirectTo(callbackPath), data: metadata },
+        options: {
+          emailRedirectTo: resolveEmailRedirect(config.siteUrl, buildCallbackPath()),
+          data: metadata,
+        },
       });
-      setMessage(error ? humanSignupError(error.message) : "Check your email to confirm your account, then continue to onboarding.");
+      if (error) {
+        setMessage(humanSignupError(error.message));
+        return;
+      }
+      if (data.session && data.user) {
+        router.push(nextPath);
+        return;
+      }
+      setPassword("");
+      setConfirmPassword("");
+      setConfirmationPending(true);
+      setMessage(CONFIRMATION_MESSAGE);
     } catch (error) {
       setMessage(error instanceof Error ? humanSignupError(error.message) : "Signup failed. Please try again.");
+    } finally {
+      setSubmitting(false);
+    }
+  }
+
+  async function resendConfirmation() {
+    if (!configReady || !email.trim()) return;
+    setResending(true);
+    setResendMessage("Sending confirmation email…");
+    try {
+      const [supabase, config] = await Promise.all([getSupabaseRuntimeBrowserClient(), getBrowserPublicConfig()]);
+      if (typeof supabase.auth.resend !== "function") {
+        setResendMessage("Please try again in a few minutes or contact support.");
+        return;
+      }
+      const { error } = await supabase.auth.resend({
+        type: "signup",
+        email: email.trim(),
+        options: { emailRedirectTo: resolveEmailRedirect(config.siteUrl, buildCallbackPath()) },
+      });
+      setResendMessage(error ? humanSignupError(error.message) : "Confirmation email resent. Please check your inbox, spam, or promotions folder.");
+    } catch {
+      setResendMessage("Please try again in a few minutes or contact support.");
+    } finally {
+      setResending(false);
     }
   }
 
@@ -73,10 +165,45 @@ function RegisterForm() {
       configReady={configReady}
       referral={referral}
       nextPath={nextPath}
+      fullName={fullName}
+      confirmPassword={confirmPassword}
+      referralCode={referralCode}
+      fieldErrors={fieldErrors}
+      submitting={submitting}
       onEmailChange={setEmail}
       onPasswordChange={setPassword}
+      onFullNameChange={setFullName}
+      onConfirmPasswordChange={setConfirmPassword}
+      onReferralCodeChange={setReferralCode}
       onSubmit={submit}
-    />
+    >
+      {confirmationPending ? (
+        <div style={{ display: "grid", gap: 12, marginTop: 14 }}>
+          <p style={{ margin: 0, color: "#e2e8f0", lineHeight: 1.6 }}>
+            Didn’t get the email? Resend confirmation. If it still does not arrive, check spam or promotions, then <a href={supportHref} style={{ color: "#fbbf24", fontWeight: 900, textDecoration: "none" }}>contact support</a>.
+          </p>
+          <button
+            type="button"
+            onClick={resendConfirmation}
+            disabled={!configReady || resending}
+            style={{
+              border: "1px solid rgba(255,255,255,.16)",
+              borderRadius: 18,
+              background: "rgba(255,255,255,.08)",
+              color: "#fff",
+              padding: "13px 18px",
+              fontWeight: 900,
+              fontSize: 14,
+              cursor: configReady && !resending ? "pointer" : "not-allowed",
+              opacity: configReady && !resending ? 1 : .55,
+            }}
+          >
+            {resending ? "Resending…" : "Resend confirmation email"}
+          </button>
+          {resendMessage ? <p role="status" style={{ margin: 0, color: "#e2e8f0" }}>{resendMessage}</p> : null}
+        </div>
+      ) : null}
+    </RocketAuthShell>
   );
 }
 
