@@ -8,6 +8,7 @@ import { PlatformModule } from "./modules/platform/platform.module";
 import { SystemModule } from "./modules/system/system.module";
 import { SystemFinalizationModule } from "./modules/system/system-finalization.module";
 import { DbxPaymentsModule } from "./modules/dbx-payments/dbx-payments.module";
+import { FirstOwnerBootstrapModule } from "./modules/bootstrap/bootstrap.module";
 import { HealthController } from "./health.controller";
 
 @Module({
@@ -24,6 +25,7 @@ import { HealthController } from "./health.controller";
     SystemModule,
     SystemFinalizationModule,
     DbxPaymentsModule,
+    FirstOwnerBootstrapModule,
   ],
 })
 export class AppModule {}

@@ -41,6 +41,10 @@ const handleResponse = await getJson(
   medusaHeaders(),
 );
 
+const medusaFailureMode = classifyMedusaFailure(productsResponse, handleResponse);
+if (medusaFailureMode === "medusa_schema_missing") addBlocker("medusa_schema_missing");
+if (medusaFailureMode === "medusa_unreachable") addBlocker("medusa_unreachable");
+
 const products = uniqueProducts([
   ...extractProducts(productsResponse.json),
   ...extractProducts(handleResponse.json),
@@ -207,6 +211,8 @@ const checkoutPathReady = Boolean(
 const result = {
   success: blockers.length === 0,
   blockers,
+  medusaFailureMode,
+  schemaReadinessInterpretation: medusaFailureMode === "medusa_schema_missing" ? "Run Medusa db:prepare before product readiness; this is not a product-missing failure." : null,
   expectedSupplier: EXPECT_SUPPLIER || null,
   expectedSupplierReady,
   verifiedSupplierProductPresent,
@@ -259,6 +265,14 @@ function normalizeBaseUrl(value) {
 }
 function addBlocker(blocker) {
   if (blocker && !blockers.includes(blocker)) blockers.push(blocker);
+}
+function classifyMedusaFailure(...responses) {
+  const text = Object.values(responseSnippets).join(" ");
+  if (/relation .* does not exist|missing .*table|currency|region_country|payment_provider|tax_provider|fulfillment_provider|database.*schema/i.test(text)) {
+    return "medusa_schema_missing";
+  }
+  if (responses.some((response) => response.status === 0 || response.status >= 500)) return "medusa_unreachable";
+  return null;
 }
 function safeString(value) {
   return String(value || "").trim();
@@ -606,6 +620,10 @@ function snippet(value) {
   return text.length > 900 ? `${text.slice(0, 900)}…` : text;
 }
 function nextManualStep() {
+  if (medusaFailureMode === "medusa_schema_missing")
+    return "Run pnpm --filter @dbaronx/medusa run db:prepare against the new Render Postgres database before checking product readiness.";
+  if (medusaFailureMode === "medusa_unreachable")
+    return "Start Medusa and verify it can reach the migrated database before checking product readiness.";
   if (draftProduct && !verifiedProduct)
     return `Verify the draft supplier product before live checkout: add image URL, confirm stock quantity, shipping countries, and delivery estimate, then rerun the seed in publish mode.`;
   if (blockers.length)
