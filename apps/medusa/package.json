@@ -16,7 +16,7 @@
   "scripts": {
     "build": "pnpm exec medusa build",
     "seed": "pnpm exec medusa exec ./src/scripts/seed.ts",
-    "key:publishable": "pnpm exec medusa exec ./src/scripts/ensure-publishable-key.ts",
+    "key:publishable": "pnpm exec medusa exec ./src/scripts/ensure-publishable-api-key.ts",
     "start": "pnpm exec medusa start",
     "dev": "pnpm exec medusa develop",
     "lint": "echo \"No Medusa lint configured\"",
@@ -43,7 +43,8 @@
     "db:prepare": "pnpm run db:migrate && pnpm run db:health",
     "db:prepare:fresh": "pnpm run db:prepare",
     "first-product:readiness": "node ../../scripts/e2e-first-real-supplier-product-readiness-smoke.mjs",
-    "controlled-cj:seed": "pnpm exec medusa exec ./src/scripts/seed-controlled-cj-products.ts"
+    "controlled-cj:seed": "pnpm exec medusa exec ./src/scripts/seed-controlled-cj-products.ts",
+    "publishable-key:ensure": "pnpm exec medusa exec ./src/scripts/ensure-publishable-api-key.ts"
   },
   "dependencies": {
     "@medusajs/admin-sdk": "2.13.6",

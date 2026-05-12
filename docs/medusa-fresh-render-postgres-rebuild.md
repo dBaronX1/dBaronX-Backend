@@ -57,3 +57,21 @@ node scripts/e2e-first-transaction-with-telegram-ops-smoke.mjs
 ```
 
 If the first-product readiness smoke reports `medusa_schema_missing`, run `db:prepare` before investigating product data.
+
+## Fresh publishable API key repair
+
+After replacing the Render Postgres database, any storefront publishable API key copied from the old database is invalid. Run the helper after migrations and commerce readiness are green:
+
+```bash
+MEDUSA_BACKEND_URL="https://<your-medusa-render-service>.onrender.com" pnpm --filter @dbaronx/medusa run publishable-key:ensure
+```
+
+The helper writes a JSON object to stdout. The publishable key output location is `publishableApiKeyToken` in that JSON output; `publishableApiKeyId` and `salesChannelId` identify the linked Medusa records. Do not copy or print `DATABASE_URL` while running the command.
+
+Update every storefront/runtime environment variable that stores the Medusa publishable key to the printed `publishableApiKeyToken`. In this repo, check/update these environment variable names wherever they are configured for the web app or deployment platform:
+
+- `NEXT_PUBLIC_MEDUSA_PUBLISHABLE_KEY`
+- `MEDUSA_PUBLISHABLE_KEY`
+- `PUBLIC_MEDUSA_PUBLISHABLE_KEY`
+
+Keep `MEDUSA_BACKEND_URL` or `NEXT_PUBLIC_MEDUSA_BACKEND_URL` pointed at the active Medusa service URL so the helper and storefront call the same backend.
