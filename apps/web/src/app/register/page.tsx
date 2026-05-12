@@ -1,28 +1,29 @@
 "use client";
 
 import { FormEvent, Suspense, useEffect, useMemo, useState } from "react";
-import { useRouter, useSearchParams } from "next/navigation";
+import { useSearchParams } from "next/navigation";
 
 import { RocketAuthShell } from "@/components/auth/RocketAuthShell";
-import { appendReferralParams, captureReferralParams } from "@/lib/auth/referral-capture";
+import { appendReferralParams, captureReferralParams, referralMetadata } from "@/lib/auth/referral-capture";
 import { safeLocalPath } from "@/lib/auth/routes";
 import { CUSTOMER_AUTH_UNAVAILABLE_MESSAGE, getBrowserPublicConfig, hasSupabasePublicConfig } from "@/lib/public-config";
 import { authRedirectTo } from "@/lib/supabase/client";
 import { getSupabaseRuntimeBrowserClient } from "@/lib/supabase/runtime-client";
 
-function humanLoginError(message: string) {
-  if (/invalid|credentials/i.test(message)) return "Email or password is incorrect.";
-  if (/network|fetch/i.test(message)) return "Login is temporarily unavailable. Please try again shortly or contact support.";
+function humanSignupError(message: string) {
+  if (/password/i.test(message)) return "Password must meet the security requirements. Try at least 8 characters.";
+  if (/already|registered|exists/i.test(message)) return "An account may already exist for this email. Try logging in.";
+  if (/network|fetch/i.test(message)) return "Signup is temporarily unavailable. Please try again shortly or contact support.";
   return message && !/NEXT_PUBLIC|SUPABASE_|DATABASE_URL|SECRET|TOKEN/i.test(message)
     ? message
-    : "Login failed. Please try again.";
+    : "Signup failed. Please try again.";
 }
 
-function LoginForm() {
-  const router = useRouter();
+function RegisterForm() {
   const params = useSearchParams();
-  const nextPath = safeLocalPath(params.get("next"), "/dashboard");
   const referral = useMemo(() => captureReferralParams(params), [params]);
+  const nextPath = safeLocalPath(params.get("next"), "/onboarding");
+  const metadata = useMemo(() => referralMetadata(referral), [referral]);
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [message, setMessage] = useState("");
@@ -45,42 +46,27 @@ function LoginForm() {
   async function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     if (!configReady) {
-      setMessage("Login is temporarily unavailable. Please try again shortly or contact support.");
-      return;
-    }
-    setMessage("Signing in…");
-    try {
-      const supabase = await getSupabaseRuntimeBrowserClient();
-      const { error } = await supabase.auth.signInWithPassword({ email, password });
-      if (error) {
-        setMessage(humanLoginError(error.message));
-        return;
-      }
-      router.push(nextPath);
-    } catch (error) {
-      setMessage(error instanceof Error ? humanLoginError(error.message) : "Login failed. Please try again.");
-    }
-  }
-
-  async function magicLink() {
-    if (!configReady) {
       setMessage(CUSTOMER_AUTH_UNAVAILABLE_MESSAGE);
       return;
     }
-    setMessage("Sending magic link…");
+    setMessage("Creating your account…");
     try {
       const supabase = await getSupabaseRuntimeBrowserClient();
       const callbackPath = appendReferralParams(`/auth/callback?next=${encodeURIComponent(nextPath)}`, referral);
-      const { error } = await supabase.auth.signInWithOtp({ email, options: { emailRedirectTo: authRedirectTo(callbackPath) } });
-      setMessage(error ? humanLoginError(error.message) : "Check your email for the magic login link.");
+      const { error } = await supabase.auth.signUp({
+        email,
+        password,
+        options: { emailRedirectTo: authRedirectTo(callbackPath), data: metadata },
+      });
+      setMessage(error ? humanSignupError(error.message) : "Check your email to confirm your account, then continue to onboarding.");
     } catch (error) {
-      setMessage(error instanceof Error ? humanLoginError(error.message) : "Login failed. Please try again.");
+      setMessage(error instanceof Error ? humanSignupError(error.message) : "Signup failed. Please try again.");
     }
   }
 
   return (
     <RocketAuthShell
-      mode="login"
+      mode="register"
       email={email}
       password={password}
       message={message}
@@ -90,15 +76,14 @@ function LoginForm() {
       onEmailChange={setEmail}
       onPasswordChange={setPassword}
       onSubmit={submit}
-      onMagicLink={magicLink}
     />
   );
 }
 
-export default function LoginPage() {
+export default function RegisterPage() {
   return (
-    <Suspense fallback={<main style={{ padding: 24 }}>Loading login…</main>}>
-      <LoginForm />
+    <Suspense fallback={<main style={{ padding: 24 }}>Loading register…</main>}>
+      <RegisterForm />
     </Suspense>
   );
 }

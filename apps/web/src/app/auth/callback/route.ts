@@ -2,19 +2,29 @@ import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
 
 import { REFERRAL_QUERY_KEYS } from "@/lib/auth/referral-capture";
+import { safeLocalPath } from "@/lib/auth/routes";
+import { getRuntimePublicConfigFromEnv, hasSupabasePublicConfig } from "@/lib/public-config";
+
+export const dynamic = "force-dynamic";
 
 export async function GET(request: NextRequest) {
   const url = new URL(request.url);
   const code = url.searchParams.get("code");
-  const next = url.searchParams.get("next") || "/dashboard";
-
+  const next = safeLocalPath(url.searchParams.get("next"), "/dashboard");
 
   if (code) {
-    const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
-    const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
-    if (supabaseUrl && supabaseAnonKey) {
-      const supabase = createClient(supabaseUrl, supabaseAnonKey);
+    const config = getRuntimePublicConfigFromEnv();
+    if (hasSupabasePublicConfig(config)) {
+      const supabase = createClient(config.supabaseUrl, config.supabaseAnonKey, {
+        auth: {
+          persistSession: false,
+          autoRefreshToken: false,
+          detectSessionInUrl: false,
+        },
+      });
       await supabase.auth.exchangeCodeForSession(code);
+    } else if (process.env.NODE_ENV === "development") {
+      console.warn("Supabase auth public config is missing for the auth callback runtime.");
     }
   }
 
