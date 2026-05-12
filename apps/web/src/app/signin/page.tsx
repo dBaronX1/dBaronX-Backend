@@ -1,10 +1,10 @@
 import { redirect } from "next/navigation";
 
-type SignupPageProps = {
+type SigninPageProps = {
   searchParams?: Promise<Record<string, string | string[] | undefined>>;
 };
 
-export default async function SignupPage({ searchParams }: SignupPageProps) {
+export default async function SigninPage({ searchParams }: SigninPageProps) {
   const resolved = await searchParams;
   const params = new URLSearchParams();
   for (const key of ["ref", "invite", "init", "next"]) {
@@ -13,5 +13,5 @@ export default async function SignupPage({ searchParams }: SignupPageProps) {
     if (first) params.set(key, first);
   }
   const query = params.toString();
-  redirect(`/register${query ? `?${query}` : ""}`);
+  redirect(`/login${query ? `?${query}` : ""}`);
 }

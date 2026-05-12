@@ -29,7 +29,8 @@
     "deploy:fly:runtime-services": "pnpm deploy:fly:telegram && pnpm deploy:fly:fastapi",
     "release:first-transaction:smokes": "pnpm runtime:fly:readiness && pnpm first-product:readiness && node scripts/e2e-telegram-customer-first-checkout-journey-smoke.mjs && node scripts/e2e-first-stripe-test-transaction-smoke.mjs && node scripts/e2e-first-transaction-with-telegram-ops-smoke.mjs",
     "first-transaction:commands": "node scripts/print-first-transaction-final-commands.mjs",
-    "runtime:fly:readiness": "node scripts/e2e-fly-runtime-release-readiness-smoke.mjs"
+    "runtime:fly:readiness": "node scripts/e2e-fly-runtime-release-readiness-smoke.mjs",
+    "web:auth:readiness": "node scripts/e2e-web-auth-runtime-config-smoke.mjs"
   },
   "pnpm": {
     "onlyBuiltDependencies": [

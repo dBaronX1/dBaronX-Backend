@@ -3,13 +3,17 @@
 import { createClient } from "@supabase/supabase-js";
 
 import { getPublicEnv, resolveAuthRedirect } from "@/lib/env";
+import { CUSTOMER_AUTH_UNAVAILABLE_MESSAGE } from "@/lib/public-config";
 
 let browserClient: ReturnType<typeof createClient> | null = null;
 
 export function getSupabaseBrowserClient() {
   const env = getPublicEnv();
   if (!env.supabaseUrl || !env.supabaseAnonKey) {
-    throw new Error("Supabase auth is not configured. Set NEXT_PUBLIC_SUPABASE_URL and NEXT_PUBLIC_SUPABASE_ANON_KEY.");
+    if (process.env.NODE_ENV === "development") {
+      console.warn("Supabase auth public config is missing for the build-time browser client.");
+    }
+    throw new Error(CUSTOMER_AUTH_UNAVAILABLE_MESSAGE);
   }
   if (!browserClient) {
     browserClient = createClient(env.supabaseUrl, env.supabaseAnonKey, {

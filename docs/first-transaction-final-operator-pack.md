@@ -25,15 +25,32 @@ This pack is the repo-level source of truth for the final controlled first-sale 
 
 ## Customer auth locations
 
-Customer signup and login live in the Web/Rocket storefront, backed by Supabase Auth:
+Customer signup and login live in the Fly Web/Rocket storefront, backed by Supabase Auth. Fly Web is the canonical production frontend; Rocket.new remains the design/source generator for the polished storefront and auth UI.
 
-- Customer signup URL: `/signup`
-- Customer login URL: `/login`
+- Production signup URL: `/register`
+- Compatibility signup URL: `/signup` redirects to `/register` and preserves `ref`, `invite`, `init`, and `next`.
+- Production login URL: `/login`
+- Compatibility login URL: `/signin` redirects to `/login` and preserves `ref`, `invite`, `init`, and `next`.
 - Auth callback URL: `/auth/callback`
-- Onboarding URL after signup: `/onboarding`
-- Customer dashboard URL after login: `/dashboard`
+- Onboarding URL after signup: `/onboarding` by default, or a valid local `next` path.
+- Customer dashboard URL after login: `/dashboard` by default, or a valid local `next` path.
 
 Medusa `/app` is not customer login. Medusa `/app` may also be unavailable in production because the Medusa admin build is disabled for the commerce-only first-sale path. Customer identity belongs to the Web/Rocket app plus Supabase Auth; Medusa remains commerce-only and must not be used as the customer account surface.
+
+### Fly Web public auth/runtime env
+
+Required Fly Web public envs for the production customer frontend are:
+
+```dotenv
+NEXT_PUBLIC_SUPABASE_URL=
+NEXT_PUBLIC_SUPABASE_ANON_KEY=
+NEXT_PUBLIC_API_BASE_URL=
+NEXT_PUBLIC_MEDUSA_BACKEND_URL=
+NEXT_PUBLIC_MEDUSA_PUBLISHABLE_KEY=
+NEXT_PUBLIC_SITE_URL=
+```
+
+Next.js embeds `NEXT_PUBLIC_*` values into browser bundles at build time. If Fly secrets are set after an image is built, the server can have the runtime values while the browser bundle still contains empty build-time values. Fly Web therefore provides `/api/public-config` as a runtime-safe fallback for public values only: `supabaseUrl`, `supabaseAnonKey`, `apiBaseUrl`, `medusaBackendUrl`, `medusaPublishableKey`, and `siteUrl`. No customer should ever see environment variable names or raw config instructions in the UI.
 
 ## Generate the safe command pack
 

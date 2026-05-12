@@ -1,4 +1,5 @@
 export const REFERRAL_QUERY_KEYS = ["ref", "invite", "init"] as const;
+export const AUTH_QUERY_KEYS = ["ref", "invite", "init", "next"] as const;
 export type ReferralQueryKey = (typeof REFERRAL_QUERY_KEYS)[number];
 export type ReferralCapture = Partial<Record<ReferralQueryKey, string>>;
 
