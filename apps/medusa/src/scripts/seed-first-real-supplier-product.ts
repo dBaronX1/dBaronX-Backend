@@ -1,6 +1,11 @@
 import { ExecArgs } from "@medusajs/framework/types";
 import { ContainerRegistrationKeys } from "@medusajs/framework/utils";
 import {
+  DEFAULT_SALES_CHANNEL_NAME,
+  DEFAULT_SHIPPING_PROFILE_NAME,
+  DEFAULT_STOCK_LOCATION_NAME,
+} from "./shipping-readiness";
+import {
   createInventoryLevelsWorkflow,
   createProductsWorkflow,
   updateInventoryLevelsWorkflow,
@@ -486,8 +491,12 @@ export async function seedFirstSupplierProductWithInput(
         fields: ["id", "name"],
         pagination: { take: 20 },
       });
+      const stockLocations = asArray<any>(stockLocationsResult, ["stock_locations"]);
       const stockLocation =
-        asArray<any>(stockLocationsResult, ["stock_locations"])[0] || null;
+        stockLocations.find((location: any) => location?.name === DEFAULT_STOCK_LOCATION_NAME) ||
+        stockLocations.find((location: any) => /dBaronX/i.test(String(location?.name || ""))) ||
+        stockLocations[0] ||
+        null;
       if (!stockLocation && input.mode === "publish")
         fail("no_stock_location_found_for_existing_product_publish");
       const variant = asArray<any>(existingProduct.variants)[0] || null;
@@ -549,12 +558,20 @@ export async function seedFirstSupplierProductWithInput(
   ]);
 
   const defaultSalesChannel =
-    salesChannels.find((sc: any) => sc?.is_default) || salesChannels[0] || null;
+    salesChannels.find((sc: any) => sc?.name === DEFAULT_SALES_CHANNEL_NAME) ||
+    salesChannels.find((sc: any) => sc?.is_default) ||
+    salesChannels[0] ||
+    null;
   const shippingProfile =
+    shippingProfiles.find((sp: any) => sp?.name === DEFAULT_SHIPPING_PROFILE_NAME) ||
     shippingProfiles.find((sp: any) => sp?.type === "default") ||
     shippingProfiles[0] ||
     null;
-  const stockLocation = stockLocations[0] || null;
+  const stockLocation =
+    stockLocations.find((location: any) => location?.name === DEFAULT_STOCK_LOCATION_NAME) ||
+    stockLocations.find((location: any) => /dBaronX/i.test(String(location?.name || ""))) ||
+    stockLocations[0] ||
+    null;
   const diagnostics = {
     counts: {
       salesChannels: salesChannels.length,
@@ -565,7 +582,10 @@ export async function seedFirstSupplierProductWithInput(
 
   if (!defaultSalesChannel) fail("no_sales_channel_found", diagnostics);
   if (!shippingProfile) fail("no_shipping_profile_found", diagnostics);
-  if (!stockLocation) fail("no_stock_location_found", diagnostics);
+  if (!stockLocation) fail("no_stock_location_found", {
+    ...diagnostics,
+    instruction: "Run pnpm --filter @dbaronx/medusa run launch-commerce:ensure before first-product:seed:cj-shirt so the fresh DB has a launch stock location.",
+  });
 
   const productInput = productInputFor(
     input,

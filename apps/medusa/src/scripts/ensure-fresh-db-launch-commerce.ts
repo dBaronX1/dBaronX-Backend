@@ -1,0 +1,83 @@
+import { ExecArgs } from "@medusajs/framework/types";
+
+import { ensurePublishableApiKey } from "./ensure-publishable-api-key";
+import {
+  ensureShippingReadiness,
+  isRedisUnavailableOrQuotaError,
+  REDIS_UNAVAILABLE_BLOCKER,
+  serializeProviderLinkRepairError,
+} from "./shipping-readiness";
+
+export default async function ensureFreshDbLaunchCommerce({ container }: ExecArgs) {
+  try {
+    const shipping = await ensureShippingReadiness(container, { repair: true });
+    const key = await ensurePublishableApiKey(container);
+    const blockers = Array.from(new Set([...shipping.blockers, ...key.blockers]));
+
+    console.log(
+      JSON.stringify(
+        {
+          success: blockers.length === 0,
+          created: Array.from(new Set([...shipping.created, ...key.created])),
+          existing: Array.from(new Set([...shipping.existing, ...key.existing])),
+          blockers,
+          regionId: shipping.regionId,
+          salesChannelId: shipping.salesChannelId || key.salesChannelId,
+          publishableApiKeyId: key.publishableApiKeyId,
+          publishableApiKeyTokenPreview: key.publishableApiKeyTokenPreview,
+          publishableApiKeyCreated: key.publishableApiKeyCreated,
+          publishableApiKeyLinkedToSalesChannel: key.linked,
+          shippingProfileId: shipping.shippingProfileId,
+          stockLocationId: shipping.stockLocationId,
+          fulfillmentSetId: shipping.fulfillmentSetId,
+          serviceZoneId: shipping.serviceZoneId,
+          fulfillmentProviderId: shipping.fulfillmentProviderId,
+          shippingOptionId: shipping.shippingOptionId,
+          shippingOptionReady: shipping.shippingOptionReady,
+          storeShippingOptionReady: shipping.visibleToStoreApiExpected,
+          storeApiVisibilityProofReady: shipping.storeApiVisibilityProofReady,
+          storeProductsAccessible: key.storeProductsAccessible,
+          storeRegionsAccessible: key.storeRegionsAccessible,
+          nextManualStep:
+            blockers.length === 0
+              ? "Update deployed MEDUSA_PUBLISHABLE_KEY/NEXT_PUBLIC_MEDUSA_PUBLISHABLE_KEY with this fresh DB key before customer checkout."
+              : key.nextManualStep,
+        },
+        null,
+        2,
+      ),
+    );
+  } catch (error) {
+    const blockers = isRedisUnavailableOrQuotaError(error)
+      ? [REDIS_UNAVAILABLE_BLOCKER]
+      : [`launch_commerce_ensure_failed:${String(serializeProviderLinkRepairError(error).message)}`];
+    console.log(
+      JSON.stringify(
+        {
+          success: false,
+          created: [],
+          existing: [],
+          blockers,
+          regionId: null,
+          salesChannelId: null,
+          publishableApiKeyId: null,
+          publishableApiKeyTokenPreview: null,
+          publishableApiKeyCreated: false,
+          publishableApiKeyLinkedToSalesChannel: false,
+          shippingProfileId: null,
+          stockLocationId: null,
+          fulfillmentSetId: null,
+          serviceZoneId: null,
+          fulfillmentProviderId: null,
+          shippingOptionId: null,
+          shippingOptionReady: false,
+          storeShippingOptionReady: false,
+          storeApiVisibilityProofReady: false,
+          nextManualStep: "Fix the reported blocker, rerun db:prepare, then rerun launch-commerce:ensure before seeding or checkout.",
+        },
+        null,
+        2,
+      ),
+    );
+  }
+}

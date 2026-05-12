@@ -3,7 +3,7 @@ import { BootstrapFirstOwnerDto } from "./dto/bootstrap-first-owner.dto";
 import { BootstrapFirstOwnerResponseDto } from "./dto/bootstrap-first-owner-response.dto";
 import { FirstOwnerBootstrapService } from "./bootstrap.service";
 
-@Controller("api/bootstrap")
+@Controller("bootstrap")
 export class FirstOwnerBootstrapController {
   constructor(private readonly service: FirstOwnerBootstrapService) {}
 

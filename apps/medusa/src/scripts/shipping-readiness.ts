@@ -1,19 +1,28 @@
 import { ContainerRegistrationKeys, Modules } from "@medusajs/framework/utils";
 import {
   createLocationFulfillmentSetWorkflow,
+  createRegionsWorkflow,
+  createSalesChannelsWorkflow,
   createServiceZonesWorkflow,
   createShippingOptionsWorkflow,
+  createShippingProfilesWorkflow,
+  createStockLocationsWorkflow,
   linkSalesChannelsToStockLocationWorkflow,
   updateServiceZonesWorkflow,
+  updateStoresWorkflow,
 } from "@medusajs/medusa/core-flows";
 
-export const TARGET_REGION_ID = "reg_01KQSEKK6A9T86NJ0AG05XPK3H";
-export const TARGET_SHIPPING_PROFILE_ID = "sp_01KQNHSN2N8DDF782WRRDGJJF0";
-export const TARGET_STOCK_LOCATION_ID = "sloc_01KQR5J1PYD7FZ1AF516W1VQWJ";
-export const TARGET_SALES_CHANNEL_ID = "sc_01KQNM6EQZ19Y1BCSRVF9XV61H";
-export const TARGET_SERVICE_ZONE_ID = "serzo_01KQY400PQPH3KZ6NMGQ5DYBY2";
+export const TARGET_REGION_ID = process.env.MEDUSA_REGION_ID || "";
+export const TARGET_SHIPPING_PROFILE_ID = process.env.MEDUSA_SHIPPING_PROFILE_ID || "";
+export const TARGET_STOCK_LOCATION_ID = process.env.MEDUSA_STOCK_LOCATION_ID || "";
+export const TARGET_SALES_CHANNEL_ID = process.env.MEDUSA_SALES_CHANNEL_ID || "";
+export const TARGET_SERVICE_ZONE_ID = process.env.MEDUSA_SERVICE_ZONE_ID || "";
 export const PREFERRED_MANUAL_FULFILLMENT_PROVIDER_ID = "manual_manual";
 
+export const DEFAULT_REGION_NAME = "dBaronX United States Region";
+export const DEFAULT_SALES_CHANNEL_NAME = "dBaronX Default Sales Channel";
+export const DEFAULT_SHIPPING_PROFILE_NAME = "Default Shipping Profile";
+export const DEFAULT_STOCK_LOCATION_NAME = "dBaronX Default Stock Location";
 export const DEFAULT_SHIPPING_OPTION_NAME = "dBaronX Standard Delivery";
 export const DEFAULT_SERVICE_ZONE_NAME = "dBaronX United States Delivery Zone";
 export const DEFAULT_FULFILLMENT_SET_NAME = "dBaronX Shipping";
@@ -28,6 +37,7 @@ export type EnsureShippingReadinessResult = {
   existing: string[];
   blockers: string[];
   regionId: string | null;
+  salesChannelId: string | null;
   shippingProfileId: string | null;
   stockLocationId: string | null;
   shippingOptionId: string | null;
@@ -254,6 +264,7 @@ function selectFulfillmentProviderId(
 async function readSalesChannelStoreApiContext(
   query: any,
   stockLocationId: string | null,
+  salesChannelId: string | null,
 ): Promise<{
   salesChannelId: string | null;
   salesChannelStockLocationLinked: boolean;
@@ -269,11 +280,11 @@ async function readSalesChannelStoreApiContext(
         "stock_locations.id",
         "stock_locations.fulfillment_sets.id",
       ],
-      { id: TARGET_SALES_CHANNEL_ID },
-      1,
+      salesChannelId ? { id: salesChannelId } : undefined,
+      50,
     )
-  )[0];
-  const salesChannelId = getId(salesChannel);
+  ).find((channel) => !salesChannelId || getId(channel) === salesChannelId);
+  const resolvedSalesChannelId = getId(salesChannel);
   const stockLocations = asArray<Record<string, unknown>>(
     salesChannel?.stock_locations,
   ).filter(isRecord);
@@ -293,7 +304,7 @@ async function readSalesChannelStoreApiContext(
   );
 
   return {
-    salesChannelId,
+    salesChannelId: resolvedSalesChannelId,
     salesChannelStockLocationLinked,
     salesChannelFulfillmentSetIds,
   };
@@ -303,6 +314,7 @@ async function ensureSalesChannelStockLocationLink(
   container: any,
   query: any,
   stockLocationId: string | null,
+  salesChannelId: string | null,
   repair: boolean,
   created: string[],
   existing: string[],
@@ -321,6 +333,7 @@ async function ensureSalesChannelStockLocationLink(
   let storeApiContext = await readSalesChannelStoreApiContext(
     query,
     stockLocationId,
+    salesChannelId,
   );
   if (!storeApiContext.salesChannelId) {
     pushUnique(blockers, "sales_channel_missing");
@@ -333,12 +346,13 @@ async function ensureSalesChannelStockLocationLink(
   if (!storeApiContext.salesChannelStockLocationLinked && repair) {
     try {
       await linkSalesChannelsToStockLocationWorkflow(container).run({
-        input: { id: stockLocationId, add: [TARGET_SALES_CHANNEL_ID] },
+        input: { id: stockLocationId, add: [storeApiContext.salesChannelId] },
       });
       pushUnique(created, "sales_channel_stock_location_link");
       storeApiContext = await readSalesChannelStoreApiContext(
         query,
         stockLocationId,
+        storeApiContext.salesChannelId,
       );
     } catch (error) {
       addWorkflowErrorBlocker(
@@ -666,7 +680,7 @@ async function diagnoseServiceZoneProviderMismatch(
   serviceZone: Record<string, unknown> | undefined,
 ): Promise<string[]> {
   const diagnoses: string[] = [];
-  if (serviceZoneId && serviceZoneId !== TARGET_SERVICE_ZONE_ID) {
+  if (TARGET_SERVICE_ZONE_ID && serviceZoneId && serviceZoneId !== TARGET_SERVICE_ZONE_ID) {
     pushUnique(diagnoses, "wrong_service_zone_selected");
   }
 
@@ -932,6 +946,122 @@ async function findShippingOption(
 }
 
 
+async function ensureLaunchRegion(
+  container: any,
+  query: any,
+  repair: boolean,
+  created: string[],
+  existing: string[],
+  blockers: string[],
+): Promise<string | null> {
+  let region = (await safeGraph(query, "region", ["id", "name", "currency_code", "countries.iso_2"], TARGET_REGION_ID ? { id: TARGET_REGION_ID } : undefined, 100)).find((item) => {
+    const countries = asArray<Record<string, unknown>>(item.countries);
+    return getId(item) === TARGET_REGION_ID || item.name === DEFAULT_REGION_NAME || countries.some((country) => String(country.iso_2 || "").toLowerCase() === DEFAULT_COUNTRY_CODE);
+  });
+  let regionId = getId(region);
+  if (!regionId && repair) {
+    try {
+      const createdRegion = await createRegionsWorkflow(container).run({
+        input: { regions: [{ name: DEFAULT_REGION_NAME, currency_code: "usd", countries: [DEFAULT_COUNTRY_CODE], payment_providers: ["pp_system_default"] }] },
+      });
+      region = asArray<Record<string, unknown>>(createdRegion.result)[0];
+      regionId = getId(region);
+      if (regionId) pushUnique(created, "region");
+    } catch (error) {
+      addWorkflowErrorBlocker(blockers, "region_create", error);
+    }
+  }
+  if (regionId) pushUnique(created.includes("region") ? created : existing, "region");
+  else pushUnique(blockers, "region_missing");
+  return regionId;
+}
+
+async function ensureLaunchSalesChannel(
+  container: any,
+  query: any,
+  repair: boolean,
+  created: string[],
+  existing: string[],
+  blockers: string[],
+  regionId: string | null,
+): Promise<string | null> {
+  let salesChannel = (await safeGraph(query, "sales_channel", ["id", "name", "is_default"], TARGET_SALES_CHANNEL_ID ? { id: TARGET_SALES_CHANNEL_ID } : undefined, 100)).find((item) => getId(item) === TARGET_SALES_CHANNEL_ID || item.name === DEFAULT_SALES_CHANNEL_NAME || item.is_default === true);
+  let salesChannelId = getId(salesChannel);
+  if (!salesChannelId && repair) {
+    try {
+      const createdChannel = await createSalesChannelsWorkflow(container).run({ input: { salesChannelsData: [{ name: DEFAULT_SALES_CHANNEL_NAME, description: "Default sales channel for dBaronX storefront" }] } });
+      salesChannel = asArray<Record<string, unknown>>(createdChannel.result)[0];
+      salesChannelId = getId(salesChannel);
+      if (salesChannelId) pushUnique(created, "sales_channel");
+    } catch (error) {
+      addWorkflowErrorBlocker(blockers, "sales_channel_create", error);
+    }
+  }
+  if (salesChannelId) {
+    pushUnique(created.includes("sales_channel") ? created : existing, "sales_channel");
+    if (repair) {
+      try {
+        await updateStoresWorkflow(container).run({ input: { selector: {}, update: { default_sales_channel_id: salesChannelId, ...(regionId ? { default_region_id: regionId } : {}), supported_currencies: [{ currency_code: "usd", is_default: true }] } } });
+        pushUnique(created, "store_default_sales_channel_and_usd_currency");
+      } catch (error) {
+        addWorkflowErrorBlocker(blockers, "store_defaults_update", error);
+      }
+    }
+  } else pushUnique(blockers, "sales_channel_missing");
+  return salesChannelId;
+}
+
+async function ensureLaunchShippingProfile(
+  container: any,
+  query: any,
+  repair: boolean,
+  created: string[],
+  existing: string[],
+  blockers: string[],
+): Promise<string | null> {
+  let profile = (await safeGraph(query, "shipping_profile", ["id", "name", "type"], TARGET_SHIPPING_PROFILE_ID ? { id: TARGET_SHIPPING_PROFILE_ID } : undefined, 100)).find((item) => getId(item) === TARGET_SHIPPING_PROFILE_ID || item.name === DEFAULT_SHIPPING_PROFILE_NAME || item.type === "default");
+  let profileId = getId(profile);
+  if (!profileId && repair) {
+    try {
+      const createdProfile = await createShippingProfilesWorkflow(container).run({ input: { data: [{ name: DEFAULT_SHIPPING_PROFILE_NAME, type: "default" }] } });
+      profile = asArray<Record<string, unknown>>(createdProfile.result)[0];
+      profileId = getId(profile);
+      if (profileId) pushUnique(created, "shipping_profile");
+    } catch (error) {
+      addWorkflowErrorBlocker(blockers, "shipping_profile_create", error);
+    }
+  }
+  if (profileId) pushUnique(created.includes("shipping_profile") ? created : existing, "shipping_profile");
+  else pushUnique(blockers, "shipping_profile_missing");
+  return profileId;
+}
+
+async function ensureLaunchStockLocation(
+  container: any,
+  query: any,
+  repair: boolean,
+  created: string[],
+  existing: string[],
+  blockers: string[],
+): Promise<string | null> {
+  let location = (await safeGraph(query, "stock_location", ["id", "name"], TARGET_STOCK_LOCATION_ID ? { id: TARGET_STOCK_LOCATION_ID } : undefined, 100)).find((item) => getId(item) === TARGET_STOCK_LOCATION_ID || item.name === DEFAULT_STOCK_LOCATION_NAME || item.name === "dBaronX Main Warehouse");
+  let locationId = getId(location);
+  if (!locationId && repair) {
+    try {
+      const createdLocation = await createStockLocationsWorkflow(container).run({ input: { locations: [{ name: DEFAULT_STOCK_LOCATION_NAME, address: { address_1: "dBaronX Launch Fulfillment Hub", city: "New York", country_code: DEFAULT_COUNTRY_CODE } }] } });
+      location = asArray<Record<string, unknown>>(createdLocation.result)[0];
+      locationId = getId(location);
+      if (locationId) pushUnique(created, "stock_location");
+    } catch (error) {
+      addWorkflowErrorBlocker(blockers, "stock_location_create", error);
+    }
+  }
+  if (locationId) pushUnique(created.includes("stock_location") ? created : existing, "stock_location");
+  else pushUnique(blockers, "stock_location_missing");
+  return locationId;
+}
+
+
 export async function ensureShippingReadiness(
   container: any,
   options: EnsureShippingReadinessOptions = {},
@@ -954,49 +1084,45 @@ export async function ensureShippingReadiness(
   let salesChannelFulfillmentSetIds: string[] = [];
   let fulfillmentSetReachableFromSalesChannel = false;
 
-  const region = (
-    await safeGraph(
-      query,
-      "region",
-      ["id", "name", "currency_code", "countries.iso_2"],
-      { id: TARGET_REGION_ID },
-      1,
-    )
-  )[0];
-  const regionId = getId(region);
-  if (regionId) pushUnique(existing, "region");
-  else pushUnique(blockers, "region_missing");
-
-  const shippingProfile = (
-    await safeGraph(
-      query,
-      "shipping_profile",
-      ["id", "name", "type"],
-      { id: TARGET_SHIPPING_PROFILE_ID },
-      1,
-    )
-  )[0];
-  const shippingProfileId = getId(shippingProfile);
-  if (shippingProfileId) pushUnique(existing, "shipping_profile");
-  else pushUnique(blockers, "shipping_profile_missing");
-
-  const stockLocation = (
-    await safeGraph(
-      query,
-      "stock_location",
-      ["id", "name"],
-      { id: TARGET_STOCK_LOCATION_ID },
-      1,
-    )
-  )[0];
-  const stockLocationId = getId(stockLocation);
-  if (stockLocationId) pushUnique(existing, "stock_location");
-  else pushUnique(blockers, "stock_location_missing");
+  const regionId = await ensureLaunchRegion(
+    container,
+    query,
+    repair,
+    created,
+    existing,
+    blockers,
+  );
+  const salesChannelId = await ensureLaunchSalesChannel(
+    container,
+    query,
+    repair,
+    created,
+    existing,
+    blockers,
+    regionId,
+  );
+  const shippingProfileId = await ensureLaunchShippingProfile(
+    container,
+    query,
+    repair,
+    created,
+    existing,
+    blockers,
+  );
+  const stockLocationId = await ensureLaunchStockLocation(
+    container,
+    query,
+    repair,
+    created,
+    existing,
+    blockers,
+  );
 
   const salesChannelLink = await ensureSalesChannelStockLocationLink(
     container,
     query,
     stockLocationId,
+    salesChannelId,
     repair,
     created,
     existing,
@@ -1072,6 +1198,7 @@ export async function ensureShippingReadiness(
     container,
     query,
     stockLocationId,
+    salesChannelId,
     repair,
     created,
     existing,
@@ -1158,7 +1285,7 @@ export async function ensureShippingReadiness(
   }
 
   serviceZoneId = getId(serviceZone);
-  if (serviceZoneId && serviceZoneId !== TARGET_SERVICE_ZONE_ID) {
+  if (TARGET_SERVICE_ZONE_ID && serviceZoneId && serviceZoneId !== TARGET_SERVICE_ZONE_ID) {
     pushUnique(blockers, "wrong_service_zone_selected");
   }
   if (serviceZoneReady)
@@ -1445,6 +1572,7 @@ export async function ensureShippingReadiness(
     existing,
     blockers,
     regionId,
+    salesChannelId,
     shippingProfileId,
     stockLocationId,
     shippingOptionId,

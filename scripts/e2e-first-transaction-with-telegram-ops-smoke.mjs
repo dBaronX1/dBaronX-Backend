@@ -24,6 +24,8 @@ const apiHealth = await getJson(`${API_BASE_URL}/api/health`, 'api health');
 const stripeReadiness = await getJson(`${API_BASE_URL}/api/checkout/stripe/readiness`, 'stripe readiness');
 const storage = await getJson(`${API_BASE_URL}/api/checkout/stripe/settlement-storage-readiness`, 'settlement storage', internalHeaders());
 const medusaStore = await getJson(`${MEDUSA_URL}/store/products?limit=1`, 'medusa store products', medusaHeaders());
+const medusaStoreMode = classifyMedusaStoreProbe(medusaStore);
+if (medusaStoreMode) addBlocker(medusaStoreMode);
 let botReadiness = null;
 const telegramOpsBlockers = [];
 if (BOT_BASE_URL) {
@@ -38,7 +40,7 @@ for (const blocker of telegramOpsBlockers) addBlocker(blocker === 'telegram_ops_
 if (!(apiHealth.ok && apiHealth.status < 500)) addBlocker('api_readiness_failed');
 if (!(stripeReadiness.ok && stripeReadiness.status < 500)) addBlocker('stripe_readiness_failed');
 if (!storage.ok) addBlocker(storage.status === 401 || storage.status === 403 ? 'settlement_storage_requires_internal_token' : 'settlement_storage_unreachable');
-if (!medusaStore.ok) addBlocker('medusa_store_api_unreachable');
+if (!medusaStore.ok && !['medusa_publishable_key_missing', 'medusa_publishable_key_invalid', 'medusa_publishable_key_not_linked_to_sales_channel'].includes(medusaStoreMode)) addBlocker('medusa_unreachable');
 
 const stripeSessionModeDetected = firstPayload.stripeSessionModeDetected || modeFromSession(firstPayload.sessionId);
 const checkoutSafeToOpen = Boolean(firstPayload.checkoutSafeToOpen && stripeSessionModeDetected === 'test');
@@ -114,6 +116,14 @@ function modeFromSession(id) {
 }
 function internalHeaders() { return INTERNAL_SERVICE_TOKEN ? { headers: { 'x-internal-token': INTERNAL_SERVICE_TOKEN } } : {}; }
 function medusaHeaders() { return MEDUSA_KEY ? { headers: { 'x-publishable-api-key': MEDUSA_KEY } } : {}; }
+function classifyMedusaStoreProbe(probe) {
+  if (!MEDUSA_KEY) return 'medusa_publishable_key_missing';
+  const text = `${probe?.text || ''} ${JSON.stringify(probe?.json || {})}`.toLowerCase();
+  if (text.includes('a valid publishable key is required') || text.includes('publishable key')) return 'medusa_publishable_key_invalid';
+  if (text.includes('sales channel') || text.includes('not linked') || text.includes('not_allowed')) return 'medusa_publishable_key_not_linked_to_sales_channel';
+  if (probe && probe.ok === false && probe.status < 500) return 'launch_commerce_missing';
+  return null;
+}
 function runJson(label, command, args, timeout) {
   const run = spawnSync(command, args, { cwd: process.cwd(), encoding: 'utf8', timeout, env: process.env });
   responseSnippets[label] = snippet(`${run.stdout || ''}${run.stderr || ''}`);

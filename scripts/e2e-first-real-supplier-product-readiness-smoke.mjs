@@ -27,13 +27,15 @@ const EXPECT_SUPPLIER = safeString(
 
 const blockers = [];
 const responseSnippets = {};
+if (!safeString(MEDUSA_PUBLISHABLE_KEY)) addBlocker("medusa_publishable_key_missing");
 
 const productsResponse = await getJson(
   `${MEDUSA_BASE_URL}/store/products?limit=100`,
   "storeProducts",
   medusaHeaders(),
 );
-if (!productsResponse.ok) addBlocker("medusa_store_api_unreachable");
+if (!productsResponse.ok && !isPublishableKeyError(productsResponse)) addBlocker("medusa_store_api_unreachable");
+if (isPublishableKeyError(productsResponse)) addBlocker("medusa_publishable_key_invalid");
 
 const handleResponse = await getJson(
   `${MEDUSA_BASE_URL}/store/products?handle=${encodeURIComponent(EXPECTED_CJ_HANDLE)}&limit=5`,
@@ -44,6 +46,8 @@ const handleResponse = await getJson(
 const medusaFailureMode = classifyMedusaFailure(productsResponse, handleResponse);
 if (medusaFailureMode === "medusa_schema_missing") addBlocker("medusa_schema_missing");
 if (medusaFailureMode === "medusa_unreachable") addBlocker("medusa_unreachable");
+if (medusaFailureMode === "medusa_publishable_key_invalid") addBlocker("medusa_publishable_key_invalid");
+if (medusaFailureMode === "medusa_publishable_key_not_linked_to_sales_channel") addBlocker("medusa_publishable_key_not_linked_to_sales_channel");
 
 const products = uniqueProducts([
   ...extractProducts(productsResponse.json),
@@ -61,8 +65,8 @@ const verifiedSupplierProductPresent = Boolean(verifiedProduct);
 const exactCjProductPresent = Boolean(exactCjProduct);
 const demoProducts = products.filter((product) => isOldDemoProduct(product));
 const demoProductsPresent = demoProducts.length > 0;
-if (!verifiedProduct) addBlocker("verified_cj_supplier_product_missing");
-if (!exactCjProductPresent) addBlocker("exact_cj_first_shirt_missing");
+if (!verifiedProduct) addBlocker("real_supplier_product_missing");
+if (!exactCjProductPresent) addBlocker("real_supplier_product_missing");
 
 const draftMetadata = metadataOf(draftProduct);
 const verifiedMetadata = metadataOf(verifiedProduct);
@@ -268,11 +272,17 @@ function addBlocker(blocker) {
 }
 function classifyMedusaFailure(...responses) {
   const text = Object.values(responseSnippets).join(" ");
+  if (/valid publishable key is required|publishable key/i.test(text)) return "medusa_publishable_key_invalid";
+  if (/sales channel|not linked|not_allowed/i.test(text)) return "medusa_publishable_key_not_linked_to_sales_channel";
   if (/relation .* does not exist|missing .*table|currency|region_country|payment_provider|tax_provider|fulfillment_provider|database.*schema/i.test(text)) {
     return "medusa_schema_missing";
   }
   if (responses.some((response) => response.status === 0 || response.status >= 500)) return "medusa_unreachable";
   return null;
+}
+function isPublishableKeyError(response) {
+  const text = `${response?.text || ""} ${JSON.stringify(response?.json || {})}`;
+  return /valid publishable key is required|publishable key/i.test(text);
 }
 function safeString(value) {
   return String(value || "").trim();
@@ -620,6 +630,12 @@ function snippet(value) {
   return text.length > 900 ? `${text.slice(0, 900)}…` : text;
 }
 function nextManualStep() {
+  if (blockers.includes("medusa_publishable_key_missing"))
+    return "Set MEDUSA_PUBLISHABLE_KEY/NEXT_PUBLIC_MEDUSA_PUBLISHABLE_KEY from the fresh Medusa DB publishable key linked to the default sales channel; do not reuse the deleted DB key.";
+  if (blockers.includes("medusa_publishable_key_invalid") || blockers.includes("medusa_publishable_key_not_linked_to_sales_channel"))
+    return "Run launch-commerce:ensure, copy the new fresh-DB publishable key linked to the default sales channel, update deployment env, and rerun readiness.";
+  if (blockers.includes("launch_commerce_missing"))
+    return "Run pnpm --filter @dbaronx/medusa run launch-commerce:ensure after db:prepare before product readiness.";
   if (medusaFailureMode === "medusa_schema_missing")
     return "Run pnpm --filter @dbaronx/medusa run db:prepare against the new Render Postgres database before checking product readiness.";
   if (medusaFailureMode === "medusa_unreachable")

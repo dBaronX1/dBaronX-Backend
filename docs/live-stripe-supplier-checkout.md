@@ -7,6 +7,23 @@
 - commerce (Medusa): `https://dbaronx-medusa.onrender.com`
 - fastapi: configured separately as the intelligence/risk layer; it is not part of Stripe settlement.
 
+
+## Fresh Medusa DB prerequisite
+
+If the exposed Render Postgres database was deleted/replaced, the old Medusa publishable key is invalid. Before opening any Stripe checkout, deploy Medusa with the normal command:
+
+```bash
+pnpm --filter @dbaronx/medusa run db:prepare && pnpm --filter @dbaronx/medusa run launch-commerce:ensure && pnpm --filter @dbaronx/medusa start
+```
+
+For the one controlled CJ shirt seed cycle only, use:
+
+```bash
+DBX_CONFIRM_CJ_FIRST_PRODUCT_SEED=true pnpm --filter @dbaronx/medusa run db:prepare && pnpm --filter @dbaronx/medusa run launch-commerce:ensure && pnpm --filter @dbaronx/medusa run first-product:seed:cj-shirt && pnpm --filter @dbaronx/medusa start
+```
+
+After that seed completes, restore the normal command above. Copy the new fresh-DB publishable key from Medusa Admin/API key details into `MEDUSA_PUBLISHABLE_KEY` and `NEXT_PUBLIC_MEDUSA_PUBLISHABLE_KEY`; do not use the deleted DB key. Run the smokes with the new key before sending a customer to checkout.
+
 ## Render environment checklist
 
 ### NestJS/API Render service only
@@ -110,7 +127,7 @@ Stripe order-sync preview authorization is reported without exposing the token. 
 
 The Medusa shipping ensure scripts now prove the same Store API visibility inputs that the Store route uses: target sales channel `sc_01KQNM6EQZ19Y1BCSRVF9XV61H`, its linked stock location/fulfillment set, `enabled_in_store: true`, `is_return: false`, and the US smoke address (`country_code: "us"`). If the target shipping option is not returned by that fulfillment context, the ensure output reports `shipping_option_store_visibility_unverified:<reason>` instead of claiming Store API visibility. The Stripe smoke creates the cart with the target sales channel first so `GET /store/shipping-options?cart_id=:cart_id` evaluates the dBaronX stock location fulfillment set.
 
-If `MEDUSA_PUBLISHABLE_KEY` or `NEXT_PUBLIC_MEDUSA_PUBLISHABLE_KEY` is still `<MEDUSA_PUBLISHABLE_KEY>` or contains angle brackets, the smoke reports `medusa_publishable_key_placeholder_not_replaced`. If the value starts with or contains Stripe key material such as `pk_test_`, `pk_live_`, `sk_test_`, `sk_live_`, or `whsec_`, the smoke reports `medusa_publishable_key_looks_like_stripe_key`. If Medusa responds with `A valid publishable key is required`, the smoke reports `medusa_publishable_key_invalid`. The key is never printed; the only key diagnostics are `medusaPublishableKeyPresent`, `medusaPublishableKeySource`, `medusaPublishableKeyShape`, and `medusaPublishableKeyRejectedByStoreApi`.
+If `MEDUSA_PUBLISHABLE_KEY` or `NEXT_PUBLIC_MEDUSA_PUBLISHABLE_KEY` is still `<MEDUSA_PUBLISHABLE_KEY>` or contains angle brackets, the smoke reports `medusa_publishable_key_placeholder_not_replaced`. If the value starts with or contains Stripe key material such as `pk_test_`, `pk_live_`, `sk_test_`, `sk_live_`, or `whsec_`, the smoke reports `medusa_publishable_key_looks_like_stripe_key`. If Medusa responds with `A valid publishable key is required`, the smoke reports `medusa_publishable_key_invalid` and the operator must run `launch-commerce:ensure`, retrieve the new fresh-DB publishable key linked to the default sales channel, and update Render; a key from the deleted DB remains invalid. The key is never printed; the only key diagnostics are `medusaPublishableKeyPresent`, `medusaPublishableKeySource`, `medusaPublishableKeyShape`, and `medusaPublishableKeyRejectedByStoreApi`.
 
 PowerShell live smoke environment:
 
