@@ -35,7 +35,15 @@
     "shipping:visibility:diagnose": "pnpm exec medusa exec ./src/scripts/diagnose-shipping-option-visibility.ts",
     "store:shipping:verify": "pnpm exec medusa exec ./src/scripts/verify-store-shipping-options.ts",
     "first-product:seed": "pnpm exec medusa exec ./src/scripts/seed-first-real-supplier-product.ts",
-    "first-product:seed:cj-shirt": "pnpm exec medusa exec ./src/scripts/seed-cj-first-shirt-product.ts"
+    "first-product:seed:cj-shirt": "pnpm exec medusa exec ./src/scripts/seed-cj-first-shirt-product.ts",
+    "db:migrate": "pnpm exec medusa db:migrate",
+    "medusa:db:migrate": "pnpm exec medusa db:migrate",
+    "db:health": "pnpm exec ts-node --swc ./src/scripts/check-medusa-db-core-readiness.ts",
+    "medusa:db:health": "pnpm exec ts-node --swc ./src/scripts/check-medusa-db-core-readiness.ts",
+    "db:prepare": "pnpm run db:migrate && pnpm run db:health",
+    "db:prepare:fresh": "pnpm run db:prepare",
+    "first-product:readiness": "node ../../scripts/e2e-first-real-supplier-product-readiness-smoke.mjs",
+    "controlled-cj:seed": "pnpm exec medusa exec ./src/scripts/seed-controlled-cj-products.ts"
   },
   "dependencies": {
     "@medusajs/admin-sdk": "2.13.6",
