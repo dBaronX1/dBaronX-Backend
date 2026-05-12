@@ -3,16 +3,19 @@
 import { FormEvent, Suspense, useMemo, useState } from "react";
 import Link from "next/link";
 import { useSearchParams } from "next/navigation";
-import { authRedirectTo, getSupabaseBrowserClient } from "../../lib/supabase-client";
+import { appendReferralParams, captureReferralParams, referralMetadata, referralSearch } from "@/lib/auth/referral-capture";
+import { authRedirectTo, getSupabaseBrowserClient } from "@/lib/supabase/client";
 
 function SignupForm() {
   const params = useSearchParams();
-  const referral = params.get("ref") || params.get("referral") || "";
-  const initiation = params.get("init") || params.get("initiation") || "";
+  const referral = useMemo(() => captureReferralParams(params), [params]);
+  const referralCode = referral.ref || "";
+  const inviteCode = referral.invite || "";
+  const initiation = referral.init || "";
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [message, setMessage] = useState("");
-  const metadata = useMemo(() => ({ referral_code: referral || undefined, initiation_code: initiation || undefined }), [referral, initiation]);
+  const metadata = useMemo(() => referralMetadata(referral), [referral]);
 
   async function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -22,7 +25,7 @@ function SignupForm() {
       const { error } = await supabase.auth.signUp({
         email,
         password,
-        options: { emailRedirectTo: authRedirectTo(`/auth/callback?next=/onboarding${referral ? `&ref=${encodeURIComponent(referral)}` : ""}`), data: metadata },
+        options: { emailRedirectTo: authRedirectTo(appendReferralParams("/auth/callback?next=/onboarding", referral)), data: metadata },
       });
       setMessage(error ? humanError(error.message) : "Check your email to confirm your account, then continue to onboarding.");
     } catch (error) {
@@ -33,7 +36,8 @@ function SignupForm() {
   return <main style={{ maxWidth: 520, margin: "4rem auto", padding: 24 }}>
     <h1>Create your dBaronX account</h1>
     <p>Use email/password signup. Referral and initiation codes are preserved automatically.</p>
-    {referral ? <p><strong>Referral:</strong> {referral}</p> : null}
+    {referralCode ? <p><strong>Referral:</strong> {referralCode}</p> : null}
+    {inviteCode ? <p><strong>Invite:</strong> {inviteCode}</p> : null}
     {initiation ? <p><strong>Initiation:</strong> {initiation}</p> : null}
     <form onSubmit={submit} style={{ display: "grid", gap: 12 }}>
       <label>Email<input required type="email" value={email} onChange={(e) => setEmail(e.target.value)} /></label>
@@ -41,7 +45,7 @@ function SignupForm() {
       <button type="submit">Create account</button>
     </form>
     {message ? <p role="status">{message}</p> : null}
-    <p>Already registered? <Link href={`/login${referral ? `?ref=${encodeURIComponent(referral)}` : ""}`}>Log in</Link></p>
+    <p>Already registered? <Link href={`/login${referralSearch(referral)}`}>Log in</Link></p>
   </main>;
 }
 

@@ -3,13 +3,14 @@
 import { FormEvent, Suspense, useState } from "react";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
-import { authRedirectTo, getSupabaseBrowserClient } from "../../lib/supabase-client";
+import { appendReferralParams, captureReferralParams, referralSearch } from "@/lib/auth/referral-capture";
+import { authRedirectTo, getSupabaseBrowserClient } from "@/lib/supabase/client";
 
 function LoginForm() {
   const router = useRouter();
   const params = useSearchParams();
   const next = params.get("next") || "/dashboard";
-  const referral = params.get("ref") || "";
+  const referral = captureReferralParams(params);
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [message, setMessage] = useState("");
@@ -29,7 +30,7 @@ function LoginForm() {
   async function magicLink() {
     setMessage("Sending magic link…");
     const supabase = getSupabaseBrowserClient();
-    const { error } = await supabase.auth.signInWithOtp({ email, options: { emailRedirectTo: authRedirectTo(`/auth/callback?next=${encodeURIComponent(next)}${referral ? `&ref=${encodeURIComponent(referral)}` : ""}`) } });
+    const { error } = await supabase.auth.signInWithOtp({ email, options: { emailRedirectTo: authRedirectTo(appendReferralParams(`/auth/callback?next=${encodeURIComponent(next)}`, referral)) } });
     setMessage(error ? error.message : "Check your email for the magic login link.");
   }
 
@@ -42,7 +43,7 @@ function LoginForm() {
       <button type="button" onClick={magicLink} disabled={!email}>Email me a magic link</button>
     </form>
     {message ? <p role="status">{message}</p> : null}
-    <p>New here? <Link href={`/signup${referral ? `?ref=${encodeURIComponent(referral)}` : ""}`}>Create account</Link></p>
+    <p>New here? <Link href={`/signup${referralSearch(referral)}`}>Create account</Link></p>
   </main>;
 }
 

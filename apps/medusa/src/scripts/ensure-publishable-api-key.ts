@@ -76,7 +76,7 @@ export async function ensurePublishableApiKey(container: ExecArgs["container"]) 
     "sales_channels",
   ]).find(
     (channel) =>
-      channel.name === DEFAULT_SALES_CHANNEL_NAME || channel.is_default === true || idOf(channel),
+      channel.name === DEFAULT_SALES_CHANNEL_NAME || channel.is_default === true,
   );
   let salesChannelId = idOf(salesChannel);
 
@@ -123,8 +123,7 @@ export async function ensurePublishableApiKey(container: ExecArgs["container"]) 
       candidate.title === KEY_TITLE ||
       asArray<Record<string, unknown>>(candidate.sales_channels).some(
         (channel) => idOf(channel) === salesChannelId,
-      ) ||
-      idOf(candidate),
+      ),
   );
   let publishableApiKeyCreated = false;
 

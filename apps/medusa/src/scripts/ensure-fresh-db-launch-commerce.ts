@@ -1,6 +1,7 @@
 import { ExecArgs } from "@medusajs/framework/types";
 
 import { ensurePublishableApiKey } from "./ensure-publishable-api-key";
+import { ensureLaunchSalesChannelConsistency } from "./ensure-launch-sales-channel-consistency";
 import {
   ensureShippingReadiness,
   isRedisUnavailableOrQuotaError,
@@ -12,7 +13,8 @@ export default async function ensureFreshDbLaunchCommerce({ container }: ExecArg
   try {
     const shipping = await ensureShippingReadiness(container, { repair: true });
     const key = await ensurePublishableApiKey(container);
-    const blockers = Array.from(new Set([...shipping.blockers, ...key.blockers]));
+    const consistency = await ensureLaunchSalesChannelConsistency(container);
+    const blockers = Array.from(new Set([...shipping.blockers, ...key.blockers, ...consistency.blockers]));
 
     console.log(
       JSON.stringify(
@@ -22,11 +24,15 @@ export default async function ensureFreshDbLaunchCommerce({ container }: ExecArg
           existing: Array.from(new Set([...shipping.existing, ...key.existing])),
           blockers,
           regionId: shipping.regionId,
-          salesChannelId: shipping.salesChannelId || key.salesChannelId,
+          salesChannelId: consistency.canonicalSalesChannelId || shipping.salesChannelId || key.salesChannelId,
+          canonicalSalesChannelId: consistency.canonicalSalesChannelId,
           publishableApiKeyId: key.publishableApiKeyId,
           publishableApiKeyTokenPreview: key.publishableApiKeyTokenPreview,
           publishableApiKeyCreated: key.publishableApiKeyCreated,
-          publishableApiKeyLinkedToSalesChannel: key.linked,
+          publishableApiKeyLinkedToSalesChannel: consistency.publishableKeyLinked || key.linked,
+          storeDefaultSalesChannelId: consistency.storeDefaultSalesChannelId,
+          productLinkedToCanonicalSalesChannel: consistency.productLinked,
+          stockLocationLinkedToCanonicalSalesChannel: consistency.stockLocationLinked,
           shippingProfileId: shipping.shippingProfileId,
           stockLocationId: shipping.stockLocationId,
           fulfillmentSetId: shipping.fulfillmentSetId,
@@ -35,7 +41,7 @@ export default async function ensureFreshDbLaunchCommerce({ container }: ExecArg
           shippingOptionId: shipping.shippingOptionId,
           shippingOptionReady: shipping.shippingOptionReady,
           storeShippingOptionReady: shipping.visibleToStoreApiExpected,
-          storeApiVisibilityProofReady: shipping.storeApiVisibilityProofReady,
+          storeApiVisibilityProofReady: consistency.shippingOptionVisibleForCanonicalCart || shipping.storeApiVisibilityProofReady,
           storeProductsAccessible: key.storeProductsAccessible,
           storeRegionsAccessible: key.storeRegionsAccessible,
           nextManualStep:

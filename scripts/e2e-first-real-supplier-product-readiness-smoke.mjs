@@ -22,6 +22,7 @@ const MEDUSA_PUBLISHABLE_KEY =
   process.env.PUBLIC_MEDUSA_PUBLISHABLE_KEY ||
   "";
 const DEFAULT_REGION_ID = process.env.MEDUSA_REGION_ID || "";
+const EXPECTED_CANONICAL_SALES_CHANNEL_ID = process.env.MEDUSA_CANONICAL_SALES_CHANNEL_ID || process.env.MEDUSA_SALES_CHANNEL_ID || "";
 const EXPECT_SUPPLIER = safeString(
   process.env.EXPECT_SUPPLIER || "",
 ).toLowerCase();
@@ -198,6 +199,17 @@ if (productUrlExists && !storefrontCheckoutGuidanceReady)
   addBlocker("web_product_checkout_guidance_missing");
 
 const shipping = await verifyShippingOptionForCart(variantId);
+const canonicalSalesChannelId = EXPECTED_CANONICAL_SALES_CHANNEL_ID || shipping.cartSalesChannelId || null;
+const cartSalesChannelId = shipping.cartSalesChannelId || null;
+const productSalesChannelIds = salesChannelIdsFrom(realProduct);
+const publishableKeySalesChannelIds = cartSalesChannelId ? [cartSalesChannelId] : [];
+const stockLocationSalesChannelIds = [];
+if (EXPECTED_CANONICAL_SALES_CHANNEL_ID && cartSalesChannelId && cartSalesChannelId !== EXPECTED_CANONICAL_SALES_CHANNEL_ID) {
+  addBlocker("sales_channel_mismatch");
+}
+if (productSalesChannelIds.length && canonicalSalesChannelId && !productSalesChannelIds.includes(canonicalSalesChannelId)) {
+  addBlocker("sales_channel_mismatch");
+}
 if (!shipping.shippingOptionVisible)
   addBlocker(shipping.blocker || "shipping_option_not_visible_for_cart");
 const checkoutPathReady = Boolean(
@@ -221,6 +233,11 @@ const result = {
   success: blockers.length === 0,
   blockers,
   medusaFailureMode,
+  canonicalSalesChannelId,
+  cartSalesChannelId,
+  publishableKeySalesChannelIds,
+  productSalesChannelIds,
+  stockLocationSalesChannelIds,
   schemaReadinessInterpretation: medusaFailureMode === "medusa_schema_missing" ? "Run Medusa db:prepare before product readiness; this is not a product-missing failure." : null,
   launchCommerceStoreApiGreen,
   expectedSupplier: EXPECT_SUPPLIER || null,
@@ -525,6 +542,7 @@ async function verifyShippingOptionForCart(currentVariantId) {
     return {
       shippingOptionVisible: false,
       blocker: "variant_missing_for_cart_shipping_check",
+      cartSalesChannelId: null,
     };
   const regions = await getJson(
     `${MEDUSA_BASE_URL}/store/regions?limit=20`,
@@ -543,6 +561,7 @@ async function verifyShippingOptionForCart(currentVariantId) {
       blocker: regions.ok
         ? "region_missing_for_cart_shipping_check"
         : "region_api_unreachable",
+      cartSalesChannelId: null,
     };
 
   const cart = await postJson(`${MEDUSA_BASE_URL}/store/carts`, "createCart", {
@@ -558,6 +577,7 @@ async function verifyShippingOptionForCart(currentVariantId) {
     return {
       shippingOptionVisible: false,
       blocker: "cart_create_failed_for_shipping_check",
+      cartSalesChannelId: null,
     };
 
   const options = await getJson(
@@ -572,11 +592,13 @@ async function verifyShippingOptionForCart(currentVariantId) {
       : Array.isArray(options.json?.data)
         ? options.json.data
         : [];
+  const createdCart = cart.json?.cart || cart.json?.data?.cart || cart.json?.data || cart.json || {};
   return {
     shippingOptionVisible: options.ok && list.length > 0,
     blocker: options.ok
       ? "shipping_option_empty_for_cart"
       : "shipping_option_api_unreachable",
+    cartSalesChannelId: createdCart.sales_channel_id || null,
   };
 }
 async function getJson(url, label, init = {}) {
@@ -660,4 +682,10 @@ function nextManualStep() {
   if (blockers.length)
     return `Resolve blockers before first real checkout: ${blockers.join(", ")}.`;
   return `Open ${productUrl}, add the item to cart, run Stripe test checkout, then proceed to live money only after signed webhook/order proof is verified.`;
+}
+
+function salesChannelIdsFrom(product) {
+  return Array.isArray(product?.sales_channels)
+    ? product.sales_channels.map((channel) => safeString(channel?.id)).filter(Boolean)
+    : [];
 }

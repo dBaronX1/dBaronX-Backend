@@ -51,7 +51,8 @@ const MEDUSA_COMMERCE_ENSURE_SHIPPING_VISIBLE_EXPECTED =
   String(process.env.MEDUSA_COMMERCE_ENSURE_SHIPPING_VISIBLE_EXPECTED || "true")
     .trim()
     .toLowerCase() !== "false";
-const TARGET_SALES_CHANNEL_ID = "sc_01KQNM6EQZ19Y1BCSRVF9XV61H";
+const EXPECTED_CJ_HANDLE = "mens-cotton-linen-long-sleeve-casual-shirt";
+const EXPECTED_CANONICAL_SALES_CHANNEL_ID = (process.env.MEDUSA_CANONICAL_SALES_CHANNEL_ID || process.env.MEDUSA_SALES_CHANNEL_ID || "").trim();
 
 const blockers = [];
 const checkoutBlockers = [];
@@ -140,10 +141,14 @@ function firstProductWithVariant(products) {
 
 function salesChannelIdFrom(product) {
   return (
-    process.env.MEDUSA_SALES_CHANNEL_ID ||
+    EXPECTED_CANONICAL_SALES_CHANNEL_ID ||
     array(product?.sales_channels)[0]?.id ||
     ""
   ).trim();
+}
+
+function salesChannelIdsFrom(product) {
+  return array(product?.sales_channels).map((channel) => String(channel?.id || "").trim()).filter(Boolean);
 }
 
 function minorUnitAmountFromCart(cart) {
@@ -496,6 +501,10 @@ const out = {
   medusaPublishableKeyAccepted: false,
   shippingMethodPresent: false,
   shippingTotalPositive: false,
+  canonicalSalesChannelId: EXPECTED_CANONICAL_SALES_CHANNEL_ID || null,
+  publishableKeySalesChannelIds: [],
+  productSalesChannelIds: [],
+  stockLocationSalesChannelIds: [],
   productId: null,
   variantId: null,
   regionId: null,
@@ -601,6 +610,13 @@ const medusaHealth = await requestJson(
 checks.medusaHealthHttp = medusaHealth.status;
 if (!medusaHealth.ok) addWarning(`medusa_health_http_${medusaHealth.status}`);
 
+const handleProductsProbe = await requestJson(
+  `medusa products GET /store/products?handle=${EXPECTED_CJ_HANDLE}`,
+  `${MEDUSA_URL}/store/products?handle=${encodeURIComponent(EXPECTED_CJ_HANDLE)}&limit=5`,
+  { headers: medusaHeaders },
+);
+checks.medusaProductsByHandleHttp = handleProductsProbe.status;
+guardMedusaPublishableKeyProbe(handleProductsProbe);
 const productsProbe = await requestJson(
   "medusa products GET /store/products",
   `${MEDUSA_URL}/store/products?limit=20`,
@@ -610,11 +626,16 @@ checks.medusaProductsHttp = productsProbe.status;
 guardMedusaPublishableKeyProbe(productsProbe);
 if (!productsProbe.ok)
   addBlocker(`store_products_http_${productsProbe.status}`);
-const product = firstProductWithVariant(productsProbe.data?.products);
+const handleProduct = firstProductWithVariant(handleProductsProbe.data?.products);
+const listProduct = firstProductWithVariant(productsProbe.data?.products);
+const product = handleProduct || listProduct;
+out.productSalesChannelIds = salesChannelIdsFrom(product);
+if (handleProductsProbe.ok && !handleProduct) addBlocker("product_not_visible_by_exact_handle");
+if (productsProbe.ok && !listProduct) addBlocker("store_products_empty_check_sales_channel_consistency");
 out.productId = product?.id || null;
 out.variantId = product?.variants?.[0]?.id || null;
-if (!out.productId) addBlocker("product_id_missing");
-if (!out.variantId) addBlocker("variant_id_missing");
+if (!out.productId) addBlocker(product ? "product_id_missing" : "store_api_visible_product_missing_check_sales_channel_mismatch");
+if (!out.variantId) addBlocker(product ? "variant_id_missing" : "variant_missing_because_product_not_store_api_visible");
 
 const regionsProbe = await requestJson(
   "medusa regions GET /store/regions",
@@ -640,7 +661,7 @@ out.medusaReady =
 
 let cart = null;
 if (out.regionId) {
-  const salesChannelId = salesChannelIdFrom(product) || TARGET_SALES_CHANNEL_ID;
+  const salesChannelId = salesChannelIdFrom(product);
   const cartBodies = salesChannelId
     ? [
         { region_id: out.regionId, sales_channel_id: salesChannelId },
@@ -725,6 +746,16 @@ if (out.cartId) {
     cart?.shipping_address?.country_code ||
     addressBody.shipping_address.country_code;
 }
+if (out.cartSalesChannelId) {
+  out.canonicalSalesChannelId = out.canonicalSalesChannelId || out.cartSalesChannelId;
+  out.publishableKeySalesChannelIds = [out.cartSalesChannelId];
+  if (EXPECTED_CANONICAL_SALES_CHANNEL_ID && out.cartSalesChannelId !== EXPECTED_CANONICAL_SALES_CHANNEL_ID) {
+    addBlocker("sales_channel_mismatch");
+  }
+  if (out.productSalesChannelIds.length && out.canonicalSalesChannelId && !out.productSalesChannelIds.includes(out.canonicalSalesChannelId)) {
+    addBlocker("sales_channel_mismatch");
+  }
+}
 
 let shippingOptionId = null;
 if (out.cartId) {
@@ -756,7 +787,7 @@ if (out.cartId) {
     },
     proof: {
       targetSalesChannelId:
-        salesChannelIdFrom(product) || TARGET_SALES_CHANNEL_ID,
+        salesChannelIdFrom(product) || out.cartSalesChannelId || null,
       countryCode: "us",
       requiresRealShippingOptionId: true,
     },
@@ -764,7 +795,7 @@ if (out.cartId) {
   if (!shippingProbe.ok)
     addBlocker(`shipping_options_http_${shippingProbe.status}`);
   if (shippingProbe.ok && !shippingOptionId) {
-    out.shippingOptionProofBlockerReason = `shipping_option_store_visibility_missing: Store API returned HTTP ${shippingProbe.status} with an empty shipping_options array for cart ${out.cartId}; proof used target sales channel ${salesChannelIdFrom(product) || TARGET_SALES_CHANNEL_ID}, US address country_code=us, and requires a real shipping option ID.`;
+    out.shippingOptionProofBlockerReason = `shipping_option_store_visibility_missing: Store API returned HTTP ${shippingProbe.status} with an empty shipping_options array for cart ${out.cartId}; proof used target sales channel ${salesChannelIdFrom(product) || out.cartSalesChannelId || "dynamic_cart_sales_channel"}, US address country_code=us, and requires a real shipping option ID.`;
     checks.shippingOptionProofBlockerReason =
       out.shippingOptionProofBlockerReason;
     checks.shippingVisibilityDiagnostics = {
