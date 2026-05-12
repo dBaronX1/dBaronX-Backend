@@ -11,13 +11,10 @@ import {
   isRedisUnavailableOrQuotaError,
   REDIS_UNAVAILABLE_BLOCKER,
   serializeProviderLinkRepairError,
-  TARGET_SALES_CHANNEL_ID,
-  TARGET_STOCK_LOCATION_ID,
 } from "./shipping-readiness";
 
 const TARGET_VARIANT_ID = "variant_01KQR5QC1GWD6Z6Q4S9EY358JQ";
 const TARGET_INVENTORY_ITEM_ID = "iitem_01KQR5QC2583QHSFDYDWE942Y7";
-const TARGET_REGION_ID = "reg_01KQSEKK6A9T86NJ0AG05XPK3H";
 const isRecord = (value: unknown): value is Record<string, unknown> =>
   typeof value === "object" && value !== null;
 
@@ -61,14 +58,14 @@ async function runEnsureCommercePrerequisites({ container }: ExecArgs) {
       created.push("region");
   } else existing.push("region");
 
-  const regionId =
+  const bootstrapRegionId =
     isRecord(region) && typeof region.id === "string" ? region.id : null;
-  if (regionId) {
+  if (bootstrapRegionId) {
     await updateStoresWorkflow(container).run({
       input: {
         selector: {},
         update: {
-          default_region_id: regionId,
+          default_region_id: bootstrapRegionId,
           supported_currencies: [{ currency_code: "usd", is_default: true }],
         },
       },
@@ -76,18 +73,6 @@ async function runEnsureCommercePrerequisites({ container }: ExecArgs) {
   } else {
     blockers.push("region_missing");
   }
-
-  const stockLocationId = TARGET_STOCK_LOCATION_ID;
-  const stockLocationRes = await query.graph({
-    entity: "stock_location",
-    fields: ["id", "name"],
-    filters: { id: stockLocationId },
-    pagination: { take: 1 },
-  });
-  const stockLocation = asArray(stockLocationRes.data)[0];
-  if (isRecord(stockLocation) && typeof stockLocation.id === "string")
-    pushUnique(existing, "stock_location");
-  else pushUnique(blockers, "stock_location_missing");
 
   const shippingReadiness = await ensureShippingReadiness(container, {
     repair: true,
@@ -97,6 +82,10 @@ async function runEnsureCommercePrerequisites({ container }: ExecArgs) {
   for (const blocker of shippingReadiness.blockers)
     pushUnique(blockers, blocker);
 
+  const stockLocationId = shippingReadiness.stockLocationId;
+  const salesChannelId = shippingReadiness.salesChannelId;
+  const regionId = shippingReadiness.regionId;
+  const shippingProfileId = shippingReadiness.shippingProfileId;
   const shippingOptionId = shippingReadiness.shippingOptionId;
   const shippingOptionReady = shippingReadiness.shippingOptionReady;
   const serviceZoneId = shippingReadiness.serviceZoneId;
@@ -148,7 +137,7 @@ async function runEnsureCommercePrerequisites({ container }: ExecArgs) {
   const productCount = products.length;
   const variantCount = variants.length;
 
-  const priceReady = variants.every((v) =>
+  const priceReady = variants.length > 0 && variants.every((v) =>
     asArray(isRecord(v) ? v.prices : undefined).some(
       (price) =>
         isRecord(price) &&
@@ -164,7 +153,7 @@ async function runEnsureCommercePrerequisites({ container }: ExecArgs) {
     fields: ["id", "inventory_item_id", "location_id", "stocked_quantity"],
     filters: {
       inventory_item_id: stockInventoryItemId,
-      location_id: stockLocationId,
+      ...(stockLocationId ? { location_id: stockLocationId } : {}),
     },
     pagination: { take: 1 },
   });
@@ -185,7 +174,7 @@ async function runEnsureCommercePrerequisites({ container }: ExecArgs) {
       if (!managed || quantity > 0) stockReady = true;
     }
   }
-  const supplierMetadataReady = products.every((p) => {
+  const supplierMetadataReady = products.length > 0 && products.every((p) => {
     if (!isRecord(p)) return false;
     const meta = isRecord(p.metadata) ? p.metadata : {};
     const pSupplier = Boolean(
@@ -205,28 +194,20 @@ async function runEnsureCommercePrerequisites({ container }: ExecArgs) {
   if (!stockReady) pushUnique(blockers, "out_of_stock");
   if (!supplierMetadataReady) pushUnique(blockers, "supplier_na");
 
-  const salesChannelRes = await query.graph({
-    entity: "sales_channel",
-    fields: ["id", "name", "is_default", "stock_locations.id"],
-    filters: { id: TARGET_SALES_CHANNEL_ID },
-    pagination: { take: 1 },
-  });
-  const salesChannel = asArray(salesChannelRes.data)[0];
-  const salesChannelId =
-    isRecord(salesChannel) && typeof salesChannel.id === "string"
-      ? salesChannel.id
-      : null;
-  if (!salesChannelId) pushUnique(blockers, "sales_channel_missing");
-
-  const variantLink = await ensureVariantInventoryLink(
-    container,
-    TARGET_VARIANT_ID,
-  );
-  const variantId = variantLink.variantId;
-  const inventoryItemId = variantLink.inventoryItemId;
-  for (const item of variantLink.created) pushUnique(created, item);
-  for (const item of variantLink.existing) pushUnique(existing, item);
-  for (const blocker of variantLink.blockers) pushUnique(blockers, blocker);
+  const targetVariantFromProducts = variants.find((v) => isRecord(v) && typeof v.id === "string");
+  const targetVariantId = isRecord(targetVariantFromProducts)
+    ? String(targetVariantFromProducts.id)
+    : TARGET_VARIANT_ID;
+  let variantId: string | null = null;
+  let inventoryItemId: string | null = null;
+  if (variantCount > 0 && targetVariantId) {
+    const variantLink = await ensureVariantInventoryLink(container, targetVariantId);
+    variantId = variantLink.variantId;
+    inventoryItemId = variantLink.inventoryItemId;
+    for (const item of variantLink.created) pushUnique(created, item);
+    for (const item of variantLink.existing) pushUnique(existing, item);
+    for (const blocker of variantLink.blockers) pushUnique(blockers, blocker);
+  }
 
   const salesChannelStockLocationLinked =
     shippingReadiness.salesChannelStockLocationLinked;
@@ -236,12 +217,15 @@ async function runEnsureCommercePrerequisites({ container }: ExecArgs) {
 
   if (!salesChannelStockLocationLinked)
     pushUnique(blockers, "sales_channel_stock_location_link_missing");
-  if (!inventoryLevelReady) pushUnique(blockers, "inventory_level_missing");
+  if (variantCount > 0 && !inventoryLevelReady) pushUnique(blockers, "inventory_level_missing");
 
   console.log(
     JSON.stringify(
       {
         success: blockers.length === 0,
+        infrastructureReady: Boolean(regionId && salesChannelId && stockLocationId && shippingProfileId && shippingOptionReady && storeShippingOptionReady && salesChannelStockLocationLinked),
+        productReady: Boolean(productCount > 0 && variantCount > 0 && priceReady && stockReady && supplierMetadataReady && inventoryLevelReady),
+        checkoutReady: Boolean(regionId && salesChannelId && stockLocationId && shippingOptionReady && storeShippingOptionReady && productCount > 0 && variantCount > 0 && priceReady && stockReady && inventoryLevelReady),
         created,
         existing,
         blockers,
@@ -255,7 +239,7 @@ async function runEnsureCommercePrerequisites({ container }: ExecArgs) {
         inventoryItemId,
         inventoryLevelReady,
         regionId,
-        targetRegionId: TARGET_REGION_ID,
+        shippingProfileId,
         shippingOptionId,
         shippingOptionReady,
         storeShippingOptionReady,

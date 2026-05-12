@@ -15,10 +15,10 @@ pnpm --filter @dbaronx/medusa run db:prepare
 ## Required Render Medusa start command
 
 ```bash
-pnpm --filter @dbaronx/medusa run db:prepare && pnpm --filter @dbaronx/medusa run shipping:ensure && pnpm --filter @dbaronx/medusa run commerce:ensure && pnpm --filter @dbaronx/medusa start
+pnpm --filter @dbaronx/medusa run db:prepare && pnpm --filter @dbaronx/medusa run launch-commerce:ensure && pnpm --filter @dbaronx/medusa start
 ```
 
-Do not prepend product seed commands to the normal start command. Seed only during an explicit one-cycle operator action after `db:prepare`, `shipping:ensure`, and `commerce:ensure` pass.
+Do not prepend product seed commands to the normal start command. Seed only during an explicit one-cycle operator action after `db:prepare` and `launch-commerce:ensure` pass.
 
 ## Database URL safety
 
@@ -39,3 +39,16 @@ Do not prepend product seed commands to the normal start command. Seed only duri
 - `existingTables`
 - `migrationLikelyRequired`
 - `nextManualStep`
+
+
+## Fresh DB commerce primitives
+
+For a newly replaced Render Postgres database, migrations only create Medusa core schema. They do not recreate dBaronX launch commerce primitives or the publishable key/sales-channel link. Run:
+
+```bash
+pnpm --filter @dbaronx/medusa run db:prepare && pnpm --filter @dbaronx/medusa run launch-commerce:ensure
+```
+
+`launch-commerce:ensure` is idempotent and discovers current IDs by stable names/metadata instead of the IDs from the deleted DB. It separates infrastructure readiness from product checkout readiness through the `commerce:ensure` output fields `infrastructureReady`, `productReady`, and `checkoutReady`.
+
+After the fresh DB ensure succeeds, retrieve the full new publishable key from Medusa Admin/API key details and update Render `MEDUSA_PUBLISHABLE_KEY`/`NEXT_PUBLIC_MEDUSA_PUBLISHABLE_KEY`. Store API readiness failures now distinguish `medusa_publishable_key_missing`, `medusa_publishable_key_invalid`, `medusa_publishable_key_not_linked_to_sales_channel`, `launch_commerce_missing`, and `real_supplier_product_missing`.
