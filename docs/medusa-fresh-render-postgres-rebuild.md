@@ -48,6 +48,29 @@ After the seed completes, restore the normal start command:
 pnpm --filter @dbaronx/medusa run db:prepare && pnpm --filter @dbaronx/medusa run launch-commerce:ensure && pnpm --filter @dbaronx/medusa start
 ```
 
+
+## Store API, Admin `/app`, and publishable key retrieval
+
+Medusa Admin at `/app` may return `Cannot GET /app` when the admin build is disabled. The root path `/` may also return `Cannot GET /`. Neither response is a Store API failure. Store API readiness is proven through `/store/products`, `/store/regions`, and cart/shipping endpoints using the fresh DB publishable key.
+
+`launch-commerce:ensure` intentionally prints only `publishableApiKeyTokenPreview`. To intentionally retrieve the full frontend Store API key from the fresh database, run the operator-only command below. It refuses to print the token unless explicit confirmation is set and it never prints `DATABASE_URL` or backend secrets.
+
+```bash
+DBX_CONFIRM_PRINT_MEDUSA_PUBLISHABLE_KEY=true pnpm --filter @dbaronx/medusa run publishable-key:print
+```
+
+Copy `publishableApiKeyToken` from the JSON output into all deployed frontend/Store API key env vars:
+
+- `MEDUSA_PUBLISHABLE_KEY`
+- `NEXT_PUBLIC_MEDUSA_PUBLISHABLE_KEY`
+- `PUBLIC_MEDUSA_PUBLISHABLE_KEY`
+
+After those env vars are updated and `launch-commerce:ensure` is green, run exactly one controlled CJ shirt seed cycle:
+
+```bash
+DBX_CONFIRM_CJ_FIRST_PRODUCT_SEED=true pnpm --filter @dbaronx/medusa run first-product:seed:cj-shirt
+```
+
 ## Readiness smokes
 
 ```bash
@@ -63,7 +86,7 @@ If the first-product readiness smoke reports `medusa_schema_missing`, run `db:pr
 
 After deleting the exposed Render Postgres database, the old `MEDUSA_PUBLISHABLE_KEY` belongs to the deleted database and must be treated as invalid. Run `launch-commerce:ensure` immediately after `db:prepare`; it creates or repairs the US region, default sales channel, publishable API key link, shipping profile, stock location, fulfillment set, US service zone, manual fulfillment provider link, and Store API-visible standard delivery option.
 
-The ensure output prints only `publishableApiKeyTokenPreview`. Copy the full new publishable key token from Medusa Admin/API key details for the fresh database, then update both `MEDUSA_PUBLISHABLE_KEY` and `NEXT_PUBLIC_MEDUSA_PUBLISHABLE_KEY` in Render before running customer checkout readiness. Do not reuse the key from the deleted DB.
+The ensure output prints only `publishableApiKeyTokenPreview`. Retrieve the full token with `DBX_CONFIRM_PRINT_MEDUSA_PUBLISHABLE_KEY=true pnpm --filter @dbaronx/medusa run publishable-key:print`, then update `MEDUSA_PUBLISHABLE_KEY`, `NEXT_PUBLIC_MEDUSA_PUBLISHABLE_KEY`, and `PUBLIC_MEDUSA_PUBLISHABLE_KEY` in Render before running customer checkout readiness. Do not reuse the key from the deleted DB.
 
 Run readiness with the new key:
 

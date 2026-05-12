@@ -19,6 +19,7 @@ const WEB_BASE_URL = normalizeBaseUrl(
 const MEDUSA_PUBLISHABLE_KEY =
   process.env.MEDUSA_PUBLISHABLE_KEY ||
   process.env.NEXT_PUBLIC_MEDUSA_PUBLISHABLE_KEY ||
+  process.env.PUBLIC_MEDUSA_PUBLISHABLE_KEY ||
   "";
 const DEFAULT_REGION_ID = process.env.MEDUSA_REGION_ID || "";
 const EXPECT_SUPPLIER = safeString(
@@ -28,6 +29,8 @@ const EXPECT_SUPPLIER = safeString(
 const blockers = [];
 const responseSnippets = {};
 if (!safeString(MEDUSA_PUBLISHABLE_KEY)) addBlocker("medusa_publishable_key_missing");
+if (isPreviewOnlyPublishableKey(MEDUSA_PUBLISHABLE_KEY))
+  addBlocker("medusa_publishable_key_preview_only_full_key_required");
 
 const productsResponse = await getJson(
   `${MEDUSA_BASE_URL}/store/products?limit=100`,
@@ -48,6 +51,8 @@ if (medusaFailureMode === "medusa_schema_missing") addBlocker("medusa_schema_mis
 if (medusaFailureMode === "medusa_unreachable") addBlocker("medusa_unreachable");
 if (medusaFailureMode === "medusa_publishable_key_invalid") addBlocker("medusa_publishable_key_invalid");
 if (medusaFailureMode === "medusa_publishable_key_not_linked_to_sales_channel") addBlocker("medusa_publishable_key_not_linked_to_sales_channel");
+
+const launchCommerceStoreApiGreen = Boolean(productsResponse.ok);
 
 const products = uniqueProducts([
   ...extractProducts(productsResponse.json),
@@ -217,6 +222,7 @@ const result = {
   blockers,
   medusaFailureMode,
   schemaReadinessInterpretation: medusaFailureMode === "medusa_schema_missing" ? "Run Medusa db:prepare before product readiness; this is not a product-missing failure." : null,
+  launchCommerceStoreApiGreen,
   expectedSupplier: EXPECT_SUPPLIER || null,
   expectedSupplierReady,
   verifiedSupplierProductPresent,
@@ -286,6 +292,10 @@ function isPublishableKeyError(response) {
 }
 function safeString(value) {
   return String(value || "").trim();
+}
+function isPreviewOnlyPublishableKey(value) {
+  const key = safeString(value);
+  return Boolean(key && (/…/.test(key) || /\.\.\./.test(key)));
 }
 function metadataOf(item) {
   return item && typeof item.metadata === "object" && item.metadata
@@ -623,6 +633,7 @@ function snippet(value) {
   for (const key of [
     "MEDUSA_PUBLISHABLE_KEY",
     "NEXT_PUBLIC_MEDUSA_PUBLISHABLE_KEY",
+    "PUBLIC_MEDUSA_PUBLISHABLE_KEY",
   ]) {
     const secret = process.env[key];
     if (secret) text = text.replaceAll(secret, "<redacted>");
@@ -631,9 +642,11 @@ function snippet(value) {
 }
 function nextManualStep() {
   if (blockers.includes("medusa_publishable_key_missing"))
-    return "Set MEDUSA_PUBLISHABLE_KEY/NEXT_PUBLIC_MEDUSA_PUBLISHABLE_KEY from the fresh Medusa DB publishable key linked to the default sales channel; do not reuse the deleted DB key.";
+    return "Set MEDUSA_PUBLISHABLE_KEY/NEXT_PUBLIC_MEDUSA_PUBLISHABLE_KEY/PUBLIC_MEDUSA_PUBLISHABLE_KEY from the fresh Medusa DB publishable key linked to the default sales channel; do not reuse the deleted DB key.";
+  if (blockers.includes("medusa_publishable_key_preview_only_full_key_required"))
+    return "The configured publishable key is preview-only. Run DBX_CONFIRM_PRINT_MEDUSA_PUBLISHABLE_KEY=true pnpm --filter @dbaronx/medusa run publishable-key:print, then update MEDUSA_PUBLISHABLE_KEY/NEXT_PUBLIC_MEDUSA_PUBLISHABLE_KEY/PUBLIC_MEDUSA_PUBLISHABLE_KEY with the full token.";
   if (blockers.includes("medusa_publishable_key_invalid") || blockers.includes("medusa_publishable_key_not_linked_to_sales_channel"))
-    return "Run launch-commerce:ensure, copy the new fresh-DB publishable key linked to the default sales channel, update deployment env, and rerun readiness.";
+    return "Run launch-commerce:ensure, print the new fresh-DB publishable key with explicit confirmation, update deployment env, and rerun readiness.";
   if (blockers.includes("launch_commerce_missing"))
     return "Run pnpm --filter @dbaronx/medusa run launch-commerce:ensure after db:prepare before product readiness.";
   if (medusaFailureMode === "medusa_schema_missing")
@@ -642,6 +655,8 @@ function nextManualStep() {
     return "Start Medusa and verify it can reach the migrated database before checking product readiness.";
   if (draftProduct && !verifiedProduct)
     return `Verify the draft supplier product before live checkout: add image URL, confirm stock quantity, shipping countries, and delivery estimate, then rerun the seed in publish mode.`;
+  if (launchCommerceStoreApiGreen && blockers.includes("real_supplier_product_missing"))
+    return "Launch-commerce Store API is green and the verified CJ shirt is missing. Run DBX_CONFIRM_CJ_FIRST_PRODUCT_SEED=true pnpm --filter @dbaronx/medusa run first-product:seed:cj-shirt next, then rerun this readiness smoke.";
   if (blockers.length)
     return `Resolve blockers before first real checkout: ${blockers.join(", ")}.`;
   return `Open ${productUrl}, add the item to cart, run Stripe test checkout, then proceed to live money only after signed webhook/order proof is verified.`;

@@ -11,7 +11,7 @@ import { DEFAULT_SALES_CHANNEL_NAME } from "./shipping-readiness";
 
 type QueryGraphResult = Record<string, unknown> | unknown[] | null | undefined;
 
-const KEY_TITLE = "dBaronX Live Storefront Publishable Key";
+export const KEY_TITLE = "dBaronX Live Storefront Publishable Key";
 
 const asArray = <T = Record<string, unknown>>(
   value: unknown,
@@ -32,7 +32,7 @@ const idOf = (value: unknown): string | null =>
     ? (value as any).id
     : null;
 
-const tokenPreview = (token: unknown): string | null => {
+export const tokenPreview = (token: unknown): string | null => {
   const value = String(token || "").trim();
   if (!value) return null;
   return value.length <= 16 ? `${value.slice(0, 4)}…` : `${value.slice(0, 8)}…${value.slice(-4)}`;
@@ -48,7 +48,7 @@ const medusaBaseUrl = () =>
     .trim()
     .replace(/\/+$/, "");
 
-async function storeGet(path: string, token: string | null): Promise<boolean | null> {
+export async function storeGet(path: string, token: string | null): Promise<boolean | null> {
   const baseUrl = medusaBaseUrl();
   if (!baseUrl || !token) return null;
   try {
@@ -170,8 +170,8 @@ export async function ensurePublishableApiKey(container: ExecArgs["container"]) 
   const storeProductsAccessible = await storeGet("/store/products?limit=1", token);
   const storeRegionsAccessible = await storeGet("/store/regions", token);
   const operatorInstruction = token
-    ? "Update MEDUSA_PUBLISHABLE_KEY and NEXT_PUBLIC_MEDUSA_PUBLISHABLE_KEY with the new key token from this fresh Medusa DB; only a preview is printed here."
-    : "Copy the publishable key token from Medusa Admin/API key details for this fresh DB, then update MEDUSA_PUBLISHABLE_KEY and NEXT_PUBLIC_MEDUSA_PUBLISHABLE_KEY.";
+    ? "Only a preview is printed during normal launch-commerce. To intentionally print the full fresh-DB key, run DBX_CONFIRM_PRINT_MEDUSA_PUBLISHABLE_KEY=true pnpm --filter @dbaronx/medusa run publishable-key:print, then update MEDUSA_PUBLISHABLE_KEY, NEXT_PUBLIC_MEDUSA_PUBLISHABLE_KEY, and PUBLIC_MEDUSA_PUBLISHABLE_KEY."
+    : "Token was not recoverable through the safe launch-commerce output. Run DBX_CONFIRM_PRINT_MEDUSA_PUBLISHABLE_KEY=true pnpm --filter @dbaronx/medusa run publishable-key:print; if that reports token_not_recoverable_from_service, use the documented Medusa Admin/API fallback.";
 
   return {
     success: blockers.length === 0,

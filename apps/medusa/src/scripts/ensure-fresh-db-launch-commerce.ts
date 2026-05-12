@@ -40,7 +40,7 @@ export default async function ensureFreshDbLaunchCommerce({ container }: ExecArg
           storeRegionsAccessible: key.storeRegionsAccessible,
           nextManualStep:
             blockers.length === 0
-              ? "Update deployed MEDUSA_PUBLISHABLE_KEY/NEXT_PUBLIC_MEDUSA_PUBLISHABLE_KEY with this fresh DB key before customer checkout."
+              ? "Run DBX_CONFIRM_PRINT_MEDUSA_PUBLISHABLE_KEY=true pnpm --filter @dbaronx/medusa run publishable-key:print, then update MEDUSA_PUBLISHABLE_KEY/NEXT_PUBLIC_MEDUSA_PUBLISHABLE_KEY/PUBLIC_MEDUSA_PUBLISHABLE_KEY before customer checkout."
               : key.nextManualStep,
         },
         null,

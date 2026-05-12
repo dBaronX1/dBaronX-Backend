@@ -4,6 +4,7 @@ import {
   DEFAULT_SALES_CHANNEL_NAME,
   DEFAULT_SHIPPING_PROFILE_NAME,
   DEFAULT_STOCK_LOCATION_NAME,
+  ensureShippingReadiness,
 } from "./shipping-readiness";
 import {
   createInventoryLevelsWorkflow,
@@ -437,6 +438,28 @@ export async function seedFirstSupplierProductWithInput(
     process.argv.includes("--dryRun") ||
     process.env.DRY_RUN === "true";
   const metadata = metadataFor(input);
+
+  if (!dryRun) {
+    const launchReadiness = await ensureShippingReadiness(container, { repair: false });
+    const launchBlockers = Array.from(new Set(launchReadiness.blockers));
+    if (launchBlockers.length) {
+      fail("launch_commerce_not_green_before_first_product_seed", {
+        blockers: launchBlockers,
+        regionId: launchReadiness.regionId,
+        salesChannelId: launchReadiness.salesChannelId,
+        stockLocationId: launchReadiness.stockLocationId,
+        fulfillmentSetId: launchReadiness.fulfillmentSetId,
+        serviceZoneId: launchReadiness.serviceZoneId,
+        fulfillmentProviderId: launchReadiness.fulfillmentProviderId,
+        shippingOptionId: launchReadiness.shippingOptionId,
+        shippingOptionReady: launchReadiness.shippingOptionReady,
+        storeShippingOptionReady: launchReadiness.visibleToStoreApiExpected,
+        storeApiVisibilityProofReady: launchReadiness.storeApiVisibilityProofReady,
+        instruction:
+          "Run pnpm --filter @dbaronx/medusa run launch-commerce:ensure until blockers is [], then rerun first-product:seed:cj-shirt.",
+      });
+    }
+  }
 
   const existingProductsResult = await query({
     entity: "product",
