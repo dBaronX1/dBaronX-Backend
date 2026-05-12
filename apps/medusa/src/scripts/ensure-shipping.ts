@@ -5,7 +5,6 @@ import {
   isRedisUnavailableOrQuotaError,
   REDIS_UNAVAILABLE_BLOCKER,
   serializeProviderLinkRepairError,
-  TARGET_SALES_CHANNEL_ID,
 } from "./shipping-readiness";
 
 export default async function ensureShipping({ container }: ExecArgs) {
@@ -30,7 +29,7 @@ export default async function ensureShipping({ container }: ExecArgs) {
           storeApiVisibilityProofReady: readiness.storeApiVisibilityProofReady,
           storeApiVisibilityProofReason:
             readiness.storeApiVisibilityProofReason,
-          salesChannelId: TARGET_SALES_CHANNEL_ID,
+          salesChannelId: readiness.salesChannelId,
           stockLocationId: readiness.stockLocationId,
           fulfillmentSetIdsFromStockLocation:
             readiness.fulfillmentSetIdsFromStockLocation,
@@ -100,7 +99,7 @@ export default async function ensureShipping({ container }: ExecArgs) {
           providerEnabledForServiceLocation: false,
           storeApiVisibilityProofReady: false,
           storeApiVisibilityProofReason: null,
-          salesChannelId: TARGET_SALES_CHANNEL_ID,
+          salesChannelId: null,
           stockLocationId: null,
           fulfillmentSetIdsFromStockLocation: [],
           salesChannelStockLocationLinked: false,

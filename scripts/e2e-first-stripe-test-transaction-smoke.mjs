@@ -193,6 +193,7 @@ function guardMedusaPublishableKeyProbe(probe) {
   if (medusaPublishableKeyInvalid(probe)) {
     out.medusaPublishableKeyRejectedByStoreApi = true;
     addBlocker("medusa_publishable_key_invalid");
+    out.medusaPublishableKeyOperatorInstruction = "Use the new publishable key from the fresh Medusa DB linked to the default sales channel; do not reuse the deleted DB key.";
   }
 }
 
@@ -501,8 +502,12 @@ const out = {
   cartId: null,
 };
 
-if (out.medusaPublishableKeyShape === "placeholder")
+if (out.medusaPublishableKeyShape === "missing")
+  addBlocker("medusa_publishable_key_missing");
+if (out.medusaPublishableKeyShape === "placeholder") {
+  addBlocker("medusa_publishable_key_missing");
   addBlocker("medusa_publishable_key_placeholder_not_replaced");
+}
 if (out.medusaPublishableKeyShape === "stripe_key_fragment")
   addBlocker("medusa_publishable_key_looks_like_stripe_key");
 
@@ -1106,7 +1111,7 @@ if (
   blockers.includes("medusa_publishable_key_invalid")
 ) {
   out.nextManualStep =
-    "Replace MEDUSA_PUBLISHABLE_KEY/NEXT_PUBLIC_MEDUSA_PUBLISHABLE_KEY with the real Medusa publishable API key from Medusa, not a Stripe key or placeholder, then rerun the smoke before opening Stripe Checkout.";
+    "Run launch-commerce:ensure, then replace MEDUSA_PUBLISHABLE_KEY/NEXT_PUBLIC_MEDUSA_PUBLISHABLE_KEY with the new publishable API key from the fresh Medusa DB linked to the default sales channel; do not reuse the deleted DB key.";
 } else if (
   out.stripeSessionModeDetected === "live" &&
   !ALLOW_LIVE_STRIPE_SMOKE

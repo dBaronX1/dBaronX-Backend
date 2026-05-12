@@ -7,418 +7,192 @@ import {
   updateStoresWorkflow,
 } from "@medusajs/medusa/core-flows";
 
-const PUBLISHABLE_KEY_TITLE = "dBaronX Storefront Publishable API Key";
-const PUBLISHABLE_KEY_TYPE = "publishable";
-const STORE_API_TIMEOUT_MS = 15_000;
+import { DEFAULT_SALES_CHANNEL_NAME } from "./shipping-readiness";
 
-type ApiKeyRecord = {
-  id: string;
-  title?: string | null;
-  token?: string | null;
-  type?: string | null;
-  revoked_at?: string | null;
-  redacted?: string | null;
-  sales_channels?: SalesChannelRecord[] | null;
+type QueryGraphResult = Record<string, unknown> | unknown[] | null | undefined;
+
+const KEY_TITLE = "dBaronX Live Storefront Publishable Key";
+
+const asArray = <T = Record<string, unknown>>(
+  value: unknown,
+  fallbackKeys: string[] = [],
+): T[] => {
+  if (Array.isArray(value)) return value as T[];
+  if (!value || typeof value !== "object") return [];
+  const record = value as Record<string, unknown>;
+  for (const key of ["data", ...fallbackKeys]) {
+    const nested = record[key];
+    if (Array.isArray(nested)) return nested as T[];
+  }
+  return [];
 };
 
-type SalesChannelRecord = {
-  id: string;
-  name?: string | null;
-  is_disabled?: boolean | null;
+const idOf = (value: unknown): string | null =>
+  value && typeof value === "object" && typeof (value as any).id === "string"
+    ? (value as any).id
+    : null;
+
+const tokenPreview = (token: unknown): string | null => {
+  const value = String(token || "").trim();
+  if (!value) return null;
+  return value.length <= 16 ? `${value.slice(0, 4)}…` : `${value.slice(0, 8)}…${value.slice(-4)}`;
 };
 
-type StoreRecord = {
-  id?: string | null;
-  default_sales_channel_id?: string | null;
-  default_sales_channel?: SalesChannelRecord | null;
-};
+const medusaBaseUrl = () =>
+  String(
+    process.env.MEDUSA_BASE_URL ||
+      process.env.MEDUSA_BACKEND_URL ||
+      process.env.NEXT_PUBLIC_MEDUSA_BACKEND_URL ||
+      "",
+  )
+    .trim()
+    .replace(/\/+$/, "");
 
-type StoreEndpointProof = {
-  accessible: boolean;
-  blocker: string | null;
-  status: number | null;
-};
-
-type EnsurePublishableApiKeyResult = {
-  success: boolean;
-  blockers: string[];
-  publishableApiKeyId: string | null;
-  publishableApiKeyToken: string | null;
-  salesChannelId: string | null;
-  linked: boolean;
-  storeProductsAccessible: boolean;
-  storeRegionsAccessible: boolean;
-  nextManualStep: string;
-};
-
-const isRecord = (value: unknown): value is Record<string, unknown> =>
-  typeof value === "object" && value !== null;
-
-const asArray = <T = unknown>(value: unknown): T[] =>
-  Array.isArray(value) ? (value as T[]) : [];
-
-const pushUnique = (values: string[], value: string) => {
-  if (value && !values.includes(value)) values.push(value);
-};
-
-const errorBlocker = (prefix: string, error: unknown): string => {
-  const errorName = error instanceof Error ? error.name : typeof error;
-  return `${prefix}:${errorName || "unknown_error"}`;
-};
-
-const normalizeBaseUrl = (value: string | undefined): string | null => {
-  const trimmed = value?.trim();
-  if (!trimmed) return null;
-  return trimmed.replace(/\/+$/, "").replace(/\/store$/, "");
-};
-
-const getStoreApiBaseUrl = (): string | null =>
-  normalizeBaseUrl(process.env.MEDUSA_STORE_API_URL) ||
-  normalizeBaseUrl(process.env.MEDUSA_BACKEND_URL) ||
-  normalizeBaseUrl(process.env.RENDER_EXTERNAL_URL) ||
-  normalizeBaseUrl(process.env.PUBLIC_MEDUSA_BACKEND_URL) ||
-  normalizeBaseUrl(process.env.NEXT_PUBLIC_MEDUSA_BACKEND_URL) ||
-  "http://localhost:9000";
-
-async function safeGraph(
-  query: any,
-  entity: string,
-  fields: string[],
-  filters?: Record<string, unknown>,
-  take = 50,
-): Promise<Record<string, unknown>[]> {
+async function storeGet(path: string, token: string | null): Promise<boolean | null> {
+  const baseUrl = medusaBaseUrl();
+  if (!baseUrl || !token) return null;
   try {
-    const result = await query.graph({
-      entity,
-      fields,
-      filters,
-      pagination: { take },
+    const response = await fetch(`${baseUrl}${path}`, {
+      headers: { "x-publishable-api-key": token },
     });
-    return asArray<Record<string, unknown>>(result?.data).filter(isRecord);
+    return response.ok;
   } catch {
-    return [];
+    return false;
   }
 }
 
-async function findPublishableKey(query: any): Promise<ApiKeyRecord | null> {
-  const apiKeys = await safeGraph(
-    query,
-    "api_key",
-    [
-      "id",
-      "title",
-      "token",
-      "redacted",
-      "type",
-      "revoked_at",
-      "sales_channels.id",
-      "sales_channels.name",
-      "sales_channels.is_disabled",
-    ],
-    { type: PUBLISHABLE_KEY_TYPE },
-    100,
-  );
+export async function ensurePublishableApiKey(container: ExecArgs["container"]) {
+  const query = container.resolve<any>(ContainerRegistrationKeys.QUERY);
+  const created: string[] = [];
+  const existing: string[] = [];
+  const blockers: string[] = [];
 
-  const publishableKeys = apiKeys
-    .filter((apiKey): apiKey is ApiKeyRecord =>
-      typeof apiKey.id === "string" &&
-      String(apiKey.type || "").toLowerCase() === PUBLISHABLE_KEY_TYPE &&
-      !apiKey.revoked_at,
-    )
-    .sort((a, b) => {
-      const aTitle = String(a.title || "");
-      const bTitle = String(b.title || "");
-      const aExact = aTitle === PUBLISHABLE_KEY_TITLE ? 0 : 1;
-      const bExact = bTitle === PUBLISHABLE_KEY_TITLE ? 0 : 1;
-      const aDbx = /dbaronx/i.test(aTitle) ? 0 : 1;
-      const bDbx = /dbaronx/i.test(bTitle) ? 0 : 1;
-      return aExact - bExact || aDbx - bDbx || aTitle.localeCompare(bTitle);
-    });
-
-  return publishableKeys[0] || null;
-}
-
-async function findOrCreatePublishableKey(
-  container: ExecArgs["container"],
-  query: any,
-): Promise<ApiKeyRecord | null> {
-  const existing = await findPublishableKey(query);
-  if (existing) return existing;
-
-  const created = await createApiKeysWorkflow(container).run({
-    input: {
-      api_keys: [
-        {
-          title: PUBLISHABLE_KEY_TITLE,
-          type: PUBLISHABLE_KEY_TYPE,
-          created_by: "ensure-publishable-api-key",
-        },
-      ],
-    },
+  const salesChannelsResult: QueryGraphResult = await query.graph({
+    entity: "sales_channel",
+    fields: ["id", "name", "is_default"],
+    pagination: { take: 100 },
   });
-
-  const key = asArray<ApiKeyRecord>(created.result)[0];
-  return key && typeof key.id === "string" ? key : null;
-}
-
-async function findStore(query: any): Promise<StoreRecord | null> {
-  const store = (
-    await safeGraph(
-      query,
-      "store",
-      [
-        "id",
-        "default_sales_channel_id",
-        "default_sales_channel.id",
-        "default_sales_channel.name",
-        "default_sales_channel.is_disabled",
-      ],
-      undefined,
-      1,
-    )
-  )[0];
-
-  return isRecord(store) ? (store as StoreRecord) : null;
-}
-
-async function findSalesChannels(query: any): Promise<SalesChannelRecord[]> {
-  const channels = await safeGraph(
-    query,
-    "sales_channel",
-    ["id", "name", "is_disabled"],
-    undefined,
-    100,
+  let salesChannel = asArray<Record<string, unknown>>(salesChannelsResult, [
+    "sales_channels",
+  ]).find(
+    (channel) =>
+      channel.name === DEFAULT_SALES_CHANNEL_NAME || channel.is_default === true || idOf(channel),
   );
+  let salesChannelId = idOf(salesChannel);
 
-  return channels.filter(
-    (channel): channel is SalesChannelRecord =>
-      typeof channel.id === "string" && channel.is_disabled !== true,
-  );
-}
-
-async function findOrCreateSalesChannel(
-  container: ExecArgs["container"],
-  query: any,
-): Promise<SalesChannelRecord | null> {
-  const store = await findStore(query);
-  if (store?.default_sales_channel?.id && store.default_sales_channel.is_disabled !== true) {
-    return store.default_sales_channel;
+  if (!salesChannelId) {
+    const createdChannel = await createSalesChannelsWorkflow(container).run({
+      input: {
+        salesChannelsData: [
+          {
+            name: DEFAULT_SALES_CHANNEL_NAME,
+            description: "Default sales channel for dBaronX storefront",
+          },
+        ],
+      },
+    });
+    salesChannel = asArray<Record<string, unknown>>(createdChannel.result)[0];
+    salesChannelId = idOf(salesChannel);
+    if (salesChannelId) created.push("sales_channel");
+  } else {
+    existing.push("sales_channel");
   }
 
-  const channels = await findSalesChannels(query);
-  const defaultChannel =
-    channels.find((channel) => channel.id === store?.default_sales_channel_id) ||
-    channels.find((channel) => /default/i.test(String(channel.name || ""))) ||
-    channels.find((channel) => /dbaronx/i.test(String(channel.name || ""))) ||
-    channels[0];
-
-  if (defaultChannel) {
+  if (salesChannelId) {
     await updateStoresWorkflow(container).run({
       input: {
         selector: {},
-        update: { default_sales_channel_id: defaultChannel.id },
-      },
-    });
-    return defaultChannel;
-  }
-
-  const created = await createSalesChannelsWorkflow(container).run({
-    input: {
-      salesChannelsData: [
-        {
-          name: "dBaronX Default Sales Channel",
-          description: "Default sales channel for the dBaronX storefront",
+        update: {
+          default_sales_channel_id: salesChannelId,
+          supported_currencies: [{ currency_code: "usd", is_default: true }],
         },
-      ],
-    },
-  });
-  const createdChannel = asArray<SalesChannelRecord>(created.result)[0];
-
-  if (!createdChannel?.id) return null;
-
-  await updateStoresWorkflow(container).run({
-    input: {
-      selector: {},
-      update: { default_sales_channel_id: createdChannel.id },
-    },
-  });
-
-  return createdChannel;
-}
-
-async function ensureApiKeyLinkedToSalesChannel(
-  container: ExecArgs["container"],
-  query: any,
-  apiKeyId: string,
-  salesChannelId: string,
-): Promise<boolean> {
-  const currentKey = (
-    await safeGraph(
-      query,
-      "api_key",
-      ["id", "sales_channels.id"],
-      { id: apiKeyId },
-      1,
-    )
-  )[0] as ApiKeyRecord | undefined;
-
-  const alreadyLinked = asArray<SalesChannelRecord>(currentKey?.sales_channels).some(
-    (channel) => channel.id === salesChannelId,
-  );
-
-  if (!alreadyLinked) {
-    await linkSalesChannelsToApiKeyWorkflow(container).run({
-      input: { id: apiKeyId, add: [salesChannelId] },
-    });
-  }
-
-  const verifiedKey = (
-    await safeGraph(
-      query,
-      "api_key",
-      ["id", "sales_channels.id"],
-      { id: apiKeyId },
-      1,
-    )
-  )[0] as ApiKeyRecord | undefined;
-
-  return asArray<SalesChannelRecord>(verifiedKey?.sales_channels).some(
-    (channel) => channel.id === salesChannelId,
-  );
-}
-
-async function verifyStoreEndpoint(
-  baseUrl: string,
-  path: string,
-  publishableApiKeyToken: string,
-): Promise<StoreEndpointProof> {
-  const controller = new AbortController();
-  const timeout = setTimeout(() => controller.abort(), STORE_API_TIMEOUT_MS);
-
-  try {
-    const response = await fetch(`${baseUrl}${path}`, {
-      headers: {
-        "x-publishable-api-key": publishableApiKeyToken,
       },
-      signal: controller.signal,
     });
-
-    if (response.ok) {
-      return { accessible: true, blocker: null, status: response.status };
-    }
-
-    return {
-      accessible: false,
-      blocker: `store_api_${path.replace(/[^a-z0-9]+/gi, "_").replace(/^_|_$/g, "")}_status_${response.status}`,
-      status: response.status,
-    };
-  } catch (error) {
-    const reason = error instanceof Error ? error.name || error.message : "unknown_error";
-    return {
-      accessible: false,
-      blocker: `store_api_${path.replace(/[^a-z0-9]+/gi, "_").replace(/^_|_$/g, "")}_unreachable:${reason}`,
-      status: null,
-    };
-  } finally {
-    clearTimeout(timeout);
-  }
-}
-
-const buildNextManualStep = (result: Omit<EnsurePublishableApiKeyResult, "nextManualStep">): string => {
-  if (result.success && result.publishableApiKeyToken) {
-    return "Update storefront/public runtime env vars that hold the Medusa publishable key to the publishableApiKeyToken value printed in this JSON output, then redeploy/restart the storefront.";
+  } else {
+    blockers.push("sales_channel_missing");
   }
 
-  if (!result.publishableApiKeyToken) {
-    return "Run pnpm --filter @dbaronx/medusa run publishable-key:ensure on Render after db:prepare succeeds; copy publishableApiKeyToken from the JSON stdout.";
+  const keysResult: QueryGraphResult = await query.graph({
+    entity: "api_key",
+    fields: ["id", "title", "token", "type", "sales_channels.id"],
+    filters: { type: "publishable" },
+    pagination: { take: 100 },
+  });
+  let key = asArray<Record<string, unknown>>(keysResult, ["api_keys"]).find(
+    (candidate) =>
+      candidate.title === KEY_TITLE ||
+      asArray<Record<string, unknown>>(candidate.sales_channels).some(
+        (channel) => idOf(channel) === salesChannelId,
+      ) ||
+      idOf(candidate),
+  );
+  let publishableApiKeyCreated = false;
+
+  if (!key) {
+    const createdKey = await createApiKeysWorkflow(container).run({
+      input: {
+        api_keys: [
+          {
+            title: KEY_TITLE,
+            type: "publishable",
+            created_by: "ensure-publishable-api-key",
+          },
+        ],
+      },
+    });
+    key = asArray<Record<string, unknown>>(createdKey.result)[0];
+    publishableApiKeyCreated = true;
+    if (idOf(key)) created.push("publishable_api_key");
+  } else {
+    existing.push("publishable_api_key");
   }
 
-  if (!result.linked) {
-    return "Open Medusa Admin > Settings > Publishable API Keys, link the printed publishableApiKeyId to the printed salesChannelId, then rerun publishable-key:ensure.";
+  const publishableApiKeyId = idOf(key);
+  const token = typeof key?.token === "string" ? key.token : null;
+  let linked = Boolean(
+    salesChannelId &&
+      asArray<Record<string, unknown>>(key?.sales_channels).some(
+        (channel) => idOf(channel) === salesChannelId,
+      ),
+  );
+
+  if (publishableApiKeyId && salesChannelId && !linked) {
+    await linkSalesChannelsToApiKeyWorkflow(container).run({
+      input: { id: publishableApiKeyId, add: [salesChannelId] },
+    });
+    created.push("publishable_api_key_sales_channel_link");
+    linked = true;
   }
 
-  return "Ensure MEDUSA_BACKEND_URL or MEDUSA_STORE_API_URL points at the reachable Medusa service URL, rerun publishable-key:ensure, and only update storefront env vars after storeProductsAccessible and storeRegionsAccessible are true.";
-};
+  if (!publishableApiKeyId) blockers.push("publishable_api_key_missing");
+  if (!linked) blockers.push("medusa_publishable_key_not_linked_to_sales_channel");
 
-export default async function ensurePublishableApiKey({ container }: ExecArgs) {
-  const query = container.resolve(ContainerRegistrationKeys.QUERY);
-  const blockers: string[] = [];
+  const storeProductsAccessible = await storeGet("/store/products?limit=1", token);
+  const storeRegionsAccessible = await storeGet("/store/regions", token);
+  const operatorInstruction = token
+    ? "Update MEDUSA_PUBLISHABLE_KEY and NEXT_PUBLIC_MEDUSA_PUBLISHABLE_KEY with the new key token from this fresh Medusa DB; only a preview is printed here."
+    : "Copy the publishable key token from Medusa Admin/API key details for this fresh DB, then update MEDUSA_PUBLISHABLE_KEY and NEXT_PUBLIC_MEDUSA_PUBLISHABLE_KEY.";
 
-  let key: ApiKeyRecord | null = null;
-  let salesChannel: SalesChannelRecord | null = null;
-  let linked = false;
-  let storeProductsAccessible = false;
-  let storeRegionsAccessible = false;
-
-  try {
-    key = await findOrCreatePublishableKey(container, query);
-    if (!key?.id) pushUnique(blockers, "publishable_api_key_missing");
-    if (!key?.token) pushUnique(blockers, "publishable_api_key_token_missing");
-  } catch (error) {
-    pushUnique(blockers, errorBlocker("publishable_api_key_ensure_failed", error));
-  }
-
-  try {
-    salesChannel = await findOrCreateSalesChannel(container, query);
-    if (!salesChannel?.id) pushUnique(blockers, "sales_channel_missing");
-  } catch (error) {
-    pushUnique(blockers, errorBlocker("sales_channel_ensure_failed", error));
-  }
-
-  if (key?.id && salesChannel?.id) {
-    try {
-      linked = await ensureApiKeyLinkedToSalesChannel(container, query, key.id, salesChannel.id);
-      if (!linked) pushUnique(blockers, "publishable_api_key_sales_channel_link_missing");
-    } catch (error) {
-      pushUnique(blockers, errorBlocker("publishable_api_key_sales_channel_link_failed", error));
-    }
-  }
-
-  if (key?.token) {
-    const storeApiBaseUrl = getStoreApiBaseUrl();
-    if (!storeApiBaseUrl) {
-      pushUnique(blockers, "store_api_base_url_missing");
-    } else {
-      const productsProof = await verifyStoreEndpoint(
-        storeApiBaseUrl,
-        "/store/products?limit=1",
-        key.token,
-      );
-      storeProductsAccessible = productsProof.accessible;
-      if (productsProof.blocker) pushUnique(blockers, productsProof.blocker);
-
-      const regionsProof = await verifyStoreEndpoint(
-        storeApiBaseUrl,
-        "/store/regions?limit=1",
-        key.token,
-      );
-      storeRegionsAccessible = regionsProof.accessible;
-      if (regionsProof.blocker) pushUnique(blockers, regionsProof.blocker);
-    }
-  }
-
-  const withoutNextManualStep = {
-    success:
-      blockers.length === 0 &&
-      Boolean(key?.id) &&
-      Boolean(key?.token) &&
-      Boolean(salesChannel?.id) &&
-      linked &&
-      storeProductsAccessible &&
-      storeRegionsAccessible,
+  return {
+    success: blockers.length === 0,
+    created,
+    existing,
     blockers,
-    publishableApiKeyId: key?.id || null,
-    publishableApiKeyToken: key?.token || null,
-    salesChannelId: salesChannel?.id || null,
+    publishableApiKeyId,
+    publishableApiKeyTokenPreview: tokenPreview(token),
+    publishableApiKeyCreated,
+    operatorInstruction,
+    salesChannelId,
     linked,
     storeProductsAccessible,
     storeRegionsAccessible,
+    nextManualStep:
+      storeProductsAccessible === false || storeRegionsAccessible === false
+        ? "Use the new publishable key from the fresh DB and ensure it is linked to the default sales channel; do not reuse the deleted DB key."
+        : operatorInstruction,
   };
+}
 
-  const output: EnsurePublishableApiKeyResult = {
-    ...withoutNextManualStep,
-    nextManualStep: buildNextManualStep(withoutNextManualStep),
-  };
-
-  console.log(JSON.stringify(output, null, 2));
+export default async function ensurePublishableKey({ container }: ExecArgs) {
+  console.log(JSON.stringify(await ensurePublishableApiKey(container), null, 2));
 }
