@@ -211,3 +211,17 @@ pnpm release:first-transaction:smokes
 - `pnpm runtime:fly:readiness` reports all three runtimes ready.
 - Product readiness and first-transaction smokes are green.
 - Controlled Stripe checkout is `cs_test_*`, paid with a test card, and the signed webhook evidence is verified before claiming settlement.
+
+## Supabase Auth checklist before first customer transaction
+
+- Enable the Supabase Email provider.
+- Decide whether **Confirm Email** is enabled before the first live customer registers.
+- Set Supabase Auth **Site URL** to `https://dbaronx.com`.
+- Add these Supabase Auth redirect URLs:
+  - `https://dbaronx.com/auth/callback`
+  - `https://www.dbaronx.com/auth/callback`
+  - `https://dbaronx-web.fly.dev/auth/callback`
+- Configure custom SMTP for production email reliability; otherwise confirmation email delivery can become a first-transaction blocker.
+- Check spam and promotions during live signup tests.
+- Never expose the Supabase service role key to Web. Web receives only Supabase public URL and anon key through build-time public env or `/api/public-config`.
+- First-owner bootstrap/referral/invitation creation remains separate and must run only after the real Supabase user exists.

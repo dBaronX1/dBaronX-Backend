@@ -54,3 +54,16 @@ WEB_BASE_URL=https://dbaronx-web.fly.dev pnpm web:auth:readiness
 ```
 
 A green deployed result confirms `/register`, `/signup`, `/login`, `/signin`, `/auth/callback`, `/api/public-config`, customer-safe errors, and Rocket-style auth UI preservation.
+
+## Supabase Auth email-confirmation checklist
+
+- Enable the Supabase Email provider before production signup testing.
+- Decide whether **Confirm Email** is enabled. If enabled, `/register` will create the account, keep the customer on the Rocket-style success state, and ask them to confirm email before signing in.
+- Set Supabase Auth **Site URL** to `https://dbaronx.com`.
+- Add Supabase Auth redirect URLs:
+  - `https://dbaronx.com/auth/callback`
+  - `https://www.dbaronx.com/auth/callback`
+  - `https://dbaronx-web.fly.dev/auth/callback`
+- Configure custom SMTP for production email reliability; Supabase default email is acceptable only for limited development tests.
+- During signup tests, check inbox, spam, and promotions. Use the `/register` **Resend confirmation email** action if the first message does not arrive.
+- Do not expose the Supabase service role key to the frontend. Web may only receive the public Supabase URL and anon key.
