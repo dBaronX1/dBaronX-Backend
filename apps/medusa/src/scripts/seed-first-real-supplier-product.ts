@@ -6,6 +6,7 @@ import {
   DEFAULT_STOCK_LOCATION_NAME,
   ensureShippingReadiness,
 } from "./shipping-readiness";
+import { ensureLaunchSalesChannelConsistency } from "./ensure-launch-sales-channel-consistency";
 import {
   createInventoryLevelsWorkflow,
   createProductsWorkflow,
@@ -330,6 +331,7 @@ async function updateExistingProduct(
   container: ExecArgs["container"],
   existingProduct: any,
   input: FirstProductInput,
+  defaultSalesChannelId: string,
 ): Promise<void> {
   const productModuleService = container.resolve<any>("product");
   const metadata = metadataFor(input);
@@ -343,6 +345,7 @@ async function updateExistingProduct(
         ? { thumbnail: input.imageUrl, images: [{ url: input.imageUrl }] }
         : {}),
       metadata,
+      sales_channels: [{ id: defaultSalesChannelId }],
     },
   ]);
 
@@ -440,13 +443,14 @@ export async function seedFirstSupplierProductWithInput(
   const metadata = metadataFor(input);
 
   if (!dryRun) {
+    const launchConsistency = await ensureLaunchSalesChannelConsistency(container);
     const launchReadiness = await ensureShippingReadiness(container, { repair: false });
-    const launchBlockers = Array.from(new Set(launchReadiness.blockers));
+    const launchBlockers = Array.from(new Set([...launchReadiness.blockers, ...launchConsistency.blockers]));
     if (launchBlockers.length) {
       fail("launch_commerce_not_green_before_first_product_seed", {
         blockers: launchBlockers,
         regionId: launchReadiness.regionId,
-        salesChannelId: launchReadiness.salesChannelId,
+        salesChannelId: launchConsistency.canonicalSalesChannelId || launchReadiness.salesChannelId,
         stockLocationId: launchReadiness.stockLocationId,
         fulfillmentSetId: launchReadiness.fulfillmentSetId,
         serviceZoneId: launchReadiness.serviceZoneId,
@@ -507,8 +511,12 @@ export async function seedFirstSupplierProductWithInput(
       );
     }
     let inventoryLevelSynced = false;
+    let existingProductCanonicalSalesChannelId: string | null = null;
     if (!dryRun) {
-      await updateExistingProduct(container, existingProduct, input);
+      const launchConsistency = await ensureLaunchSalesChannelConsistency(container);
+      existingProductCanonicalSalesChannelId = launchConsistency.canonicalSalesChannelId;
+      if (!launchConsistency.canonicalSalesChannelId) fail("canonical_sales_channel_missing_for_existing_product_publish");
+      await updateExistingProduct(container, existingProduct, input, launchConsistency.canonicalSalesChannelId);
       const stockLocationsResult = await query({
         entity: "stock_location",
         fields: ["id", "name"],
@@ -516,6 +524,7 @@ export async function seedFirstSupplierProductWithInput(
       });
       const stockLocations = asArray<any>(stockLocationsResult, ["stock_locations"]);
       const stockLocation =
+        stockLocations.find((location: any) => location?.id === launchConsistency.stockLocationId) ||
         stockLocations.find((location: any) => location?.name === DEFAULT_STOCK_LOCATION_NAME) ||
         stockLocations.find((location: any) => /dBaronX/i.test(String(location?.name || ""))) ||
         stockLocations[0] ||
@@ -543,6 +552,7 @@ export async function seedFirstSupplierProductWithInput(
             variantId: asArray<any>(existingProduct.variants)[0]?.id || null,
             inventoryLevelSynced,
             metadataContract: metadata,
+            canonicalSalesChannelId: existingProductCanonicalSalesChannelId,
           }),
         },
         null,
@@ -580,7 +590,9 @@ export async function seedFirstSupplierProductWithInput(
     "stock_locations",
   ]);
 
+  const launchConsistency = dryRun ? null : await ensureLaunchSalesChannelConsistency(container);
   const defaultSalesChannel =
+    salesChannels.find((sc: any) => sc?.id === launchConsistency?.canonicalSalesChannelId) ||
     salesChannels.find((sc: any) => sc?.name === DEFAULT_SALES_CHANNEL_NAME) ||
     salesChannels.find((sc: any) => sc?.is_default) ||
     salesChannels[0] ||
@@ -591,6 +603,7 @@ export async function seedFirstSupplierProductWithInput(
     shippingProfiles[0] ||
     null;
   const stockLocation =
+    stockLocations.find((location: any) => location?.id === launchConsistency?.stockLocationId) ||
     stockLocations.find((location: any) => location?.name === DEFAULT_STOCK_LOCATION_NAME) ||
     stockLocations.find((location: any) => /dBaronX/i.test(String(location?.name || ""))) ||
     stockLocations[0] ||
@@ -661,6 +674,7 @@ export async function seedFirstSupplierProductWithInput(
           variantId: variant?.id || null,
           inventoryLevelCreated,
           metadataContract: productInput.metadata,
+          canonicalSalesChannelId: defaultSalesChannel.id,
         }),
       },
       null,

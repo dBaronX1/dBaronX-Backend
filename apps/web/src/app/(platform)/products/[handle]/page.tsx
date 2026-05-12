@@ -5,6 +5,8 @@ import { SectionHeader } from "@/components/platform/SectionHeader";
 import {
   fetchMedusaStoreProductByHandle,
   isVerifiedRealSupplierProduct,
+  productAvailabilityLabel,
+  productDeliveryEstimate,
   productDisplayPrice,
   productPrimaryImage,
 } from "@/lib/medusa/store-client";
@@ -51,7 +53,7 @@ export default async function ProductPage({ params }: ProductPageProps) {
               <span className={`rounded-full px-3 py-1 text-xs font-semibold ${verified ? "bg-emerald-50 text-emerald-700" : "bg-amber-50 text-amber-700"}`}>
                 {verified ? "Verified real supplier product" : "Not ready for checkout"}
               </span>
-              <span className="rounded-full bg-neutral-100 px-3 py-1 text-xs font-semibold text-neutral-700">Supplier: {String(metadata.supplier || "not public")}</span>
+              <span className="rounded-full bg-neutral-100 px-3 py-1 text-xs font-semibold text-neutral-700">Supplier-backed fulfillment</span>
             </div>
 
             <div>
@@ -63,7 +65,8 @@ export default async function ProductPage({ params }: ProductPageProps) {
               <div className="flex justify-between gap-4"><dt className="text-neutral-500">Handle</dt><dd className="text-right font-medium text-neutral-900">{String(product.handle || handle)}</dd></div>
               <div className="flex justify-between gap-4"><dt className="text-neutral-500">SKU</dt><dd className="text-right font-medium text-neutral-900">{String(metadata.supplierSku || variant?.sku || "not public")}</dd></div>
               <div className="flex justify-between gap-4"><dt className="text-neutral-500">Checkout status</dt><dd className="text-right font-medium text-neutral-900">{String(metadata.supplierVerificationStatus || "not verified")}</dd></div>
-              <div className="flex justify-between gap-4"><dt className="text-neutral-500">Delivery estimate</dt><dd className="text-right font-medium text-neutral-900">{String(metadata.deliveryEstimate || "shown at checkout")}</dd></div>
+              <div className="flex justify-between gap-4"><dt className="text-neutral-500">Availability</dt><dd className="text-right font-medium text-neutral-900">{productAvailabilityLabel(product)}</dd></div>
+              <div className="flex justify-between gap-4"><dt className="text-neutral-500">Delivery estimate</dt><dd className="text-right font-medium text-neutral-900">{productDeliveryEstimate(product)}</dd></div>
             </dl>
 
             <div className="rounded-2xl border border-blue-100 bg-blue-50 p-4 text-sm text-blue-950">

@@ -22,6 +22,19 @@ This pack is the repo-level source of truth for the final controlled first-sale 
   - shipping country: `US`
   - delivery estimate: `7-15 business days`
 
+
+## Customer auth locations
+
+Customer signup and login live in the Web/Rocket storefront, backed by Supabase Auth:
+
+- Customer signup URL: `/signup`
+- Customer login URL: `/login`
+- Auth callback URL: `/auth/callback`
+- Onboarding URL after signup: `/onboarding`
+- Customer dashboard URL after login: `/dashboard`
+
+Medusa `/app` is not customer login. Medusa `/app` may also be unavailable in production because the Medusa admin build is disabled for the commerce-only first-sale path. Customer identity belongs to the Web/Rocket app plus Supabase Auth; Medusa remains commerce-only and must not be used as the customer account surface.
+
 ## Generate the safe command pack
 
 Run the repo helper whenever an operator needs the final release commands:
