@@ -1,2 +1,2 @@
-import { RocketSimplePage } from "@/components/rocket/StaticPages";
-export default function PrivacyPage() { return <RocketSimplePage title="Privacy" description="Rocket-styled privacy surface covering account, checkout, and referral data handling." />; }
+import { DbxSimplePage } from "@/components/dbx/StaticPages";
+export default function PrivacyPage() { return <DbxSimplePage title="Privacy" description="Privacy information for account, checkout, and referral data handling." />; }

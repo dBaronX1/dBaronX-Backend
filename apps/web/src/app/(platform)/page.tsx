@@ -1,5 +1,5 @@
-import { RocketHomePage } from "@/components/rocket/StaticPages";
+import { DbxHomePage } from "@/components/dbx/StaticPages";
 
 export default function Home() {
-  return <RocketHomePage />;
+  return <DbxHomePage />;
 }

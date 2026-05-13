@@ -103,7 +103,6 @@ export async function ensurePublishableApiKey(container: ExecArgs["container"]) 
       input: {
         selector: {},
         update: {
-          default_sales_channel_id: salesChannelId,
           supported_currencies: [{ currency_code: "usd", is_default: true }],
         },
       },

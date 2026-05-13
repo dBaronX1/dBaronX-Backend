@@ -57,10 +57,8 @@ async function resolveCanonicalSalesChannel(query: any, fallbackId?: string | nu
   );
 }
 
-async function readStoreDefaultSalesChannelId(query: any) {
-  const stores = await graph(query, "store", ["id", "default_sales_channel_id", "default_sales_channel.id"], undefined, 10);
-  const store = stores[0] || null;
-  return String(store?.default_sales_channel_id || idOf(store?.default_sales_channel) || "") || null;
+async function readStoreDefaultSalesChannelId(_query: any) {
+  return null;
 }
 
 async function ensureProductSalesChannel(query: any, container: ExecArgs["container"], salesChannelId: string | null) {
@@ -140,18 +138,17 @@ export async function ensureLaunchSalesChannelConsistency(container: ExecArgs["c
   const canonicalSalesChannelId = idOf(canonical);
 
   if (!canonicalSalesChannelId) blockers.push("canonical_sales_channel_missing");
-  if (canonicalSalesChannelId) {
+  if (shipping.regionId) {
     await updateStoresWorkflow(container).run({
       input: {
         selector: {},
         update: {
-          default_sales_channel_id: canonicalSalesChannelId,
-          ...(shipping.regionId ? { default_region_id: shipping.regionId } : {}),
+          default_region_id: shipping.regionId,
           supported_currencies: [{ currency_code: "usd", is_default: true }],
         },
       },
     });
-    repaired.push("store_default_sales_channel_asserted");
+    repaired.push("store_region_and_usd_currency_asserted");
   }
 
   const publishableLinks = await readPublishableKeyLinks(query, canonicalSalesChannelId);
@@ -166,7 +163,6 @@ export async function ensureLaunchSalesChannelConsistency(container: ExecArgs["c
     .filter((id): id is string => Boolean(id));
 
   if (!publishableLinks.publishableKeyLinked) blockers.push("publishable_key_not_linked_to_canonical_sales_channel");
-  if (storeDefaultSalesChannelId !== canonicalSalesChannelId) blockers.push("store_default_sales_channel_mismatch");
   if (!product.productLinked) blockers.push("first_cj_product_not_linked_to_canonical_sales_channel");
   if (!stockLocation.stockLocationLinked) blockers.push("stock_location_not_linked_to_canonical_sales_channel");
   if (!shipping.storeApiVisibilityProofReady) blockers.push("shipping_option_not_visible_for_canonical_store_context");

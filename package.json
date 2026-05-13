@@ -33,7 +33,11 @@
     "web:auth:readiness": "node scripts/e2e-web-auth-runtime-config-smoke.mjs",
     "supabase:auth:checklist": "node scripts/print-supabase-auth-production-checklist.mjs",
     "web:rocket-source:readiness": "node scripts/e2e-web-rocket-source-merge-smoke.mjs",
-    "web:account:readiness": "node scripts/e2e-web-account-profile-smoke.mjs"
+    "web:account:readiness": "node scripts/e2e-web-account-profile-smoke.mjs",
+    "web:public-ui:no-internals": "node scripts/e2e-web-public-ui-no-internals-smoke.mjs",
+    "web:rocket-visual:readiness": "node scripts/e2e-web-rocket-source-visual-preservation-smoke.mjs",
+    "web:internal-routes:protection": "node scripts/e2e-web-internal-routes-protection-smoke.mjs",
+    "medusa:launch-commerce:readiness": "node scripts/e2e-medusa-launch-commerce-readiness-smoke.mjs"
   },
   "pnpm": {
     "onlyBuiltDependencies": [

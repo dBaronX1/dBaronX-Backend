@@ -19,7 +19,7 @@ const pageStyle: CSSProperties = {
   fontFamily: "Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif",
 };
 
-export const rocketCardStyle: CSSProperties = {
+export const dbxCardStyle: CSSProperties = {
   border: "1px solid rgba(255,255,255,.14)",
   borderRadius: 28,
   background: "linear-gradient(145deg, rgba(15,23,42,.78), rgba(67,20,7,.48))",
@@ -27,7 +27,7 @@ export const rocketCardStyle: CSSProperties = {
   backdropFilter: "blur(18px)",
 };
 
-export const rocketButtonStyle: CSSProperties = {
+export const dbxButtonStyle: CSSProperties = {
   display: "inline-flex",
   alignItems: "center",
   justifyContent: "center",
@@ -41,9 +41,9 @@ export const rocketButtonStyle: CSSProperties = {
   boxShadow: "0 18px 35px rgba(249,115,22,.28)",
 };
 
-export function RocketShell({
+export function DbxVisualShell({
   children,
-  eyebrow = "Rocket production UI",
+  eyebrow = "dBaronX",
   title,
   description,
   actions,
@@ -71,7 +71,7 @@ export function RocketShell({
             <Image src="/assets/images/app_logo.svg" alt="dBaronX" width={42} height={42} priority />
             <span>dBaronX</span>
           </Link>
-          <nav style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }} aria-label="Rocket production navigation">
+          <nav style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }} aria-label="dBaronX navigation">
             {navItems.map(([label, href]) => (
               <Link key={href} href={href} style={{ color: "#fde68a", textDecoration: "none", fontSize: 14, fontWeight: 800, padding: "9px 11px", borderRadius: 999, background: "rgba(255,255,255,.06)" }}>
                 {label}
@@ -95,6 +95,6 @@ export function RocketShell({
   );
 }
 
-export function RocketCard({ children, style }: { children: ReactNode; style?: CSSProperties }) {
-  return <div style={{ ...rocketCardStyle, padding: 24, ...style }}>{children}</div>;
+export function DbxCard({ children, style }: { children: ReactNode; style?: CSSProperties }) {
+  return <div style={{ ...dbxCardStyle, padding: 24, ...style }}>{children}</div>;
 }

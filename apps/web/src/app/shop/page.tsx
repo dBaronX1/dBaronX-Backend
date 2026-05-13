@@ -1,5 +1,5 @@
-import { RocketShopPage } from "@/components/rocket/StaticPages";
+import { DbxShopPage } from "@/components/dbx/StaticPages";
 
 export default function ShopPage() {
-  return <RocketShopPage />;
+  return <DbxShopPage />;
 }
