@@ -1,5 +1,5 @@
 import { RocketHomePage } from "@/components/rocket/StaticPages";
 
-export default function Home() {
+export default function HomePage() {
   return <RocketHomePage />;
 }
