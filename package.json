@@ -37,7 +37,8 @@
     "web:public-ui:no-internals": "node scripts/e2e-web-public-ui-no-internals-smoke.mjs",
     "web:rocket-visual:readiness": "node scripts/e2e-web-rocket-source-visual-preservation-smoke.mjs",
     "web:internal-routes:protection": "node scripts/e2e-web-internal-routes-protection-smoke.mjs",
-    "medusa:launch-commerce:readiness": "node scripts/e2e-medusa-launch-commerce-readiness-smoke.mjs"
+    "medusa:launch-commerce:readiness": "node scripts/e2e-medusa-launch-commerce-readiness-smoke.mjs",
+    "web:functionality-export:readiness": "node scripts/e2e-web-functionality-only-export-smoke.mjs"
   },
   "pnpm": {
     "onlyBuiltDependencies": [
