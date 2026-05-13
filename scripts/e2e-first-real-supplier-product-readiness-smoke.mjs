@@ -208,10 +208,10 @@ if (EXPECTED_CANONICAL_SALES_CHANNEL_ID && cartSalesChannelId && cartSalesChanne
   addBlocker("sales_channel_mismatch");
 }
 if (productSalesChannelIds.length && canonicalSalesChannelId && !productSalesChannelIds.includes(canonicalSalesChannelId)) {
-  addBlocker("sales_channel_mismatch");
+  addBlocker("sales_channel_link_missing");
 }
 if (!shipping.shippingOptionVisible)
-  addBlocker(shipping.blocker || "shipping_option_not_visible_for_cart");
+  addBlocker(shipping.blocker === "shipping_option_empty_for_cart" ? "shipping_option_store_visibility_missing" : shipping.blocker || "shipping_option_store_visibility_missing");
 const checkoutPathReady = Boolean(
   realSupplierProductPresent &&
   expectedSupplierReady &&
@@ -678,7 +678,7 @@ function nextManualStep() {
   if (draftProduct && !verifiedProduct)
     return `Verify the draft supplier product before live checkout: add image URL, confirm stock quantity, shipping countries, and delivery estimate, then rerun the seed in publish mode.`;
   if (launchCommerceStoreApiGreen && blockers.includes("real_supplier_product_missing"))
-    return "Launch-commerce Store API is green and the verified CJ shirt is missing. Run DBX_CONFIRM_CJ_FIRST_PRODUCT_SEED=true pnpm --filter @dbaronx/medusa run first-product:seed:cj-shirt next, then rerun this readiness smoke.";
+    return "Launch-commerce Store API is green and the verified CJ shirt is missing. Run DBX_CONFIRM_CJ_FIRST_PRODUCT_SEED=true pnpm --filter @dbaronx/medusa run first-product:reseed:canonical next, then rerun this readiness smoke.";
   if (blockers.length)
     return `Resolve blockers before first real checkout: ${blockers.join(", ")}.`;
   return `Open ${productUrl}, add the item to cart, run Stripe test checkout, then proceed to live money only after signed webhook/order proof is verified.`;

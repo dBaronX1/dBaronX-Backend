@@ -753,7 +753,7 @@ if (out.cartSalesChannelId) {
     addBlocker("sales_channel_mismatch");
   }
   if (out.productSalesChannelIds.length && out.canonicalSalesChannelId && !out.productSalesChannelIds.includes(out.canonicalSalesChannelId)) {
-    addBlocker("sales_channel_mismatch");
+    addBlocker("sales_channel_link_missing");
   }
 }
 

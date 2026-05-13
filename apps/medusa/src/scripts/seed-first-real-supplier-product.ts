@@ -10,8 +10,10 @@ import { ensureLaunchSalesChannelConsistency } from "./ensure-launch-sales-chann
 import {
   createInventoryLevelsWorkflow,
   createProductsWorkflow,
+  linkProductsToSalesChannelWorkflow,
   updateInventoryLevelsWorkflow,
   updateProductVariantsWorkflow,
+  updateProductsWorkflow,
 } from "@medusajs/medusa/core-flows";
 
 type QueryGraphResult = Record<string, unknown> | unknown[] | null | undefined;
@@ -252,6 +254,7 @@ export function metadataFor(input: FirstProductInput) {
     supplierProductId: input.supplierProductId,
     supplierSku: input.supplierSku,
     sourceUrl: input.sourceUrl,
+    imageUrl: input.imageUrl || null,
     supplierCostAmount: input.supplierCostAmount,
     supplierCostCurrency: "usd",
     supplierCostUsdMinor: input.supplierCostAmount,
@@ -333,11 +336,12 @@ async function updateExistingProduct(
   input: FirstProductInput,
   defaultSalesChannelId: string,
 ): Promise<void> {
-  const productModuleService = container.resolve<any>("product");
   const metadata = metadataFor(input);
-  await productModuleService.updateProducts([
-    {
-      id: existingProduct.id,
+  await updateProductsWorkflow(container).run({
+    input: {
+      products: [
+        {
+          id: existingProduct.id,
       title: input.title,
       description: input.description,
       handle: input.handle,
@@ -345,9 +349,15 @@ async function updateExistingProduct(
         ? { thumbnail: input.imageUrl, images: [{ url: input.imageUrl }] }
         : {}),
       metadata,
-      sales_channels: [{ id: defaultSalesChannelId }],
+          sales_channels: [{ id: defaultSalesChannelId }],
+        },
+      ],
     },
-  ]);
+  });
+
+  await linkProductsToSalesChannelWorkflow(container).run({
+    input: { id: defaultSalesChannelId, add: [existingProduct.id] },
+  });
 
   const variant = asArray<any>(existingProduct.variants)[0] || null;
   if (variant?.id) {
