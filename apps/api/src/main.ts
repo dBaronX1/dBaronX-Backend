@@ -124,6 +124,7 @@ async function bootstrap() {
       "x-idempotency-key",
       "x-telegram-init-data",
       "x-client-version",
+      "x-owner-bootstrap-token",
       "stripe-signature",
     ],
     exposedHeaders: ["x-request-id"],
