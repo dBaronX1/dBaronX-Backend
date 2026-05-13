@@ -1,7 +1,7 @@
 import type { ExecArgs } from "@medusajs/framework/types";
 
+import { reseedCjFirstProductCanonical } from "./reseed-cj-first-product-canonical";
 import {
-  seedFirstSupplierProductWithInput,
   verificationBlockersFor,
 } from "./seed-first-real-supplier-product";
 import type { FirstProductInput } from "./seed-first-real-supplier-product";
@@ -53,5 +53,6 @@ function selectedCjFirstProductInput(): FirstProductInput {
 }
 
 export default async function seedSelectedCjFirstShirtProduct(args: ExecArgs) {
-  return seedFirstSupplierProductWithInput(args, selectedCjFirstProductInput());
+  selectedCjFirstProductInput();
+  return reseedCjFirstProductCanonical(args);
 }

@@ -1,6 +1,6 @@
 import { ExecArgs } from "@medusajs/framework/types";
 import { ContainerRegistrationKeys } from "@medusajs/framework/utils";
-import { updateStoresWorkflow } from "@medusajs/medusa/core-flows";
+import { linkProductsToSalesChannelWorkflow, updateStoresWorkflow } from "@medusajs/medusa/core-flows";
 
 import { ensurePublishableApiKey, KEY_TITLE } from "./ensure-publishable-api-key";
 import {
@@ -76,13 +76,9 @@ async function ensureProductSalesChannel(query: any, container: ExecArgs["contai
   if (currentIds.includes(salesChannelId)) {
     return { productLinked: true, productSalesChannelIds: currentIds, repaired: false };
   }
-  const productModuleService = container.resolve<any>("product");
-  await productModuleService.updateProducts([
-    {
-      id: product.id,
-      sales_channels: unique([...currentIds, salesChannelId]).map((id) => ({ id })),
-    },
-  ]);
+  await linkProductsToSalesChannelWorkflow(container).run({
+    input: { id: salesChannelId, add: [String(product.id)] },
+  });
   return {
     productLinked: true,
     productSalesChannelIds: unique([...currentIds, salesChannelId]),
