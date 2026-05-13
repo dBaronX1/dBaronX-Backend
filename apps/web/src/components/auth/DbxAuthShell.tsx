@@ -124,7 +124,7 @@ const styles = {
   link: { color: "#fbbf24", fontWeight: 900, textDecoration: "none" },
 };
 
-export type RocketAuthShellProps = {
+export type DbxAuthShellProps = {
   mode: "register" | "login";
   email: string;
   password: string;
@@ -147,7 +147,7 @@ export type RocketAuthShellProps = {
   children?: ReactNode;
 };
 
-export function RocketAuthShell({
+export function DbxAuthShell({
   mode,
   email,
   password,
@@ -168,7 +168,7 @@ export function RocketAuthShell({
   onReferralCodeChange,
   onMagicLink,
   children,
-}: RocketAuthShellProps) {
+}: DbxAuthShellProps) {
   const isRegister = mode === "register";
   const submitDisabled = !configReady || submitting;
   const params = new URLSearchParams();
@@ -180,7 +180,7 @@ export function RocketAuthShell({
   const authSearch = params.toString() ? `?${params.toString()}` : "";
 
   return (
-    <main style={styles.page} data-rocket-auth-ui="preserved">
+    <main style={styles.page} data-dbx-visual-ui="preserved">
       <div style={styles.wrap}>
         <nav style={styles.nav} aria-label="dBaronX auth navigation">
           <Link href="/" style={styles.brand}>
@@ -196,18 +196,18 @@ export function RocketAuthShell({
 
         <section style={styles.grid}>
           <div style={styles.hero}>
-            <div style={styles.eyebrow}>Rocket-grade commerce access</div>
+            <div style={styles.eyebrow}>dBaronX customer access</div>
             <h1 style={styles.title}>
               {isRegister ? "Launch your" : "Welcome back to"} <span style={styles.gradientText}>dBaronX</span>
             </h1>
             <p style={styles.lead}>
               {isRegister
-                ? "Create your account for the polished dBaronX storefront, onboarding, referrals, products, and customer dashboard without exposing internal runtime details."
-                : "Log in to continue to the dBaronX dashboard, customer commerce tools, referrals, and first-transaction flow."}
+                ? "Create your account for the dBaronX storefront, onboarding, referrals, products, and customer dashboard."
+                : "Log in to continue to the dBaronX dashboard, customer commerce tools, referrals, and checkout flow."}
             </p>
             <div style={styles.stats} aria-label="dBaronX readiness highlights">
-              <span style={styles.stat}><strong style={styles.statValue}>Supabase</strong><span style={styles.statLabel}>Customer auth</span></span>
-              <span style={styles.stat}><strong style={styles.statValue}>Medusa</strong><span style={styles.statLabel}>Commerce engine</span></span>
+              <span style={styles.stat}><strong style={styles.statValue}>Secure</strong><span style={styles.statLabel}>Account access</span></span>
+              <span style={styles.stat}><strong style={styles.statValue}>Shop</strong><span style={styles.statLabel}>Products</span></span>
               <span style={styles.stat}><strong style={styles.statValue}>DBX</strong><span style={styles.statLabel}>Rewards + control</span></span>
             </div>
           </div>

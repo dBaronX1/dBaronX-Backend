@@ -1,5 +1,5 @@
-import { RocketDashboardPage } from "@/components/rocket/StaticPages";
+import { DbxDashboardPage } from "@/components/dbx/StaticPages";
 
 export default function DashboardPage() {
-  return <RocketDashboardPage />;
+  return <DbxDashboardPage />;
 }

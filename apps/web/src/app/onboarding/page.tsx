@@ -31,7 +31,7 @@ export default function OnboardingPage() {
           Account setup is in progress.
         </h1>
         <p style={{ color: "#cbd5e1", fontSize: 17, lineHeight: 1.7 }}>
-          Your confirmed Supabase account is ready for the dBaronX profile, referral, storefront, and dashboard sync. This page does not run first-owner bootstrap and does not create placeholder customer records.
+          Your confirmed account is ready for the dBaronX profile, referral, storefront, and dashboard sync. This page does not run first-owner bootstrap and does not create placeholder customer records.
         </p>
         <p style={{ color: "#cbd5e1", fontSize: 17, lineHeight: 1.7 }}>
           Continue to the dashboard or storefront while setup finishes. First-owner referral/reference/invitation creation remains an operator action that happens only after the real user exists.

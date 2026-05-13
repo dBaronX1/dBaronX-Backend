@@ -1001,8 +1001,8 @@ async function ensureLaunchSalesChannel(
     pushUnique(created.includes("sales_channel") ? created : existing, "sales_channel");
     if (repair) {
       try {
-        await updateStoresWorkflow(container).run({ input: { selector: {}, update: { default_sales_channel_id: salesChannelId, ...(regionId ? { default_region_id: regionId } : {}), supported_currencies: [{ currency_code: "usd", is_default: true }] } } });
-        pushUnique(created, "store_default_sales_channel_and_usd_currency");
+        await updateStoresWorkflow(container).run({ input: { selector: {}, update: { ...(regionId ? { default_region_id: regionId } : {}), supported_currencies: [{ currency_code: "usd", is_default: true }] } } });
+        pushUnique(created, "store_region_and_usd_currency");
       } catch (error) {
         addWorkflowErrorBlocker(blockers, "store_defaults_update", error);
       }

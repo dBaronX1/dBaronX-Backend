@@ -1,5 +1,5 @@
-import { RocketAccountPage } from "@/components/rocket/StaticPages";
+import { DbxAccountPage } from "@/components/dbx/StaticPages";
 
 export default function ProfilePage() {
-  return <RocketAccountPage mode="profile" />;
+  return <DbxAccountPage mode="profile" />;
 }

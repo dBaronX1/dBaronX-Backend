@@ -3,15 +3,14 @@
 import { FormEvent, Suspense, useEffect, useMemo, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 
-import { RocketAuthShell } from "@/components/auth/RocketAuthShell";
+import { DbxAuthShell } from "@/components/auth/DbxAuthShell";
 import { appendReferralParams, captureReferralParams, referralMetadata } from "@/lib/auth/referral-capture";
 import { safeLocalPath } from "@/lib/auth/routes";
-import { CUSTOMER_AUTH_UNAVAILABLE_MESSAGE, getBrowserPublicConfig, hasSupabasePublicConfig } from "@/lib/public-config";
-import { getSupabaseRuntimeBrowserClient } from "@/lib/supabase/runtime-client";
+import { CUSTOMER_ACCESS_UNAVAILABLE_MESSAGE, getBrowserCustomerConfig, getCustomerAuthClient, hasCustomerAccessConfig } from "@/lib/auth/customer-auth-client";
 
 const supportHref = "mailto:support@dbaronx.com";
 const EMAIL_PATTERN = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-const CONFIRMATION_MESSAGE = "Account created. Check your email to confirm your account, then return to sign in.";
+const CONFIRMATION_MESSAGE = "Account created. Please check your email to confirm your account.";
 
 type FieldErrors = Partial<Record<"fullName" | "email" | "password" | "confirmPassword", string>>;
 
@@ -19,10 +18,10 @@ function humanSignupError(message: string) {
   if (/password/i.test(message)) return "Password must meet the security requirements. Try at least 8 characters.";
   if (/already|registered|exists/i.test(message)) return "An account may already exist for this email. Try logging in.";
   if (/rate|limit/i.test(message)) return "Please wait a few minutes before trying again.";
-  if (/network|fetch/i.test(message)) return "Signup is temporarily unavailable. Please try again shortly or contact support.";
-  return message && !/NEXT_PUBLIC|SUPABASE_|DATABASE_URL|SECRET|TOKEN/i.test(message)
+  if (/network|fetch/i.test(message)) return "We could not complete signup. Please try again or contact support.";
+  return message && !/NEXT_PUBLIC|CUSTOMER_AUTH_|DATABASE_URL|SECRET|TOKEN/i.test(message)
     ? message
-    : "Signup failed. Please try again.";
+    : "We could not complete signup. Please try again or contact support.";
 }
 
 function validateSignup(fullName: string, email: string, password: string, confirmPassword: string): FieldErrors {
@@ -65,9 +64,9 @@ function RegisterForm() {
 
   useEffect(() => {
     let mounted = true;
-    getBrowserPublicConfig()
+    getBrowserCustomerConfig()
       .then((config) => {
-        if (mounted) setConfigReady(hasSupabasePublicConfig(config));
+        if (mounted) setConfigReady(hasCustomerAccessConfig(config));
       })
       .catch(() => {
         if (mounted) setConfigReady(false);
@@ -92,13 +91,13 @@ function RegisterForm() {
       return;
     }
     if (!configReady) {
-      setMessage(CUSTOMER_AUTH_UNAVAILABLE_MESSAGE);
+      setMessage(CUSTOMER_ACCESS_UNAVAILABLE_MESSAGE);
       return;
     }
     setSubmitting(true);
     setMessage("Creating your account…");
     try {
-      const [supabase, config] = await Promise.all([getSupabaseRuntimeBrowserClient(), getBrowserPublicConfig()]);
+      const [authClient, config] = await Promise.all([getCustomerAuthClient(), getBrowserCustomerConfig()]);
       const metadata = {
         ...referralMetadata({ ...referral, ref: referralCode.trim() || referral.ref }),
         full_name: fullName.trim(),
@@ -106,7 +105,7 @@ function RegisterForm() {
         source: "web_register",
         onboarding_target: "/onboarding",
       };
-      const { data, error } = await supabase.auth.signUp({
+      const { data, error } = await authClient.auth.signUp({
         email: email.trim(),
         password,
         options: {
@@ -127,7 +126,7 @@ function RegisterForm() {
       setConfirmationPending(true);
       setMessage(CONFIRMATION_MESSAGE);
     } catch (error) {
-      setMessage(error instanceof Error ? humanSignupError(error.message) : "Signup failed. Please try again.");
+      setMessage(error instanceof Error ? humanSignupError(error.message) : "We could not complete signup. Please try again or contact support.");
     } finally {
       setSubmitting(false);
     }
@@ -138,12 +137,12 @@ function RegisterForm() {
     setResending(true);
     setResendMessage("Sending confirmation email…");
     try {
-      const [supabase, config] = await Promise.all([getSupabaseRuntimeBrowserClient(), getBrowserPublicConfig()]);
-      if (typeof supabase.auth.resend !== "function") {
+      const [authClient, config] = await Promise.all([getCustomerAuthClient(), getBrowserCustomerConfig()]);
+      if (typeof authClient.auth.resend !== "function") {
         setResendMessage("Please try again in a few minutes or contact support.");
         return;
       }
-      const { error } = await supabase.auth.resend({
+      const { error } = await authClient.auth.resend({
         type: "signup",
         email: email.trim(),
         options: { emailRedirectTo: resolveEmailRedirect(config.siteUrl, buildCallbackPath()) },
@@ -157,7 +156,7 @@ function RegisterForm() {
   }
 
   return (
-    <RocketAuthShell
+    <DbxAuthShell
       mode="register"
       email={email}
       password={password}
@@ -203,7 +202,7 @@ function RegisterForm() {
           {resendMessage ? <p role="status" style={{ margin: 0, color: "#e2e8f0" }}>{resendMessage}</p> : null}
         </div>
       ) : null}
-    </RocketAuthShell>
+    </DbxAuthShell>
   );
 }
 

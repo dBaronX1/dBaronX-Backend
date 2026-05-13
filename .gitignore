@@ -35,3 +35,9 @@ Thumbs.db
 dBaronX Ltd ChatGPT.txt
 dbx payment.txt
 *.patch
+
+# Local secret files
+new.env
+*.env.local
+*.env.production
+*.env.development

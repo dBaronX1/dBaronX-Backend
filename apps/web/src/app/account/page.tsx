@@ -1,5 +1,5 @@
-import { RocketAccountPage } from "@/components/rocket/StaticPages";
+import { DbxAccountPage } from "@/components/dbx/StaticPages";
 
 export default function AccountPage() {
-  return <RocketAccountPage />;
+  return <DbxAccountPage />;
 }

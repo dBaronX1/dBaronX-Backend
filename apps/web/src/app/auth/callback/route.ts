@@ -3,7 +3,7 @@ import { createClient } from "@supabase/supabase-js";
 
 import { REFERRAL_QUERY_KEYS } from "@/lib/auth/referral-capture";
 import { safeLocalPath } from "@/lib/auth/routes";
-import { getRuntimePublicConfigFromEnv, hasSupabasePublicConfig } from "@/lib/public-config";
+import { getRuntimeCustomerConfigFromEnv, hasCustomerAccessConfig } from "@/lib/auth/callback-config";
 
 export const dynamic = "force-dynamic";
 
@@ -13,8 +13,8 @@ export async function GET(request: NextRequest) {
   const next = safeLocalPath(url.searchParams.get("next"), "/onboarding");
 
   if (code) {
-    const config = getRuntimePublicConfigFromEnv();
-    if (hasSupabasePublicConfig(config)) {
+    const config = getRuntimeCustomerConfigFromEnv();
+    if (hasCustomerAccessConfig(config)) {
       const supabase = createClient(config.supabaseUrl, config.supabaseAnonKey, {
         auth: {
           persistSession: false,
@@ -24,7 +24,7 @@ export async function GET(request: NextRequest) {
       });
       await supabase.auth.exchangeCodeForSession(code);
     } else if (process.env.NODE_ENV === "development") {
-      console.warn("Supabase auth public config is missing for the auth callback runtime.");
+      console.warn("Customer access is temporarily unavailable for the auth callback runtime.");
     }
   }
 
