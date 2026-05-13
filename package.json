@@ -31,7 +31,9 @@
     "first-transaction:commands": "node scripts/print-first-transaction-final-commands.mjs",
     "runtime:fly:readiness": "node scripts/e2e-fly-runtime-release-readiness-smoke.mjs",
     "web:auth:readiness": "node scripts/e2e-web-auth-runtime-config-smoke.mjs",
-    "supabase:auth:checklist": "node scripts/print-supabase-auth-production-checklist.mjs"
+    "supabase:auth:checklist": "node scripts/print-supabase-auth-production-checklist.mjs",
+    "web:rocket-source:readiness": "node scripts/e2e-web-rocket-source-merge-smoke.mjs",
+    "web:account:readiness": "node scripts/e2e-web-account-profile-smoke.mjs"
   },
   "pnpm": {
     "onlyBuiltDependencies": [

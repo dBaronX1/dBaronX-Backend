@@ -1,0 +1,15 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 900" role="img" aria-labelledby="title desc">
+  <title id="title">No product image</title>
+  <desc id="desc">Text SVG fallback for Rocket UI product cards.</desc>
+  <defs>
+    <linearGradient id="g" x1="0" y1="0" x2="1" y2="1">
+      <stop stop-color="#171717"/>
+      <stop offset="1" stop-color="#431407"/>
+    </linearGradient>
+  </defs>
+  <rect width="1200" height="900" rx="64" fill="url(#g)"/>
+  <circle cx="600" cy="380" r="150" fill="#f59e0b" opacity=".88"/>
+  <path d="M450 520h300l-150-210z" fill="#09090b" opacity=".9"/>
+  <text x="600" y="720" text-anchor="middle" font-family="Arial, sans-serif" font-size="62" font-weight="900" fill="#fff7ed">dBaronX</text>
+  <text x="600" y="790" text-anchor="middle" font-family="Arial, sans-serif" font-size="34" font-weight="700" fill="#fed7aa">image coming soon</text>
+</svg>
