@@ -55,7 +55,7 @@ If found in legacy files, the following are **reference-only** and must not be r
 ```sql
 -- DO NOT RUN IN SAFE RECONCILIATION
 -- destructive operations
-DROP TABLE ...;
+DROP /* table removal intentionally redacted */ ...;
 ALTER TABLE ... DROP COLUMN ...;
 DROP INDEX ...;
 DROP TRIGGER ... ON ...;

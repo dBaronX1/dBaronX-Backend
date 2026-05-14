@@ -225,3 +225,47 @@ pnpm release:first-transaction:smokes
 - Check spam and promotions during live signup tests.
 - Never expose the Supabase service role key to Web. Web receives only Supabase public URL and anon key through build-time public env or `/api/public-config`.
 - First-owner bootstrap/referral/invitation creation remains separate and must run only after the real Supabase user exists.
+
+## Complete database pack operator order
+
+The complete Supabase + Medusa readiness pack adds one Supabase-owned application migration and keeps Medusa core commerce schema out of Supabase.
+
+### Supabase SQL to run
+
+Run this exact SQL file in the Supabase SQL editor, or apply it through the approved migration runner after all earlier migrations:
+
+```text
+supabase/migrations/202605140001_complete_dbaronx_application_schema.sql
+```
+
+The file is idempotent and additive. It creates/repairs dBaronX-owned `app_public` application tables, RLS policies, updated-at triggers, and service-role RPC helpers. It does not create Medusa core commerce tables.
+
+### Do not run this in Supabase
+
+Do not create or repair Medusa core tables in Supabase. Do not paste Medusa product/cart/order/payment/inventory/fulfillment/shipping SQL into Supabase. Medusa commerce schema belongs to Medusa migrations and Medusa scripts only.
+
+### Render Medusa commands to run
+
+Run the Medusa readiness commands on Render in this order:
+
+```bash
+pnpm --filter @dbaronx/medusa run db:prepare
+pnpm --filter @dbaronx/medusa run launch-commerce:ensure
+DBX_CONFIRM_CJ_FIRST_PRODUCT_SEED=true pnpm --filter @dbaronx/medusa run first-product:reseed:canonical
+```
+
+After the canonical CJ first product has been reseeded once and Store API visibility is green, restore the normal Medusa start command:
+
+```bash
+pnpm --filter @dbaronx/medusa run db:prepare && pnpm --filter @dbaronx/medusa run launch-commerce:ensure && pnpm --filter @dbaronx/medusa start
+```
+
+### First live transaction blocker policy
+
+Do not proceed to a live customer transaction until all of the following are true:
+
+- Supabase migration `202605140001_complete_dbaronx_application_schema.sql` has run successfully.
+- Stripe webhook events and economic events are durable in Supabase after a controlled test checkout.
+- Medusa `db:prepare` and `launch-commerce:ensure` are green.
+- The CJ product, variant, image, metadata, price, stock, inventory level, shipping option, Store API product visibility, and Store API shipping visibility are green.
+- Telegram, FastAPI, NestJS API, and Web smokes pass with no production blockers.
