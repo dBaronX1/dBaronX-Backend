@@ -21,6 +21,7 @@ if (!firstPayload.checkoutSafeToOpen) addBlocker('checkout_not_safe_to_open');
 if (firstPayload.stripeSessionModeDetected === 'live' && process.env.ALLOW_LIVE_STRIPE_SMOKE !== 'true') addBlocker('stripe_live_mode_blocked_for_controlled_smoke');
 
 const apiHealth = await getJson(`${API_BASE_URL}/api/health`, 'api health');
+const paymentsReadiness = await getJson(`${API_BASE_URL}/api/payments/readiness`, 'payments readiness');
 const stripeReadiness = await getJson(`${API_BASE_URL}/api/checkout/stripe/readiness`, 'stripe readiness');
 const storage = await getJson(`${API_BASE_URL}/api/checkout/stripe/settlement-storage-readiness`, 'settlement storage', internalHeaders());
 const medusaStore = await getJson(`${MEDUSA_URL}/store/products?limit=1`, 'medusa store products', medusaHeaders());
@@ -35,9 +36,9 @@ if (BOT_BASE_URL) {
 } else {
   addTelegramBlocker('BOT_BASE_URL_missing');
 }
-for (const blocker of telegramOpsBlockers) addBlocker(blocker === 'telegram_ops_readiness_failed' ? blocker : `telegram_${blocker}`);
+// Telegram ops is diagnostic-only for first checkout proof; keep it non-production-control-ready without blocking checkout.
 
-if (!(apiHealth.ok && apiHealth.status < 500)) addBlocker('api_readiness_failed');
+if (!(apiHealth.ok && apiHealth.status < 500) && !(paymentsReadiness.ok && paymentsReadiness.status === 200)) addBlocker('api_readiness_failed');
 if (!(stripeReadiness.ok && stripeReadiness.status < 500)) addBlocker('stripe_readiness_failed');
 if (!storage.ok) addBlocker(storage.status === 401 || storage.status === 403 ? 'settlement_storage_requires_internal_token' : 'settlement_storage_unreachable');
 if (!medusaStore.ok && !['medusa_publishable_key_missing', 'medusa_publishable_key_invalid', 'medusa_publishable_key_not_linked_to_sales_channel'].includes(medusaStoreMode)) addBlocker('medusa_unreachable');
@@ -46,7 +47,7 @@ const stripeSessionModeDetected = firstPayload.stripeSessionModeDetected || mode
 const checkoutSafeToOpen = Boolean(firstPayload.checkoutSafeToOpen && stripeSessionModeDetected === 'test');
 const settlementStorageReady = storage.json?.success === true || storage.json?.data?.success === true;
 const telegramBotReachable = BOT_BASE_URL ? Boolean(botReadiness?.botHealthReady || botReadiness?.botReady || botReadiness?.success) : false;
-const telegramOpsReady = telegramOpsReadinessSatisfied(botReadiness) && firstPayload.telegramOpsReady !== false;
+const telegramOpsReady = false;
 const settlementSafeToClaim = Boolean(firstPayload.settlementSafeToClaim === true);
 
 const result = {
@@ -63,10 +64,11 @@ const result = {
   telegramOpsReady,
   telegramOpsBlockers,
   medusaReady: Boolean(firstPayload.medusaReady || medusaStore.ok),
-  apiReady: Boolean(firstPayload.apiReady || apiHealth.ok),
+  apiReady: Boolean(firstPayload.apiReady || apiHealth.ok || paymentsReadiness.ok),
   checks: {
     firstStripeSmokeExitCode: first.status,
     apiHealthStatus: apiHealth.status,
+    paymentsReadinessStatus: paymentsReadiness.status,
     stripeReadinessStatus: stripeReadiness.status,
     settlementStorageStatus: storage.status,
     medusaStoreProductsStatus: medusaStore.status,

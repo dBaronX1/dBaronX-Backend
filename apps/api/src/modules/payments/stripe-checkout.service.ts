@@ -19,7 +19,7 @@ const STRIPE_SETTLEMENT_REQUIRED_TABLES = [
   `${STRIPE_SETTLEMENT_SCHEMA}.${STRIPE_SETTLEMENT_ECONOMIC_EVENTS_TABLE}`,
 ];
 const STRIPE_WEBHOOK_EVENT_READINESS_COLUMNS =
-  "event_id,stripe_event_id,event_type,session_id,stripe_session_id,payment_intent_id,stripe_payment_intent_id,cart_id,order_ref,checkout_ref,amount_minor_units,currency,verification_status,settlement_status,idempotency_key,raw_metadata_safe,medusa_order_id,order_sync_status,livemode,received_at,created_at,updated_at";
+  "id,stripe_event_id,event_type,checkout_session_id,payment_intent_id,charge_id,amount_total,currency,livemode,verified,processed,duplicate,idempotency_key,raw_event,metadata,blockers,created_at,updated_at,event_id,session_id,stripe_session_id,stripe_payment_intent_id,cart_id,order_ref,checkout_ref,amount_minor_units,verification_status,settlement_status,raw_metadata_safe,medusa_order_id,order_sync_status,received_at";
 
 type SettlementStorageReadinessResult = {
   success: boolean;
@@ -35,6 +35,15 @@ type SettlementStorageReadinessResult = {
   supabaseConfigured: boolean;
   serviceRoleConfigured: boolean;
   timestamp: string;
+  paymentRecordReady?: boolean;
+  verifiedStripeEventReady?: boolean;
+  economicEventReady?: boolean;
+  duplicateWebhookSafe?: boolean;
+  orderSyncReady?: boolean;
+  settlementSafeToClaim?: boolean;
+  settlementStatus?: string | null;
+  matchedCheckoutSessionId?: string | null;
+  matchedWebhookEventId?: string | null;
 };
 
 type SettlementStorageTableProbe = {
@@ -177,6 +186,7 @@ type StripeWebhookEventRecord = {
   paymentIntentId: string | null;
   livemode: boolean;
   receivedAt: string;
+  rawEvent: Stripe.Event;
   cartId?: string | null;
   orderRef?: string | null;
   checkoutRef?: string | null;
@@ -264,7 +274,7 @@ class SupabaseStripeWebhookIdempotencyRecorder implements StripeWebhookIdempoten
         .getClient()
         .schema("app_public")
         .from("stripe_webhook_events")
-        .select("event_id")
+        .select("stripe_event_id")
         .limit(1);
 
       if (!error) return { ready: true, blockers: [] };
@@ -294,9 +304,10 @@ class SupabaseStripeWebhookIdempotencyRecorder implements StripeWebhookIdempoten
         .schema("app_public")
         .from("stripe_webhook_events")
         .insert({
-          event_id: event.eventId,
           stripe_event_id: event.eventId,
+          event_id: event.eventId,
           event_type: event.eventType,
+          checkout_session_id: event.sessionId,
           session_id: event.sessionId,
           stripe_session_id: event.sessionId,
           payment_intent_id: event.paymentIntentId,
@@ -304,21 +315,30 @@ class SupabaseStripeWebhookIdempotencyRecorder implements StripeWebhookIdempoten
           cart_id: event.cartId ?? null,
           order_ref: event.orderRef ?? null,
           checkout_ref: event.checkoutRef ?? null,
+          amount_total: event.amountMinorUnits ?? null,
           amount_minor_units: event.amountMinorUnits ?? null,
           currency: event.currency ?? null,
           verification_status: event.verificationStatus || "verified",
           settlement_status:
             event.settlementStatus || "payment_verified_order_sync_pending",
           idempotency_key: event.idempotencyKey || event.eventId,
+          raw_event: event.rawEvent,
+          metadata: event.rawMetadataSafe || {},
           raw_metadata_safe: event.rawMetadataSafe || {},
+          verified: event.verificationStatus !== "unverified",
+          processed: false,
+          duplicate: false,
+          blockers: [],
           livemode: event.livemode,
           received_at: event.receivedAt,
           updated_at: event.receivedAt,
         });
 
       if (!error) return { recorded: true, duplicate: false, blockers: [] };
-      if (isDuplicateError(error))
+      if (isDuplicateError(error)) {
+        await this.markDuplicate(event.eventId);
         return { recorded: true, duplicate: true, blockers: [] };
+      }
       if (isMissingPersistenceError(error))
         return {
           recorded: false,
@@ -346,6 +366,20 @@ class SupabaseStripeWebhookIdempotencyRecorder implements StripeWebhookIdempoten
       };
     }
   }
+
+  private async markDuplicate(stripeEventId: string): Promise<void> {
+    try {
+      await this.supabase
+        .getClient()
+        .schema("app_public")
+        .from("stripe_webhook_events")
+        .update({ duplicate: true, updated_at: new Date().toISOString() })
+        .eq("stripe_event_id", stripeEventId);
+    } catch {
+      // Duplicate handling must never double-settle; failed duplicate annotation is non-fatal.
+    }
+  }
+
 }
 
 @Injectable()
@@ -416,7 +450,7 @@ export class StripeCheckoutService {
     };
   }
 
-  async settlementStorageReadiness(): Promise<SettlementStorageReadinessResult> {
+  async settlementStorageReadiness(input: { sessionId?: string | null; stripeEventId?: string | null; paymentIntentId?: string | null } = {}): Promise<SettlementStorageReadinessResult> {
     const webhookEvidence = await this.probeSettlementTable(
       STRIPE_SETTLEMENT_WEBHOOK_EVENTS_TABLE,
       STRIPE_WEBHOOK_EVENT_READINESS_COLUMNS,
@@ -424,7 +458,7 @@ export class StripeCheckoutService {
     );
     const economicEvents = await this.probeSettlementTable(
       STRIPE_SETTLEMENT_ECONOMIC_EVENTS_TABLE,
-      "id,event_type,status,reference_id,idempotency_key,created_at",
+      "id,event_type,source,source_event_id,checkout_session_id,amount,currency,status,verified,payload,blockers,created_at,updated_at,source_module,payment_rail,reference_id,idempotency_key,metadata",
       "economic_events_missing_or_incomplete",
     );
     const missingTables = [webhookEvidence, economicEvents]
@@ -445,9 +479,40 @@ export class StripeCheckoutService {
     const webhookEvidenceTableAvailable = webhookEvidence.available;
     const economicEventTableAvailable = economicEvents.available;
 
+    const mapping = {
+      sessionId: this.cleanLookupValue(input.sessionId),
+      stripeEventId: this.cleanLookupValue(input.stripeEventId),
+      paymentIntentId: this.cleanLookupValue(input.paymentIntentId),
+      chargeId: null,
+      cartId: null,
+      orderRef: null,
+      checkoutRef: null,
+    };
+    const paymentRecord =
+      mapping.sessionId || mapping.stripeEventId || mapping.paymentIntentId
+        ? await this.findVerifiedPaymentRecord(mapping)
+        : this.emptyVerifiedPaymentRecord(false, null, webhookEvidenceTableAvailable);
+    const economicEventReady = paymentRecord.ready
+      ? await this.findVerifiedEconomicEvent(
+          paymentRecord.stripeEventId,
+          paymentRecord.sessionId || mapping.sessionId,
+          paymentRecord.paymentIntentId || mapping.paymentIntentId,
+        )
+      : false;
+    const duplicateWebhookSafe = webhookEvidenceTableAvailable;
+    const orderSyncReady = Boolean(
+      paymentRecord.medusaOrderId || paymentRecord.orderSyncStatus === "completed",
+    );
+    const evidenceBlockers = [
+      ...(paymentRecord.ready || !(mapping.sessionId || mapping.stripeEventId || mapping.paymentIntentId) ? [] : ["verified_stripe_event_missing"]),
+      ...(paymentRecord.ready && !economicEventReady ? ["economic_event_verified_missing"] : []),
+      ...(paymentRecord.ready && !orderSyncReady ? ["payment_verified_order_sync_pending"] : []),
+    ];
+    const uniqueBlockers = [...new Set([...blockers, ...paymentRecord.lookupBlockers, ...evidenceBlockers])];
+
     return {
-      success: blockers.length === 0,
-      blockers: [...new Set(blockers)],
+      success: uniqueBlockers.length === 0,
+      blockers: uniqueBlockers,
       migrationTableAvailable:
         webhookEvidenceTableAvailable && economicEventTableAvailable,
       webhookEvidenceTableAvailable,
@@ -460,6 +525,15 @@ export class StripeCheckoutService {
       supabaseConfigured: this.isSupabaseUrlConfigured(),
       serviceRoleConfigured: this.isSupabaseServiceRoleConfigured(),
       timestamp: new Date().toISOString(),
+      paymentRecordReady: paymentRecord.ready,
+      verifiedStripeEventReady: paymentRecord.ready,
+      economicEventReady,
+      duplicateWebhookSafe,
+      orderSyncReady,
+      settlementSafeToClaim: Boolean(paymentRecord.ready && economicEventReady && duplicateWebhookSafe && orderSyncReady),
+      settlementStatus: paymentRecord.settlementStatus,
+      matchedCheckoutSessionId: paymentRecord.sessionId,
+      matchedWebhookEventId: paymentRecord.stripeEventId,
     };
   }
 
@@ -950,6 +1024,7 @@ export class StripeCheckoutService {
           stripeEventId: event.id,
           stripeSessionId: session.id,
           stripePaymentIntentId: paymentIntentId,
+          checkoutSessionId: session.id,
           cartId: metadata.cartId,
           orderRef: metadata.orderRef,
           checkoutRef: metadata.checkoutRef,
@@ -1077,6 +1152,7 @@ export class StripeCheckoutService {
       settlementStatus: "payment_verified_order_sync_pending",
       idempotencyKey: event.id,
       rawMetadataSafe: metadata,
+      rawEvent: event,
       livemode: event.livemode,
       receivedAt: new Date().toISOString(),
     });
@@ -1287,6 +1363,7 @@ export class StripeCheckoutService {
           settlement_status: settlementStatus,
           medusa_order_id: medusaOrderId,
           order_sync_status: orderSyncStatus,
+          processed: !settlementStatus.includes("pending"),
           updated_at: new Date().toISOString(),
         })
         .or(`event_id.eq.${stripeEventId},stripe_event_id.eq.${stripeEventId}`);
@@ -1383,7 +1460,7 @@ export class StripeCheckoutService {
         source: "sessionId",
         apply: (query) =>
           query.or(
-            `session_id.eq.${mapping.sessionId},stripe_session_id.eq.${mapping.sessionId}`,
+            `checkout_session_id.eq.${mapping.sessionId},session_id.eq.${mapping.sessionId},stripe_session_id.eq.${mapping.sessionId}`,
           ),
       });
     if (mapping.cartId && mapping.orderRef)
@@ -1447,10 +1524,10 @@ export class StripeCheckoutService {
             .schema("app_public")
             .from("stripe_webhook_events")
             .select(
-              "event_id,stripe_event_id,session_id,stripe_session_id,payment_intent_id,stripe_payment_intent_id,cart_id,order_ref,checkout_ref,settlement_status,medusa_order_id,order_sync_status,amount_minor_units,currency",
+              "stripe_event_id,checkout_session_id,session_id,stripe_session_id,payment_intent_id,stripe_payment_intent_id,metadata,settlement_status,medusa_order_id,order_sync_status,amount_total,amount_minor_units,currency",
             )
             .eq("event_type", "checkout.session.completed")
-            .eq("verification_status", "verified")
+            .eq("verified", true)
             .order("created_at", { ascending: false })
             .limit(1),
         );
@@ -1468,23 +1545,24 @@ export class StripeCheckoutService {
         }
         if (!data) continue;
 
-        const row = data as Record<string, string | number | null>;
+        const row = data as Record<string, unknown>;
+        const rowMetadata = (row.metadata && typeof row.metadata === "object" ? row.metadata : {}) as Record<string, unknown>;
         return {
           ready: true,
           stripeEventId: String(row.stripe_event_id || row.event_id || "") || null,
           sessionId:
-            String(row.stripe_session_id || row.session_id || "") || null,
+            String(row.checkout_session_id || row.stripe_session_id || row.session_id || "") || null,
           paymentIntentId:
             String(
               row.stripe_payment_intent_id || row.payment_intent_id || "",
             ) || null,
-          cartId: String(row.cart_id || "") || null,
-          orderRef: String(row.order_ref || "") || null,
-          checkoutRef: String(row.checkout_ref || "") || null,
+          cartId: String(rowMetadata.cartId || row.cart_id || "") || null,
+          orderRef: String(rowMetadata.orderRef || row.order_ref || "") || null,
+          checkoutRef: String(rowMetadata.checkoutRef || row.checkout_ref || "") || null,
           settlementStatus: String(row.settlement_status || "") || null,
           medusaOrderId: String(row.medusa_order_id || "") || null,
           orderSyncStatus: String(row.order_sync_status || "") || null,
-          amountMinorUnits: Number(row.amount_minor_units || 0) || null,
+          amountMinorUnits: Number(row.amount_total || row.amount_minor_units || 0) || null,
           currency: String(row.currency || "") || null,
           durableLookupAttempted: true,
           durableLookupSource: lookup.source,
@@ -1539,10 +1617,10 @@ export class StripeCheckoutService {
         .eq("event_type", "commerce.checkout.payment_verified")
         .eq("status", "verified")
         .limit(1);
-      if (stripeEventId) query = query.eq("idempotency_key", stripeEventId);
+      if (stripeEventId) query = query.or(`source_event_id.eq.${stripeEventId},idempotency_key.eq.${stripeEventId}`);
+      else if (sessionId) query = query.eq("checkout_session_id", sessionId);
       else if (paymentIntentId)
         query = query.eq("reference_id", paymentIntentId);
-      else if (sessionId) query = query.eq("reference_id", sessionId);
       else return false;
       const { data, error } = await query.maybeSingle();
       return !error && Boolean(data);
@@ -1568,6 +1646,19 @@ export class StripeCheckoutService {
       userId: metadata.userId || null,
       productId: metadata.productId || null,
       variantId: metadata.variantId || null,
+    };
+  }
+
+  private safeStripeSessionPayload(session: Stripe.Checkout.Session): Record<string, unknown> {
+    return {
+      id: session.id,
+      object: session.object,
+      amount_total: session.amount_total,
+      currency: session.currency,
+      payment_status: session.payment_status,
+      status: session.status,
+      payment_intent: this.getPaymentIntentId(session),
+      metadata: this.extractSessionMetadata(session),
     };
   }
 

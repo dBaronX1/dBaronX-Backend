@@ -1,7 +1,6 @@
 import {
   ForbiddenException,
   Injectable,
-  ServiceUnavailableException,
   UnauthorizedException,
 } from "@nestjs/common";
 import { ConfigService } from "@nestjs/config";
@@ -37,7 +36,7 @@ export class FirstOwnerBootstrapService {
     const expectedToken =
       this.env("DBX_OWNER_BOOTSTRAP_TOKEN") || this.env("INTERNAL_SERVICE_TOKEN");
     if (!expectedToken) {
-      throw new ServiceUnavailableException({
+      throw new ForbiddenException({
         code: "FIRST_OWNER_BOOTSTRAP_TOKEN_NOT_CONFIGURED",
         message:
           "Configure DBX_OWNER_BOOTSTRAP_TOKEN or INTERNAL_SERVICE_TOKEN before using first-owner bootstrap.",
@@ -60,16 +59,29 @@ export class FirstOwnerBootstrapService {
       });
     }
 
-    const data = await this.supabase.rpc<Record<string, unknown>>(
-      "dbx_bootstrap_first_owner_user",
-      {
-        p_user_id: dto.userId,
-        p_email: dto.email,
-        p_display_name: dto.displayName,
-        p_telegram_user_id: dto.telegramUserId,
-        p_referral_code: dto.referralCode || "DBX-FIRST-0001",
-      },
-    );
+    let data: Record<string, unknown>;
+    try {
+      data = await this.supabase.rpc<Record<string, unknown>>(
+        "dbx_bootstrap_first_owner_user",
+        {
+          p_user_id: dto.userId,
+          p_email: dto.email,
+          p_display_name: dto.displayName,
+          p_telegram_user_id: dto.telegramUserId,
+          p_referral_code: dto.referralCode || "DBX-FIRST-0001",
+        },
+      );
+    } catch (error) {
+      const details = typeof (error as { getResponse?: () => unknown }).getResponse === "function"
+        ? (error as { getResponse: () => unknown }).getResponse()
+        : null;
+      throw new ForbiddenException({
+        code: "FIRST_OWNER_BOOTSTRAP_DB_OR_RPC_BLOCKED",
+        message: "First-owner bootstrap could not complete because the Supabase RPC/database path is not ready.",
+        blockers: ["first_owner_bootstrap_rpc_or_db_issue"],
+        details,
+      });
+    }
 
     const publicBaseUrl =
       this.env("DBX_PUBLIC_APP_URL") ||
