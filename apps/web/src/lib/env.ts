@@ -1,26 +1,50 @@
 const publicEnv = {
-  siteUrl: process.env.NEXT_PUBLIC_SITE_URL || process.env.NEXT_PUBLIC_APP_URL || "",
-  apiBaseUrl:
-    process.env.NEXT_PUBLIC_API_BASE_URL ||
-    process.env.NEXT_PUBLIC_NESTJS_BASE_URL ||
-    process.env.NEXT_PUBLIC_API_URL ||
-    process.env.NEXT_PUBLIC_NEST_API_URL ||
-    "",
+  siteUrl: process.env.NEXT_PUBLIC_SITE_URL || "",
+  apiBaseUrl: process.env.NEXT_PUBLIC_API_BASE_URL || process.env.NEXT_PUBLIC_NESTJS_BASE_URL || "",
+  nestjsBaseUrl: process.env.NEXT_PUBLIC_NESTJS_BASE_URL || process.env.NEXT_PUBLIC_API_BASE_URL || "",
+  fastapiBaseUrl: process.env.NEXT_PUBLIC_FASTAPI_BASE_URL || "",
   medusaBackendUrl: process.env.NEXT_PUBLIC_MEDUSA_BACKEND_URL || "",
   medusaPublishableKey: process.env.NEXT_PUBLIC_MEDUSA_PUBLISHABLE_KEY || "",
   supabaseUrl: process.env.NEXT_PUBLIC_SUPABASE_URL || "",
   supabaseAnonKey: process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || "",
+  stripePublicKey: process.env.NEXT_PUBLIC_STRIPE_PUBLIC_KEY || "",
 };
+
+const PUBLIC_ENV_NAMES = [
+  "NEXT_PUBLIC_API_BASE_URL",
+  "NEXT_PUBLIC_NESTJS_BASE_URL",
+  "NEXT_PUBLIC_FASTAPI_BASE_URL",
+  "NEXT_PUBLIC_MEDUSA_BACKEND_URL",
+  "NEXT_PUBLIC_MEDUSA_PUBLISHABLE_KEY",
+  "NEXT_PUBLIC_SUPABASE_URL",
+  "NEXT_PUBLIC_SUPABASE_ANON_KEY",
+  "NEXT_PUBLIC_STRIPE_PUBLIC_KEY",
+  "NEXT_PUBLIC_SITE_URL",
+] as const;
+
+let loggedMissingPublicEnv = false;
 
 function cleanBaseUrl(value: string) {
   return value.trim().replace(/\/+$/, "");
 }
 
+function logMissingPublicEnvInDevelopment() {
+  if (loggedMissingPublicEnv || typeof window === "undefined" || process.env.NODE_ENV !== "development") return;
+  const missing = PUBLIC_ENV_NAMES.filter((name) => !process.env[name]);
+  if (missing.length > 0) {
+    console.info("dBaronX public environment values not configured for local development:", missing.join(", "));
+  }
+  loggedMissingPublicEnv = true;
+}
+
 export function getPublicEnv() {
+  logMissingPublicEnvInDevelopment();
   return {
     ...publicEnv,
     siteUrl: cleanBaseUrl(publicEnv.siteUrl),
     apiBaseUrl: cleanBaseUrl(publicEnv.apiBaseUrl),
+    nestjsBaseUrl: cleanBaseUrl(publicEnv.nestjsBaseUrl),
+    fastapiBaseUrl: cleanBaseUrl(publicEnv.fastapiBaseUrl),
     medusaBackendUrl: cleanBaseUrl(publicEnv.medusaBackendUrl),
   };
 }
