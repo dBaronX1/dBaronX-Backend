@@ -50,28 +50,49 @@ function medusaStoreUrl(path: string, params?: Record<string, string | number>) 
 }
 
 export async function fetchMedusaStoreProducts(options: { limit?: number; handle?: string } = {}): Promise<MedusaProductResult> {
+  const internal = await fetchInternalStoreProducts(options);
+  if (internal.products.length > 0 || internal.reason === null) return internal;
+
   const { backendUrl, publishableKey } = config();
   if (!backendUrl || !publishableKey) {
-    return { products: [], reason: "medusa_store_env_missing" };
+    return { products: [], reason: "products_unavailable" };
   }
   const url = medusaStoreUrl("/store/products", {
     limit: options.limit || 20,
     ...(options.handle ? { handle: options.handle } : {}),
   });
-  if (!url) return { products: [], reason: "medusa_store_env_missing" };
+  if (!url) return { products: [], reason: "products_unavailable" };
 
   try {
     const response = await fetch(url, {
       headers: medusaHeaders(),
-      next: { revalidate: 60 },
+      cache: "no-store",
     });
     const payload = await response.json().catch(() => null);
     if (!response.ok) {
-      return { products: [], reason: `medusa_store_products_failed_${response.status}`, status: response.status };
+      return { products: [], reason: "products_unavailable", status: response.status };
     }
     return { products: extractProducts(payload), reason: null, status: response.status };
   } catch {
-    return { products: [], reason: "medusa_store_products_unreachable" };
+    return { products: [], reason: "products_unavailable" };
+  }
+}
+
+async function fetchInternalStoreProducts(options: { limit?: number; handle?: string }): Promise<MedusaProductResult> {
+  if (typeof window === "undefined") return { products: [], reason: "products_unavailable" };
+  const path = options.handle ? `/api/store/products/${encodeURIComponent(options.handle)}` : "/api/store/products";
+  try {
+    const response = await fetch(path, {
+      headers: { accept: "application/json" },
+      cache: "no-store",
+    });
+    const payload = await response.json().catch(() => null);
+    const products = extractProducts(payload).slice(0, options.limit || 20);
+    if (!response.ok) return { products: [], reason: "products_unavailable", status: response.status };
+    const ok = payload && typeof payload === "object" ? (payload as Record<string, unknown>).success !== false : true;
+    return { products, reason: ok ? null : "products_unavailable", status: response.status };
+  } catch {
+    return { products: [], reason: "products_unavailable" };
   }
 }
 

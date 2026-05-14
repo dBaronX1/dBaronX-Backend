@@ -102,7 +102,7 @@ function RegisterForm() {
         ...referralMetadata({ ...referral, ref: referralCode.trim() || referral.ref }),
         full_name: fullName.trim(),
         display_name: fullName.trim(),
-        source: "web_register",
+        source: "rocket_web",
         onboarding_target: "/onboarding",
       };
       const { data, error } = await authClient.auth.signUp({
