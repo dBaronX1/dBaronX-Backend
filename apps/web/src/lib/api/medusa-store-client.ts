@@ -110,6 +110,11 @@ export function productDisplayPrice(product: MedusaStoreProduct | null | undefin
   return price ? formatMinor(Number(price.amount), String(price.currency_code || "usd")) : "Price shown at checkout";
 }
 
+export function productPrimaryVariantId(product: MedusaStoreProduct | null | undefined) {
+  const variant = Array.isArray(product?.variants) ? product?.variants?.[0] : null;
+  return typeof variant?.id === "string" ? variant.id : "";
+}
+
 export function productPrimaryImage(product: MedusaStoreProduct | null | undefined) {
   if (typeof product?.thumbnail === "string" && product.thumbnail) return product.thumbnail;
   const first = Array.isArray(product?.images) ? product.images.find((image) => image?.url) : null;
@@ -141,5 +146,6 @@ function extractProducts(data: unknown): MedusaStoreProduct[] {
 }
 
 function formatMinor(amount: number, currency: string) {
-  return `${currency.toUpperCase()} ${(amount / 100).toFixed(2)}`;
+  const normalizedAmount = amount > 0 && amount < 1000 && !Number.isInteger(amount) ? amount : amount / 100;
+  return `${normalizedAmount.toFixed(2)} ${currency.toUpperCase()}`;
 }

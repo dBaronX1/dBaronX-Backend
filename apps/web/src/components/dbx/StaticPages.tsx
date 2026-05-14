@@ -21,6 +21,8 @@ export function DbxHomePage() {
       <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(250px, 1fr))", gap: 18 }}>
         {metricCards.map(([title, text]) => <DbxCard key={title}><h2 style={{ marginTop: 0 }}>{title}</h2><p style={{ color: "#fed7aa", lineHeight: 1.7 }}>{text}</p></DbxCard>)}
       </div>
+      <div style={{ height: 20 }} />
+      <DbxProductGrid />
     </DbxVisualShell>
   );
 }
