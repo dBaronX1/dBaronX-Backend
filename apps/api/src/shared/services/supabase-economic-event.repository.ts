@@ -17,7 +17,7 @@ export class SupabaseEconomicEventRepository implements EconomicEventRepository 
       .schema("app_public")
       .from("economic_events")
       .select("*")
-      .eq("idempotency_key", idempotencyKey)
+      .or(`idempotency_key.eq.${idempotencyKey},source_event_id.eq.${idempotencyKey}`)
       .maybeSingle();
 
     if (error) throw error;
@@ -31,6 +31,17 @@ export class SupabaseEconomicEventRepository implements EconomicEventRepository 
       .from("economic_events")
       .insert({
         event_type: event.eventType,
+        source: event.paymentRail,
+        source_event_id: event.idempotencyKey,
+        checkout_session_id: this.stringFromMetadata(event, "checkoutSessionId") || this.stringFromMetadata(event, "stripeSessionId") || null,
+        cart_id: this.stringFromMetadata(event, "cartId") || null,
+        order_ref: this.stringFromMetadata(event, "orderRef") || null,
+        user_id: event.userId || this.stringFromMetadata(event, "userId") || null,
+        product_id: this.stringFromMetadata(event, "productId") || null,
+        variant_id: this.stringFromMetadata(event, "variantId") || null,
+        verified: event.status === "verified" || event.status === "settled",
+        payload: this.payloadFor(event),
+        blockers: [],
         source_module: event.sourceModule,
         payment_rail: event.paymentRail,
         status: event.status,
@@ -55,6 +66,24 @@ export class SupabaseEconomicEventRepository implements EconomicEventRepository 
     return this.toEconomicEvent(data as Record<string, unknown>);
   }
 
+  private stringFromMetadata(event: EconomicEvent, key: string): string {
+    const value = event.metadata?.[key];
+    return typeof value === "string" ? value.trim() : "";
+  }
+
+  private payloadFor(event: EconomicEvent): Record<string, unknown> {
+    return {
+      eventType: event.eventType,
+      sourceModule: event.sourceModule,
+      sourceRef: event.sourceRef,
+      paymentRail: event.paymentRail,
+      amount: event.amountMinorUnits,
+      currency: event.currency,
+      status: event.status,
+      metadata: event.metadata || {},
+    };
+  }
+
   private toEconomicEvent(row: Record<string, unknown>): EconomicEvent {
     const metadata = (
       row.metadata && typeof row.metadata === "object" ? row.metadata : {}
@@ -65,7 +94,7 @@ export class SupabaseEconomicEventRepository implements EconomicEventRepository 
       sourceModule: String(
         row.source_module || "",
       ) as EconomicEvent["sourceModule"],
-      sourceRef: String(row.reference_id || ""),
+      sourceRef: String(row.reference_id || row.source_event_id || ""),
       userId: typeof metadata.userId === "string" ? metadata.userId : null,
       accountId:
         typeof metadata.accountId === "string" ? metadata.accountId : null,
@@ -75,7 +104,7 @@ export class SupabaseEconomicEventRepository implements EconomicEventRepository 
         metadata.assetType || "fiat",
       ) as EconomicEvent["assetType"],
       paymentRail: String(
-        row.payment_rail || "",
+        row.payment_rail || row.source || "",
       ) as EconomicEvent["paymentRail"],
       direction: String(row.direction || "") as EconomicEvent["direction"],
       status: String(row.status || "") as EconomicEvent["status"],

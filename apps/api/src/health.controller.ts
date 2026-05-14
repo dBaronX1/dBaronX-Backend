@@ -1,4 +1,4 @@
-import { Controller, Get } from "@nestjs/common";
+import { Controller, Get, VERSION_NEUTRAL } from "@nestjs/common";
 
 import { Public } from "./shared/decorators/public.decorator";
 
@@ -10,7 +10,7 @@ interface HealthResponse {
   version?: string;
 }
 
-@Controller()
+@Controller({ version: VERSION_NEUTRAL })
 export class HealthController {
   @Public()
   @Get("health")

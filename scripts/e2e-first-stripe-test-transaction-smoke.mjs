@@ -27,10 +27,13 @@ const INTERNAL_SERVICE_TOKEN = (
   process.env.INTERNAL_SERVICE_TOKEN || ""
 ).trim();
 const POST_PAYMENT_SESSION_ID = (
-  process.env.STRIPE_SESSION_ID ||
   process.env.CHECKOUT_SESSION_ID ||
+  process.env.STRIPE_SESSION_ID ||
   ""
 ).trim();
+const DBX_CREATE_NEW_TEST_CHECKOUT = String(
+  process.env.DBX_CREATE_NEW_TEST_CHECKOUT || "",
+).trim().toLowerCase() === "true";
 const INTERNAL_AUTH_HEADER_NAME = "x-internal-token";
 const SMOKE_CONTRACT_VERSION = "2026-05-09.signed-webhook-payment-record-v1";
 const WEB_BASE_URL = (
@@ -439,6 +442,10 @@ const out = {
     "Do not configure a Supabase URL as the direct Stripe webhook destination unless an intentional Supabase relay is built; Stripe should post directly to the API webhook URL.",
   liveCheckoutExplicitlyAllowed: false,
   liveStripeSmokeExplicitlyAllowed: ALLOW_LIVE_STRIPE_SMOKE,
+  createNewTestCheckout: DBX_CREATE_NEW_TEST_CHECKOUT,
+  suppliedSessionIdUsed: Boolean(POST_PAYMENT_SESSION_ID),
+  suppliedSessionOpenUnpaid: false,
+  suppliedSessionPaidCompleted: false,
   checkoutSessionCreated: false,
   sessionId: null,
   stripeSessionModeDetected: "unknown",
@@ -454,6 +461,7 @@ const out = {
   orderSyncReady: false,
   verifiedStripeEventReady: false,
   paymentRecordReady: false,
+  economicEventReady: false,
   medusaOrderCompletionReady: false,
   medusaOrderId: null,
   settlementStatus: null,
@@ -891,30 +899,47 @@ checks.checkoutPayload = {
   customerRef: Boolean(sessionPayload.customerRef),
 };
 
-const sessionRoute = await postApiWithFallback(
-  "stripe checkout session",
-  "/api/checkout/stripe/session",
-  "/api/v1/checkout/stripe/session",
-  sessionPayload,
-  jsonHeaders,
-);
-const sessionProbe = sessionRoute.probe;
-const session = sessionProbe.data || {};
-stripeRoutesUsed.checkoutSession = sessionRoute.path;
-checks.stripeSessionHttp = sessionProbe.status;
-checks.stripeSessionPath = sessionRoute.path;
-checks.stripeSessionBlockers = session.blockers || [];
-out.stripeConfigured = out.stripeConfigured || session.configured === true;
-out.checkoutUrl =
-  typeof session.checkoutUrl === "string" ? session.checkoutUrl : null;
-out.sessionId =
-  typeof session.sessionId === "string" ? session.sessionId : null;
-if (POST_PAYMENT_SESSION_ID) out.sessionId = POST_PAYMENT_SESSION_ID;
+let sessionRoute = { path: null, probe: { status: 0, ok: false, data: {} } };
+let sessionProbe = sessionRoute.probe;
+let session = {};
+if (POST_PAYMENT_SESSION_ID) {
+  out.sessionId = POST_PAYMENT_SESSION_ID;
+  stripeRoutesUsed.checkoutSession = "supplied-env-session-id";
+  checks.stripeSessionHttp = 0;
+  checks.stripeSessionPath = "supplied-env-session-id";
+  checks.stripeSessionBlockers = [];
+} else if (DBX_CREATE_NEW_TEST_CHECKOUT) {
+  sessionRoute = await postApiWithFallback(
+    "stripe checkout session",
+    "/api/checkout/stripe/session",
+    "/api/v1/checkout/stripe/session",
+    sessionPayload,
+    jsonHeaders,
+  );
+  sessionProbe = sessionRoute.probe;
+  session = sessionProbe.data || {};
+  stripeRoutesUsed.checkoutSession = sessionRoute.path;
+  checks.stripeSessionHttp = sessionProbe.status;
+  checks.stripeSessionPath = sessionRoute.path;
+  checks.stripeSessionBlockers = session.blockers || [];
+  out.stripeConfigured = out.stripeConfigured || session.configured === true;
+  out.checkoutUrl =
+    typeof session.checkoutUrl === "string" ? session.checkoutUrl : null;
+  out.sessionId =
+    typeof session.sessionId === "string" ? session.sessionId : null;
+} else {
+  stripeRoutesUsed.checkoutSession = "skipped_set_DBX_CREATE_NEW_TEST_CHECKOUT_true";
+  checks.stripeSessionHttp = 0;
+  checks.stripeSessionPath = "skipped_set_DBX_CREATE_NEW_TEST_CHECKOUT_true";
+  checks.stripeSessionBlockers = ["checkout_session_creation_skipped"];
+}
 out.checkoutUrlPresent = Boolean(out.checkoutUrl);
 out.stripeHostedCheckoutUrl = Boolean(
   out.checkoutUrl && /^https:\/\/checkout\.stripe\.com\//.test(out.checkoutUrl),
 );
 out.checkoutSessionCreated =
+  !POST_PAYMENT_SESSION_ID &&
+  DBX_CREATE_NEW_TEST_CHECKOUT &&
   session.success === true &&
   Boolean(out.sessionId) &&
   out.stripeHostedCheckoutUrl;
@@ -947,8 +972,8 @@ if (
 }
 if (array(session.blockers).includes("stripe_live_key_used_for_test_checkout"))
   addBlocker("stripe_live_key_used_for_test_checkout");
-if (sessionProbe.status === 404) addBlocker("stripe_session_route_missing");
-if (!sessionProbe.ok) addBlocker(`stripe_session_http_${sessionProbe.status}`);
+if (DBX_CREATE_NEW_TEST_CHECKOUT && sessionProbe.status === 404) addBlocker("stripe_session_route_missing");
+if (DBX_CREATE_NEW_TEST_CHECKOUT && !sessionProbe.ok) addBlocker(`stripe_session_http_${sessionProbe.status}`);
 if (
   array(session.blockers).includes("stripe_secret_key_missing") ||
   session.configured === false
@@ -970,7 +995,7 @@ if (
   addBlocker(`stripe_test_mode_required_current_${out.stripeSecretKeyMode}`);
 if (!out.stripeConfigured && !out.checkoutSessionCreated)
   addBlocker("stripe_secret_key_missing");
-if (!out.checkoutSessionCreated && out.stripeConfigured)
+if (!POST_PAYMENT_SESSION_ID && DBX_CREATE_NEW_TEST_CHECKOUT && !out.checkoutSessionCreated && out.stripeConfigured)
   addBlocker("stripe_checkout_session_not_created");
 if ((out.checkoutUrlPresent || out.sessionId) && !out.stripeConfigured)
   addBlocker("stripe_returned_checkout_artifacts_while_unconfigured");
@@ -1083,6 +1108,28 @@ if (array(readinessBody.orderSyncBlockers).length > 0) {
 }
 if (!out.orderSyncReady) addBlocker("order_sync_not_configured", "settlement");
 
+const storagePath = out.sessionId
+  ? `/api/checkout/stripe/settlement-storage-readiness?sessionId=${encodeURIComponent(out.sessionId)}`
+  : "/api/checkout/stripe/settlement-storage-readiness";
+const storageRoute = await getApiWithFallback(
+  "stripe webhook storage readiness",
+  storagePath,
+  storagePath.replace("/api/", "/api/v1/"),
+  internalHeaders,
+);
+const storage = storageRoute.probe.data || {};
+stripeRoutesUsed.settlementStorageReadiness = storageRoute.path;
+checks.settlementStorageReadinessHttp = storageRoute.probe.status;
+checks.settlementStorageReadinessBlockers = storage.blockers || [];
+out.paymentRecordReady = out.paymentRecordReady || storage.paymentRecordReady === true;
+out.verifiedStripeEventReady = out.verifiedStripeEventReady || storage.verifiedStripeEventReady === true;
+out.economicEventReady = out.economicEventReady || storage.economicEventReady === true;
+out.duplicateWebhookSafe = out.duplicateWebhookSafe || storage.duplicateWebhookSafe === true;
+out.orderSyncReady = out.orderSyncReady || storage.orderSyncReady === true;
+if (storageRoute.probe.ok && POST_PAYMENT_SESSION_ID && !storage.verifiedStripeEventReady) {
+  out.suppliedSessionOpenUnpaid = true;
+}
+
 const dryRunRoute = await postApiWithFallback(
   "economic event dry run",
   "/api/payments/economic-events/dry-run",
@@ -1168,7 +1215,13 @@ if (
 ) {
   out.nextManualStep =
     "Resolve unknown Stripe session mode before opening Stripe Checkout.";
-} else if (out.checkoutSessionCreated) {
+} else if (POST_PAYMENT_SESSION_ID && out.suppliedSessionPaidCompleted) {
+    out.nextManualStep =
+      "Supplied Stripe session has durable verified payment evidence. Resolve any listed order-sync blockers before claiming settlement complete.";
+  } else if (POST_PAYMENT_SESSION_ID && out.suppliedSessionOpenUnpaid) {
+    out.nextManualStep =
+      "Supplied Stripe session does not have verified paid webhook evidence; do not treat it as paid. Provide the paid Checkout Session ID from Stripe Dashboard or complete payment first.";
+  } else if (out.checkoutSessionCreated) {
   out.nextManualStep =
     "Resolve checkout blockers before opening Stripe Checkout. Current checkout safety checks are incomplete.";
 } else {
