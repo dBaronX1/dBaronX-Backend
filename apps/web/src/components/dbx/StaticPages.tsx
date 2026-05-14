@@ -4,6 +4,7 @@ import Link from "next/link";
 import { DbxCard, DbxVisualShell, dbxButtonStyle } from "@/components/dbx/DbxVisualShell";
 import { CustomerAccountPanel } from "@/components/dbx/CustomerAccountPanel";
 import { DbxProductGrid } from "@/components/dbx/ProductViews";
+import { fetchServerStoreProducts } from "@/lib/store-products-server";
 
 const metricCards = [
   ["Verified commerce", "Shop dBaronX products and checkout securely."],
@@ -11,7 +12,8 @@ const metricCards = [
   ["dBaronX style", "Dark launch visuals, gold accents, rounded glass cards, and customer-first pages."],
 ];
 
-export function DbxHomePage() {
+export async function DbxHomePage() {
+  const initialProducts = (await fetchServerStoreProducts({ limit: 24 })).products;
   return (
     <DbxVisualShell
       title="dBaronX"
@@ -22,7 +24,7 @@ export function DbxHomePage() {
         {metricCards.map(([title, text]) => <DbxCard key={title}><h2 style={{ marginTop: 0 }}>{title}</h2><p style={{ color: "#fed7aa", lineHeight: 1.7 }}>{text}</p></DbxCard>)}
       </div>
       <div style={{ height: 20 }} />
-      <DbxProductGrid />
+      <DbxProductGrid initialProducts={initialProducts} />
     </DbxVisualShell>
   );
 }
@@ -47,10 +49,11 @@ export function DbxAccountPage({ mode = "account" }: { mode?: "account" | "profi
   );
 }
 
-export function DbxShopPage({ handle }: { handle?: string }) {
+export async function DbxShopPage({ handle }: { handle?: string }) {
+  const initialProducts = (await fetchServerStoreProducts({ limit: handle ? 8 : 24, handle })).products;
   return (
     <DbxVisualShell title={handle ? "Product detail" : "Shop"} description="Browse dBaronX products prepared for launch.">
-      <DbxProductGrid handle={handle} />
+      <DbxProductGrid handle={handle} initialProducts={initialProducts} />
     </DbxVisualShell>
   );
 }
