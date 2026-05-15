@@ -42,11 +42,11 @@ missingTokenProbe = await request("POST", canonicalRoute, ownerPayload);
 const postRouteExists = missingTokenProbe.status !== 404 && missingTokenProbe.status !== 0;
 if (!postRouteExists) blockers.push("canonical_post_bootstrap_route_not_ready");
 
-const missingTokenRejected = [401, 403, 423, 503].includes(missingTokenProbe.status);
+const missingTokenRejected = [401, 403].includes(missingTokenProbe.status);
 if (!missingTokenRejected) blockers.push("bootstrap_not_protected_without_token");
 
 const disabledFlagDetected =
-  codeOf(missingTokenProbe) === "FIRST_OWNER_BOOTSTRAP_DISABLED" ||
+  codeOf(missingTokenProbe) === "bootstrap_disabled" ||
   (!ENABLED && [403, 423].includes(missingTokenProbe.status));
 if (!ENABLED && !disabledFlagDetected) blockers.push("disabled_flag_not_detected");
 
@@ -67,9 +67,9 @@ const requiredKeys = [
   "firstUserNumber",
   "ownerReferenceId",
   "referralCode",
-  "referralLink",
+  "referralLinkPath",
   "initiationCode",
-  "initiationLink",
+  "initiationLinkPath",
   "walletId",
   "affiliateAccountId",
 ];
@@ -179,9 +179,12 @@ function unwrapData(body) {
 
 function codeOf(probe) {
   const body = probe?.body;
-  return body && typeof body === "object" && typeof body.code === "string"
-    ? body.code
-    : null;
+  if (!body || typeof body !== "object") return null;
+  if (typeof body.code === "string") return body.code;
+  if (body.error && typeof body.error === "object" && typeof body.error.code === "string") {
+    return body.error.code;
+  }
+  return null;
 }
 
 function sanitizeProbe(probe) {
