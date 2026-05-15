@@ -1,5 +1,7 @@
 import {
   ForbiddenException,
+  HttpException,
+  HttpStatus,
   Injectable,
   UnauthorizedException,
 } from "@nestjs/common";
@@ -27,7 +29,7 @@ export class FirstOwnerBootstrapService {
   ): Promise<BootstrapFirstOwnerResponseDto> {
     if (this.env("DBX_ENABLE_FIRST_OWNER_BOOTSTRAP") !== "true") {
       throw new ForbiddenException({
-        code: "FIRST_OWNER_BOOTSTRAP_DISABLED",
+        code: "bootstrap_disabled",
         message:
           "Set DBX_ENABLE_FIRST_OWNER_BOOTSTRAP=true only for the controlled owner-claim window.",
       });
@@ -37,7 +39,7 @@ export class FirstOwnerBootstrapService {
       this.env("DBX_OWNER_BOOTSTRAP_TOKEN") || this.env("INTERNAL_SERVICE_TOKEN");
     if (!expectedToken) {
       throw new ForbiddenException({
-        code: "FIRST_OWNER_BOOTSTRAP_TOKEN_NOT_CONFIGURED",
+        code: "owner_bootstrap_token_not_configured",
         message:
           "Configure DBX_OWNER_BOOTSTRAP_TOKEN or INTERNAL_SERVICE_TOKEN before using first-owner bootstrap.",
       });
@@ -46,7 +48,7 @@ export class FirstOwnerBootstrapService {
     const suppliedToken = this.extractSuppliedToken(credentials);
     if (!suppliedToken) {
       throw new UnauthorizedException({
-        code: "FIRST_OWNER_BOOTSTRAP_TOKEN_REQUIRED",
+        code: "missing_owner_bootstrap_token",
         message:
           "A valid Authorization bearer token or x-owner-bootstrap-token header is required.",
       });
@@ -54,14 +56,15 @@ export class FirstOwnerBootstrapService {
 
     if (!this.tokensMatch(suppliedToken, expectedToken)) {
       throw new ForbiddenException({
-        code: "FIRST_OWNER_BOOTSTRAP_TOKEN_INVALID",
+        code: "invalid_owner_bootstrap_token",
         message: "The supplied first-owner bootstrap token is invalid.",
       });
     }
 
     let data: Record<string, unknown>;
     try {
-      data = await this.supabase.rpc<Record<string, unknown>>(
+      data = await this.supabase.rpcInSchema<Record<string, unknown>>(
+        "app_public",
         "dbx_bootstrap_first_owner_user",
         {
           p_user_id: dto.userId,
@@ -72,15 +75,7 @@ export class FirstOwnerBootstrapService {
         },
       );
     } catch (error) {
-      const details = typeof (error as { getResponse?: () => unknown }).getResponse === "function"
-        ? (error as { getResponse: () => unknown }).getResponse()
-        : null;
-      throw new ForbiddenException({
-        code: "FIRST_OWNER_BOOTSTRAP_DB_OR_RPC_BLOCKED",
-        message: "First-owner bootstrap could not complete because the Supabase RPC/database path is not ready.",
-        blockers: ["first_owner_bootstrap_rpc_or_db_issue"],
-        details,
-      });
+      throw this.structuredRpcBlocker(error);
     }
 
     const publicBaseUrl =
@@ -91,7 +86,7 @@ export class FirstOwnerBootstrapService {
     const referralPath = this.string(data.referralLinkPath);
     const initiationPath = this.string(data.initiationLinkPath);
 
-    return {
+    const response = {
       platformUserId: this.string(data.platformUserId),
       firstUserNumber: Number(data.firstUserNumber || 1),
       ownerReferenceId: this.string(data.ownerReferenceId),
@@ -105,7 +100,54 @@ export class FirstOwnerBootstrapService {
       affiliateAccountId: this.string(data.affiliateAccountId),
       fakeWalletCreditCreated: false,
       fakeReferralEarningCreated: false,
-    };
+    } satisfies BootstrapFirstOwnerResponseDto;
+
+    const missing = [
+      "platformUserId",
+      "firstUserNumber",
+      "ownerReferenceId",
+      "referralCode",
+      "referralLinkPath",
+      "initiationCode",
+      "initiationLinkPath",
+      "walletId",
+      "affiliateAccountId",
+    ].filter((key) => !response[key as keyof BootstrapFirstOwnerResponseDto]);
+
+    if (missing.length > 0) {
+      throw new HttpException(
+        {
+          code: "first_owner_bootstrap_incomplete",
+          message:
+            "First-owner bootstrap RPC returned an incomplete owner record.",
+          blockers: missing.map((key) => `missing_${key}`),
+          details: { missing },
+        },
+        HttpStatus.FAILED_DEPENDENCY,
+      );
+    }
+
+    return response;
+  }
+
+  private structuredRpcBlocker(error: unknown): HttpException {
+    const details =
+      typeof (error as { getResponse?: () => unknown }).getResponse === "function"
+        ? (error as { getResponse: () => unknown }).getResponse()
+        : error instanceof Error
+          ? { name: error.name, message: error.message }
+          : { message: String(error) };
+
+    return new HttpException(
+      {
+        code: "first_owner_bootstrap_rpc_blocked",
+        message:
+          "First-owner bootstrap could not complete because the app_public Supabase RPC/database path is not ready.",
+        blockers: ["app_public.dbx_bootstrap_first_owner_user_unavailable"],
+        details,
+      },
+      HttpStatus.FAILED_DEPENDENCY,
+    );
   }
 
   private env(key: string): string {

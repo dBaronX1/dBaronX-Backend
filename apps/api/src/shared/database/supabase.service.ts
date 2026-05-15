@@ -132,6 +132,30 @@ export class SupabaseService implements OnModuleInit, OnModuleDestroy {
     return data as T;
   }
 
+  async rpcInSchema<T = unknown>(
+    schemaName: string,
+    functionName: string,
+    params?: Record<string, unknown>,
+  ): Promise<T> {
+    const { data, error } = await this.client
+      .schema(schemaName)
+      .rpc(functionName, params || {});
+
+    if (error) {
+      throw new ServiceUnavailableException({
+        code: "SUPABASE_SCHEMA_RPC_FAILED",
+        message: error.message,
+        details: {
+          schemaName,
+          functionName,
+          code: error.code,
+        },
+      });
+    }
+
+    return data as T;
+  }
+
   private resolveRequired(key: string): string {
     const value = String(this.config.get<string>(key) || process.env[key] || "").trim();
 
