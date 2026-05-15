@@ -80,7 +80,7 @@ export async function fetchMedusaStoreProducts(options: { limit?: number; handle
 
 async function fetchInternalStoreProducts(options: { limit?: number; handle?: string }): Promise<MedusaProductResult> {
   if (typeof window === "undefined") return { products: [], reason: "products_unavailable" };
-  const path = options.handle ? `/api/store/products/${encodeURIComponent(options.handle)}` : "/api/store/products";
+  const path = options.handle ? `/api/store/products?handle=${encodeURIComponent(options.handle)}` : "/api/store/products";
   try {
     const response = await fetch(path, {
       headers: { accept: "application/json" },
