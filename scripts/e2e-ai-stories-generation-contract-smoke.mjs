@@ -4,6 +4,7 @@ import path from "node:path";
 import process from "node:process";
 
 const repoRoot = path.resolve(process.env.ROCKET_REPO_ROOT || process.cwd());
+const rocketRoot = fs.existsSync(path.join(repoRoot, "apps/web/src")) ? "apps/web/src" : "src";
 const failures = [];
 const warnings = [];
 
@@ -36,6 +37,25 @@ function has(content, pattern) {
   return typeof pattern === "string" ? content.includes(pattern) : pattern.test(content);
 }
 
+
+function sourceChainIncludes(entryFile, pattern, visited = new Set()) {
+  if (visited.has(entryFile)) return false;
+  visited.add(entryFile);
+  const content = read(entryFile);
+  if (has(content, pattern)) return true;
+  const imports = [...content.matchAll(/from\s+["'](@\/[^"']+)["']/g)].map((match) => match[1]);
+  return imports.some((specifier) => {
+    const withoutAlias = specifier.replace("@/", `${rocketRoot}/`);
+    const candidates = [
+      `${withoutAlias}.tsx`,
+      `${withoutAlias}.ts`,
+      path.join(withoutAlias, "index.tsx"),
+      path.join(withoutAlias, "index.ts"),
+    ];
+    return candidates.some((candidate) => fs.existsSync(file(candidate)) && sourceChainIncludes(candidate, pattern, visited));
+  });
+}
+
 function listFiles(dir, predicate = () => true) {
   const root = file(dir);
   if (!fs.existsSync(root)) return [];
@@ -54,10 +74,10 @@ function listFiles(dir, predicate = () => true) {
   return out;
 }
 
-const routePath = "src/app/api/ai-stories/route.ts";
-const aiStoriesPagePath = "src/app/ai-stories/page.tsx";
-const createPagePath = "src/app/ai-stories/create/page.tsx";
-const generatorPagePath = "src/app/ai-story-generator/page.tsx";
+const routePath = `${rocketRoot}/app/api/ai-stories/route.ts`;
+const aiStoriesPagePath = `${rocketRoot}/app/ai-stories/page.tsx`;
+const createPagePath = `${rocketRoot}/app/ai-stories/create/page.tsx`;
+const generatorPagePath = `${rocketRoot}/app/ai-story-generator/page.tsx`;
 
 const route = read(routePath);
 const aiStoriesPage = read(aiStoriesPagePath);
@@ -87,12 +107,12 @@ for (const [pathname, content] of [
   [createPagePath, createPage],
   [generatorPagePath, generatorPage],
 ]) {
-  assert(has(content, /fetch\(["']\/api\/ai-stories["']/), `${pathname} must call Rocket-local /api/ai-stories.`);
-  assert(has(content, /prompt/), `${pathname} must send prompt.`);
-  assert(has(content, /genre/), `${pathname} should send normalized genre when available.`);
-  assert(has(content, /length/), `${pathname} should send normalized length when available.`);
-  assert(has(content, /tone/), `${pathname} should send normalized tone when available.`);
-  assert(has(content, /data\.content|content\s*=\s*data\?\.content|content:\s*data\.content/), `${pathname} must read generated story text from data.content.`);
+  assert(sourceChainIncludes(pathname, /fetch\(["']\/api\/ai-stories["']/), `${pathname} must call Rocket-local /api/ai-stories.`);
+  assert(sourceChainIncludes(pathname, /prompt/), `${pathname} must send prompt.`);
+  assert(sourceChainIncludes(pathname, /genre/), `${pathname} should send normalized genre when available.`);
+  assert(sourceChainIncludes(pathname, /length/), `${pathname} should send normalized length when available.`);
+  assert(sourceChainIncludes(pathname, /tone/), `${pathname} should send normalized tone when available.`);
+  assert(sourceChainIncludes(pathname, /data\.content|content\s*=\s*data\?\.content|content:\s*data\.content/), `${pathname} must read generated story text from data.content.`);
   assert(!has(content, /set[A-Za-z0-9_]*\(\s*data\.story\s*\)|<[^>]*>\s*\{\s*data\.story\s*\}/), `${pathname} must not render object data.story as text.`);
   assert(!has(content, /INTERNAL_SERVICE_TOKEN|SUPABASE_SERVICE_ROLE|ANTHROPIC_API_KEY|OPENAI_API_KEY|GEMINI_API_KEY/), `${pathname} must not expose server/internal secrets.`);
 }
@@ -101,9 +121,9 @@ assert(!has(generatorPage, /user_id\s*:\s*["']anonymous["']/), "/ai-story-genera
 assert(!has(aiStoriesPage, /user_id\s*:/), "/ai-stories should rely on server/session auth instead of sending user_id.");
 assert(!has(createPage, /user_id\s*:/), "/ai-stories/create should rely on server/session auth instead of sending user_id.");
 assert(!has(createPage, /fetch\(["']\/api\/ai-stories["'][\s\S]*fetch\(["']\/api\/ai-stories["']/), "/ai-stories/create must not double-save by default.");
-warn(has(createPage, /saved\s*={0,2}\s*false|!data\.saved|data\.saved\s*={0,2}\s*false/), "/ai-stories/create should gate any manual save path on saved=false.");
+warn(sourceChainIncludes(createPagePath, /saved\s*={0,2}\s*false|!data\.saved|data\.saved\s*={0,2}\s*false/), "/ai-stories/create should gate any manual save path on saved=false.");
 
-const frontendFiles = listFiles("src", (full) => /\.(?:ts|tsx|js|jsx|mjs|cjs)$/.test(full));
+const frontendFiles = listFiles(rocketRoot, (full) => /\.(?:ts|tsx|js|jsx|mjs|cjs)$/.test(full));
 for (const full of frontendFiles) {
   const content = fs.readFileSync(full, "utf8");
   const relative = rel(full);

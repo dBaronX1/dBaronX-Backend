@@ -8,6 +8,9 @@ const publicEnv = {
   supabaseUrl: process.env.NEXT_PUBLIC_SUPABASE_URL || "",
   supabaseAnonKey: process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || "",
   stripePublicKey: process.env.NEXT_PUBLIC_STRIPE_PUBLIC_KEY || "",
+  webBaseUrl: process.env.NEXT_PUBLIC_WEB_BASE_URL || process.env.NEXT_PUBLIC_SITE_URL || "",
+  telegramBotUsername: process.env.NEXT_PUBLIC_TELEGRAM_BOT_USERNAME || "",
+  telegramBotLink: process.env.NEXT_PUBLIC_TELEGRAM_BOT_LINK || "",
 };
 
 const PUBLIC_ENV_NAMES = [
@@ -20,6 +23,9 @@ const PUBLIC_ENV_NAMES = [
   "NEXT_PUBLIC_SUPABASE_ANON_KEY",
   "NEXT_PUBLIC_STRIPE_PUBLIC_KEY",
   "NEXT_PUBLIC_SITE_URL",
+  "NEXT_PUBLIC_WEB_BASE_URL",
+  "NEXT_PUBLIC_TELEGRAM_BOT_USERNAME",
+  "NEXT_PUBLIC_TELEGRAM_BOT_LINK",
 ] as const;
 
 let loggedMissingPublicEnv = false;
@@ -42,6 +48,7 @@ export function getPublicEnv() {
   return {
     ...publicEnv,
     siteUrl: cleanBaseUrl(publicEnv.siteUrl),
+    webBaseUrl: cleanBaseUrl(publicEnv.webBaseUrl),
     apiBaseUrl: cleanBaseUrl(publicEnv.apiBaseUrl),
     nestjsBaseUrl: cleanBaseUrl(publicEnv.nestjsBaseUrl),
     fastapiBaseUrl: cleanBaseUrl(publicEnv.fastapiBaseUrl),

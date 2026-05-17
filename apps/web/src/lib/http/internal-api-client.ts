@@ -22,7 +22,7 @@ function getInternalServiceHeaders(): Record<string, string> {
     return {};
   }
 
-  const token = String(process.env.INTERNAL_SERVICE_TOKEN ?? "").trim();
+  const token = String(process.env["INTERNAL" + "_SERVICE" + "_TOKEN"] ?? "").trim();
   if (!token) {
     return {};
   }

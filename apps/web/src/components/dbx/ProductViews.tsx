@@ -13,13 +13,12 @@ export function DbxProductGrid({ handle, initialProducts = [] }: { handle?: stri
   if (loading) return <DbxCard>Loading dBaronX products…</DbxCard>;
 
   if (!visible.length) {
+    const fallbackMessage = reason ? "We could not load products right now. Please try again shortly or contact dBaronX support." : "Products are being prepared for launch. Please check back shortly or contact support.";
     return (
       <DbxCard>
         <h2 style={{ marginTop: 0 }}>dBaronX products</h2>
         <p style={{ color: "#fed7aa", lineHeight: 1.7 }}>
-          {reason
-            ? "We could not load products right now. Please try again shortly or contact dBaronX support."
-            : "Products are being prepared for launch. Please check back shortly or contact support."}
+          {fallbackMessage}
         </p>
         <Link href="/support" style={dbxButtonStyle}>Contact support</Link>
       </DbxCard>
@@ -50,7 +49,10 @@ export function DbxProductCard({ product }: { product: StoreProduct }) {
         <p style={{ margin: 0, color: "#fdba74" }}>Handle: {product.handle || "product"}</p>
         <p style={{ margin: 0, color: "#fdba74" }}>Variant: {variantId || "select at checkout"}</p>
         <p style={{ margin: 0, color: "#fdba74" }}>Delivery: {productDeliveryEstimate(product)}</p>
-        <Link href={href} style={dbxButtonStyle}>View product</Link>
+        <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
+          <Link href={href} style={dbxButtonStyle}>View product</Link>
+          <Link href={`/checkout${variantId ? `?variant=${encodeURIComponent(variantId)}&handle=${encodeURIComponent(String(product.handle || ""))}` : ""}`} style={{ ...dbxButtonStyle, background: "rgba(255,255,255,.08)", color: "#fff7ed", border: "1px solid rgba(255,255,255,.16)" }} data-default-variant-id={variantId}>Checkout</Link>
+        </div>
       </div>
     </DbxCard>
   );

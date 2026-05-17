@@ -7,6 +7,10 @@ export type PublicRuntimeConfig = {
   medusaBackendUrl: string;
   medusaPublishableKey: string;
   siteUrl: string;
+  webBaseUrl: string;
+  stripePublicKey: string;
+  telegramBotUsername: string;
+  telegramBotLink: string;
 };
 
 export const PUBLIC_CONFIG_KEYS = [
@@ -16,6 +20,10 @@ export const PUBLIC_CONFIG_KEYS = [
   "medusaBackendUrl",
   "medusaPublishableKey",
   "siteUrl",
+  "webBaseUrl",
+  "stripePublicKey",
+  "telegramBotUsername",
+  "telegramBotLink",
 ] as const satisfies readonly (keyof PublicRuntimeConfig)[];
 
 export const CUSTOMER_AUTH_UNAVAILABLE_MESSAGE =
@@ -40,6 +48,10 @@ export function getBuildTimePublicConfig(): PublicRuntimeConfig {
     medusaBackendUrl: cleanBaseUrl(env.medusaBackendUrl),
     medusaPublishableKey: clean(env.medusaPublishableKey),
     siteUrl: cleanBaseUrl(env.siteUrl),
+    webBaseUrl: cleanBaseUrl(env.webBaseUrl),
+    stripePublicKey: clean(env.stripePublicKey),
+    telegramBotUsername: clean(env.telegramBotUsername),
+    telegramBotLink: clean(env.telegramBotLink),
   };
 }
 
@@ -52,6 +64,10 @@ export function getRuntimePublicConfigFromEnv(): PublicRuntimeConfig {
     medusaBackendUrl: buildTime.medusaBackendUrl,
     medusaPublishableKey: buildTime.medusaPublishableKey,
     siteUrl: buildTime.siteUrl,
+    webBaseUrl: buildTime.webBaseUrl,
+    stripePublicKey: buildTime.stripePublicKey,
+    telegramBotUsername: buildTime.telegramBotUsername,
+    telegramBotLink: buildTime.telegramBotLink,
   };
 }
 
