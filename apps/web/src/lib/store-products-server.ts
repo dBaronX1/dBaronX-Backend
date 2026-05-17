@@ -1,5 +1,6 @@
 import {
   FIRST_CJ_PRODUCT_HANDLE,
+  normalizeStoreProduct,
   productPrimaryVariantId,
   type MedusaProductResult,
   type MedusaStoreProduct,
@@ -11,7 +12,7 @@ function cleanBaseUrl(value: string | undefined) {
 
 export function getMedusaStoreServerConfig() {
   return {
-    backendUrl: cleanBaseUrl(process.env.MEDUSA_BASE_URL || process.env.MEDUSA_BACKEND_URL || process.env.NEXT_PUBLIC_MEDUSA_BACKEND_URL),
+    backendUrl: cleanBaseUrl(process.env.MEDUSA_BACKEND_URL || process.env.NEXT_PUBLIC_MEDUSA_BACKEND_URL),
     publishableKey: (process.env.MEDUSA_PUBLISHABLE_KEY || process.env.NEXT_PUBLIC_MEDUSA_PUBLISHABLE_KEY || "").trim(),
   };
 }
@@ -27,18 +28,8 @@ export function extractStoreProducts(payload: unknown): MedusaStoreProduct[] {
   return product && typeof product === "object" ? [product as MedusaStoreProduct] : [];
 }
 
-function sanitizeProduct(product: MedusaStoreProduct): MedusaStoreProduct {
-  return {
-    ...product,
-    title: product.title || "dBaronX product",
-    handle: product.handle || "",
-    variants: Array.isArray(product.variants)
-      ? product.variants.map((variant) => ({
-          ...variant,
-          id: typeof variant.id === "string" ? variant.id : "",
-        }))
-      : [],
-  };
+export function normalizeServerStoreProduct(product: MedusaStoreProduct): MedusaStoreProduct {
+  return normalizeStoreProduct(product);
 }
 
 export async function fetchServerStoreProducts(options: { limit?: number; handle?: string } = {}): Promise<MedusaProductResult> {
@@ -59,7 +50,7 @@ export async function fetchServerStoreProducts(options: { limit?: number; handle
     });
     const payload = await response.json().catch(() => null);
     if (!response.ok) return { products: [], reason: "products_unavailable", status: response.status };
-    const products = extractStoreProducts(payload).map(sanitizeProduct);
+    const products = extractStoreProducts(payload).map(normalizeServerStoreProduct);
     return { products, reason: null, status: response.status };
   } catch {
     return { products: [], reason: "products_unavailable" };

@@ -1,8 +1,6 @@
 import { NextResponse } from "next/server";
 
-import { extractStoreProducts, getMedusaStoreServerConfig } from "@/lib/store-products-server";
-
-type StoreProduct = Record<string, unknown> & { handle?: string };
+import { extractStoreProducts, getMedusaStoreServerConfig, normalizeServerStoreProduct } from "@/lib/store-products-server";
 
 function safeFailure(status = 200, handle?: string) {
   return NextResponse.json(
@@ -19,15 +17,6 @@ function safeFailure(status = 200, handle?: string) {
       headers: { "cache-control": "no-store, max-age=0" },
     },
   );
-}
-
-function safeProduct(product: StoreProduct): StoreProduct {
-  const { publishable_key, publishableKey, api_key, apiKey, ...rest } = product;
-  void publishable_key;
-  void publishableKey;
-  void api_key;
-  void apiKey;
-  return rest;
 }
 
 export async function storeProductsResponse({ handle = "", limit = "20" }: { handle?: string; limit?: string } = {}) {
@@ -59,8 +48,8 @@ export async function storeProductsResponse({ handle = "", limit = "20" }: { han
       return safeFailure(200, handle);
     }
 
-    const products = extractStoreProducts(payload).map((product) => safeProduct(product as StoreProduct));
-    const product = handle ? products.find((item) => item.handle === handle) || products[0] || null : undefined;
+    const products = extractStoreProducts(payload).map(normalizeServerStoreProduct);
+    const product = handle ? products.find((item) => item.handle === handle) || null : undefined;
 
     return NextResponse.json(
       {

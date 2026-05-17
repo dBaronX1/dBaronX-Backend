@@ -107,7 +107,7 @@ const productSource = productFiles.filter(exists).map(read).join('\n');
 record(productSource.includes('useMedusaProducts') || productSource.includes('fetchMedusaStoreProducts'), 'Product source does not use the live product hook/client');
 record(productSource.includes('/api/store/products'), 'Product client does not prefer the internal product route');
 record(productSource.includes('productPrimaryVariantId'), 'Product cards do not use the visible variant id');
-record(read('apps/web/src/components/dbx/StaticPages.tsx').includes('<DbxProductGrid />'), 'Home page does not render the live product grid');
+record(/<DbxProductGrid(?:\s|>)/.test(read('apps/web/src/components/dbx/StaticPages.tsx')), 'Home page does not render the live product grid');
 record(read('apps/web/src/components/dbx/ProductViews.tsx').includes('reason ?'), 'Product grid does not expose a branded safe fallback path');
 record(sourceChainIncludes('apps/web/src/app/home/page.tsx', 'useStoreProducts'), '/home source chain does not import the live product source');
 record(sourceChainIncludes('apps/web/src/app/shop/page.tsx', 'useStoreProducts'), '/shop source chain does not import the live product source');

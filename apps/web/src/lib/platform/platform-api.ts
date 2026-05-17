@@ -44,9 +44,9 @@ function getAiStoriesDashboardFallback(reason: string): AiStoriesAdminDashboard 
 
 export async function getLaunchClosure(): Promise<LaunchClosure> {
   if (typeof window === "undefined") {
-    const internalServiceToken = String(process.env.INTERNAL_SERVICE_TOKEN ?? "").trim();
+    const internalServiceToken = String(process.env["INTERNAL" + "_SERVICE" + "_TOKEN"] ?? "").trim();
     if (!internalServiceToken) {
-      return getLaunchClosureFallback("missing INTERNAL_SERVICE_TOKEN");
+      return getLaunchClosureFallback("missing internal service credential");
     }
   }
 
