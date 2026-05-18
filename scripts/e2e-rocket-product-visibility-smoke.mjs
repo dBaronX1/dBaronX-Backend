@@ -101,11 +101,16 @@ const productFiles = [
   'apps/web/src/lib/store-products.ts',
   'apps/web/src/lib/hooks/useMedusaProducts.ts',
   'apps/web/src/lib/api/medusa-store-client.ts',
+  'apps/web/src/lib/store-products-supabase-fallback.ts',
+  'apps/web/src/app/api/store/products/store-products-response.ts',
 ];
 for (const file of [...routeFiles, ...productFiles]) record(exists(file), `Expected source file missing: ${file}`);
 const productSource = productFiles.filter(exists).map(read).join('\n');
 record(productSource.includes('useMedusaProducts') || productSource.includes('fetchMedusaStoreProducts'), 'Product source does not use the live product hook/client');
 record(productSource.includes('/api/store/products'), 'Product client does not prefer the internal product route');
+record(productSource.includes('fetchSupabaseStorefrontProductCache'), 'Product route does not include the Supabase storefront cache fallback helper.');
+record(productSource.includes('medusa returned no visible products') || productSource.includes('upstream product list failed'), 'Supabase fallback must only be used after Medusa failure or empty product visibility.');
+record(productSource.includes('Currently unavailable for checkout'), 'Fallback-only products without variants must not offer checkout.');
 record(productSource.includes('productPrimaryVariantId'), 'Product cards do not use the visible variant id');
 record(/<DbxProductGrid(?:\s|>)/.test(read('apps/web/src/components/dbx/StaticPages.tsx')), 'Home page does not render the live product grid');
 record(read('apps/web/src/components/dbx/ProductViews.tsx').includes('reason ?'), 'Product grid does not expose a branded safe fallback path');
