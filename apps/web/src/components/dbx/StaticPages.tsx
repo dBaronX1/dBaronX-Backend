@@ -4,7 +4,7 @@ import Link from "next/link";
 import { DbxCard, DbxVisualShell, dbxButtonStyle } from "@/components/dbx/DbxVisualShell";
 import { CustomerAccountPanel } from "@/components/dbx/CustomerAccountPanel";
 import { DbxProductGrid } from "@/components/dbx/ProductViews";
-import { fetchServerStoreProducts } from "@/lib/store-products-server";
+import { fetchRocketStoreProducts } from "@/lib/store-products-server";
 
 const metricCards = [
   ["Verified commerce", "Shop dBaronX products and checkout securely."],
@@ -13,7 +13,7 @@ const metricCards = [
 ];
 
 export async function DbxHomePage() {
-  const initialProducts = (await fetchServerStoreProducts({ limit: 24 })).products;
+  const initialProducts = (await fetchRocketStoreProducts({ limit: 24 })).products;
   return (
     <DbxVisualShell
       title="dBaronX"
@@ -50,7 +50,7 @@ export function DbxAccountPage({ mode = "account" }: { mode?: "account" | "profi
 }
 
 export async function DbxShopPage({ handle }: { handle?: string }) {
-  const initialProducts = (await fetchServerStoreProducts({ limit: handle ? 8 : 24, handle })).products;
+  const initialProducts = (await fetchRocketStoreProducts({ limit: handle ? 8 : 24, handle })).products;
   return (
     <DbxVisualShell title={handle ? "Product detail" : "Shop"} description="Browse dBaronX products prepared for launch.">
       <DbxProductGrid handle={handle} initialProducts={initialProducts} />

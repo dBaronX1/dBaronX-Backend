@@ -1,5 +1,4 @@
 import {
-  FIRST_CJ_PRODUCT_HANDLE,
   normalizeStoreProduct,
   productPrimaryVariantId,
   type MedusaProductResult,
@@ -57,10 +56,49 @@ export async function fetchServerStoreProducts(options: { limit?: number; handle
   }
 }
 
-export async function fetchServerStoreProductByHandle(handle = FIRST_CJ_PRODUCT_HANDLE) {
+export async function fetchServerStoreProductByHandle(handle: string) {
   const result = await fetchServerStoreProducts({ handle, limit: 5 });
   const product = result.products.find((item) => item.handle === handle) || result.products[0] || null;
   return { product, reason: product ? null : result.reason || "products_unavailable", status: result.status };
+}
+
+function getRocketWebBaseUrl() {
+  const explicit = cleanBaseUrl(process.env.NEXT_PUBLIC_WEB_BASE_URL || process.env.NEXT_PUBLIC_SITE_URL);
+  if (explicit) return explicit;
+  const vercelUrl = cleanBaseUrl(process.env.VERCEL_URL);
+  if (!vercelUrl) return "";
+  return vercelUrl.startsWith("http") ? vercelUrl : `https://${vercelUrl}`;
+}
+
+function rocketStoreProductsUrl(options: { limit?: number; handle?: string } = {}) {
+  const baseUrl = getRocketWebBaseUrl();
+  if (!baseUrl) return null;
+  const path = options.handle ? `/api/store/products/${encodeURIComponent(options.handle)}` : "/api/store/products";
+  const url = new URL(path, baseUrl);
+  url.searchParams.set("limit", String(options.limit || (options.handle ? 5 : 20)));
+  return url;
+}
+
+export async function fetchRocketStoreProducts(options: { limit?: number; handle?: string } = {}): Promise<MedusaProductResult> {
+  const url = rocketStoreProductsUrl(options);
+  if (url) {
+    try {
+      const response = await fetch(url, {
+        headers: { accept: "application/json" },
+        cache: "no-store",
+      });
+      const payload = await response.json().catch(() => null);
+      const products = extractStoreProducts(payload).map(normalizeServerStoreProduct).slice(0, options.limit || (options.handle ? 5 : 20));
+      if (response.ok && products.length > 0) return { products, reason: null, status: response.status };
+      if (response.ok && payload && typeof payload === "object" && (payload as Record<string, unknown>).success !== false) {
+        return { products, reason: null, status: response.status };
+      }
+    } catch {
+      // Fall back to direct Medusa store reads when the same-origin Rocket route is unavailable locally.
+    }
+  }
+
+  return fetchServerStoreProducts(options);
 }
 
 export function productCardProofAttributes(product: MedusaStoreProduct) {
