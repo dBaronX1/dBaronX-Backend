@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react";
 
-import { fetchFirstCjProduct, type MedusaStoreProduct } from "@/lib/api/medusa-store-client";
+import { fetchFirstStoreProduct, type MedusaStoreProduct } from "@/lib/api/medusa-store-client";
 
 export function useFirstProduct() {
   const [product, setProduct] = useState<MedusaStoreProduct | null>(null);
@@ -11,13 +11,13 @@ export function useFirstProduct() {
 
   useEffect(() => {
     let mounted = true;
-    fetchFirstCjProduct()
+    fetchFirstStoreProduct()
       .then((result) => {
         if (!mounted) return;
         setProduct(result.product);
         setReason(result.reason);
       })
-      .catch((error) => mounted && setReason(error instanceof Error ? error.message : "Unable to load first product."))
+      .catch((error) => mounted && setReason(error instanceof Error ? error.message : "Unable to load products."))
       .finally(() => mounted && setLoading(false));
     return () => {
       mounted = false;

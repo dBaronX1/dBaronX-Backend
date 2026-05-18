@@ -1,7 +1,5 @@
 import { getPublicEnv } from "@/lib/env";
 
-export const FIRST_CJ_PRODUCT_HANDLE = "mens-cotton-linen-long-sleeve-casual-shirt";
-
 export type StoreProductVariant = Record<string, unknown> & {
   id?: string;
   title?: string;
@@ -127,8 +125,10 @@ export async function fetchMedusaStoreProductByHandle(handle: string) {
   return { product: null, reason: listing.reason || "products_unavailable" };
 }
 
-export async function fetchFirstCjProduct() {
-  return fetchMedusaStoreProductByHandle(FIRST_CJ_PRODUCT_HANDLE);
+export async function fetchFirstStoreProduct() {
+  const listing = await fetchMedusaStoreProducts({ limit: 1 });
+  if (listing.products[0]) return { product: listing.products[0], reason: null };
+  return { product: null, reason: listing.reason || "products_unavailable" };
 }
 
 export function isVerifiedRealSupplierProduct(product: MedusaStoreProduct | null | undefined) {
