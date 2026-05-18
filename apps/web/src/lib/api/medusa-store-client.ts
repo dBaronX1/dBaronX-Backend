@@ -27,6 +27,7 @@ export type MedusaStoreProduct = Record<string, unknown> & {
   priceFormatted?: string;
   currencyCode?: string;
   defaultVariantId?: string;
+  checkoutEnabled?: boolean;
   variants?: StoreProductVariant[];
   stockStatus?: string;
   inventoryQuantity?: number;
@@ -154,6 +155,7 @@ export function productDisplayPrice(product: MedusaStoreProduct | null | undefin
 }
 
 export function productPrimaryVariantId(product: MedusaStoreProduct | null | undefined) {
+  if (product?.checkoutEnabled === false) return "";
   if (typeof product?.defaultVariantId === "string" && product.defaultVariantId) return product.defaultVariantId;
   const variant = Array.isArray(product?.variants) ? product?.variants?.[0] : null;
   return typeof variant?.id === "string" ? variant.id : "";
@@ -168,6 +170,7 @@ export function productPrimaryImage(product: MedusaStoreProduct | null | undefin
 }
 
 export function productAvailabilityLabel(product: MedusaStoreProduct | null | undefined) {
+  if (product?.checkoutEnabled === false) return "Unavailable for checkout";
   if (product?.stockStatus) return product.stockStatus;
   const variant = Array.isArray(product?.variants) ? product?.variants?.[0] : null;
   if (!variant) return "Variant pending";
@@ -185,7 +188,8 @@ export function productDeliveryEstimate(product: MedusaStoreProduct | null | und
 export function normalizeStoreProduct(product: MedusaStoreProduct): MedusaStoreProduct {
   const safe = stripInternalFields(product) as MedusaStoreProduct;
   const variants = normalizeVariants(Array.isArray(safe.variants) ? safe.variants : []);
-  const defaultVariantId = productPrimaryVariantId({ ...safe, variants });
+  const checkoutEnabled = safe.checkoutEnabled === false ? false : undefined;
+  const defaultVariantId = productPrimaryVariantId({ ...safe, variants, checkoutEnabled });
   const priceInfo = resolvePriceInfo({ ...safe, variants });
   const image = productPrimaryImage({ ...safe, variants });
   const metadata = sanitizeMetadata(safe.metadata);
@@ -209,6 +213,7 @@ export function normalizeStoreProduct(product: MedusaStoreProduct): MedusaStoreP
     priceFormatted: priceInfo.priceFormatted,
     currencyCode: priceInfo.currencyCode,
     defaultVariantId,
+    ...(checkoutEnabled === false ? { checkoutEnabled } : {}),
     variants,
     stockStatus: inventoryQuantity === null ? (variants[0]?.manage_inventory === false ? "Available" : "Availability pending") : inventoryQuantity > 0 ? `Available (${inventoryQuantity} in launch stock)` : "Availability pending",
     ...(inventoryQuantity !== null ? { inventoryQuantity } : {}),

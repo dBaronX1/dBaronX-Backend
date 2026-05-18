@@ -25,6 +25,8 @@ import { CommerceSettlementBridgeController } from "./commerce-settlement-bridge
 import { CommerceSettlementBridgeService } from "./commerce-settlement-bridge.service";
 import { CommerceVariantSyncController } from "./commerce-variant-sync.controller";
 import { CommerceVariantSyncService } from "./commerce-variant-sync.service";
+import { StorefrontProductsController } from "./storefront-products.controller";
+import { StorefrontProductsService } from "./storefront-products.service";
 import { CrossServiceCompatibilityService } from "../../shared/services/cross-service-compatibility.service";
 import { DecisionTracePersistenceBridgeService } from "../../shared/services/decision-trace-persistence-bridge.service";
 import { FastapiIntelligenceConsumptionService } from "../../shared/services/fastapi-intelligence-consumption.service";
@@ -59,6 +61,7 @@ import { WalletModule } from "../wallet/wallet.module";
     CommerceFulfillmentProviderNormalizationController,
     CommerceSettlementBridgeController,
     CommerceReconciliationController,
+    StorefrontProductsController,
   ],
   providers: [
     SupabaseService,
@@ -71,6 +74,7 @@ import { WalletModule } from "../wallet/wallet.module";
     FastapiTraceExportService,
     DecisionTracePersistenceBridgeService,
     IntelligenceAuditPipelineService,
+    StorefrontProductsService,
     LaunchReadinessPersistenceService,
     MedusaHttpService,
     MedusaBridgeService,

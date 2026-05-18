@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 
+import { fetchSupabaseStorefrontProducts } from "@/lib/supabase-products";
 import { fetchSupabaseStorefrontProductCache } from "@/lib/store-products-supabase-fallback";
 import { extractStoreProducts, getMedusaStoreServerConfig, normalizeServerStoreProduct } from "@/lib/store-products-server";
 
@@ -39,6 +40,20 @@ function safeFailure(status = 200, handle?: string) {
 }
 
 export async function storeProductsResponse({ handle = "", limit = "20" }: { handle?: string; limit?: string } = {}) {
+  const supabase = await fetchSupabaseStorefrontProducts({ handle, limit: Number(limit || 20) || 20 });
+  const supabaseProduct = handle ? supabase.products.find((item) => item.handle === handle) || supabase.products[0] || null : undefined;
+  if ((handle && supabaseProduct) || (!handle && (supabase.products.length > 0 || supabase.reason === null))) {
+    return NextResponse.json(
+      {
+        success: handle ? Boolean(supabaseProduct) : true,
+        source: "supabase_storefront_products",
+        ...(handle ? { product: supabaseProduct } : {}),
+        products: handle && supabaseProduct ? [supabaseProduct] : supabase.products,
+      },
+      { headers: { "cache-control": "no-store, max-age=0" } },
+    );
+  }
+
   const { backendUrl, publishableKey } = getMedusaStoreServerConfig();
   if (!backendUrl || !publishableKey) {
     console.error("[store-products] product backend configuration is missing");
@@ -77,6 +92,7 @@ export async function storeProductsResponse({ handle = "", limit = "20" }: { han
     return NextResponse.json(
       {
         success: handle ? Boolean(product) : true,
+        source: "medusa_store_api_fallback",
         ...(handle ? { product } : {}),
         products: handle && product ? [product] : products,
         ...(handle && !product ? { message: "This product is temporarily unavailable. Please try again shortly or contact support." } : {}),
