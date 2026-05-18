@@ -43,7 +43,7 @@ function RegisterForm() {
   const router = useRouter();
   const params = useSearchParams();
   const referral = useMemo(() => captureReferralParams(params), [params]);
-  const nextPath = safeLocalPath(params.get("next"), "/onboarding");
+  const nextPath = safeLocalPath(params.get("next"), "/account");
   const initialReferralCode = referral.ref || "";
   const [fullName, setFullName] = useState("");
   const [email, setEmail] = useState("");
@@ -103,7 +103,7 @@ function RegisterForm() {
         full_name: fullName.trim(),
         display_name: fullName.trim(),
         source: "rocket_web",
-        onboarding_target: "/onboarding",
+        onboarding_target: "/account",
       };
       const { data, error } = await authClient.auth.signUp({
         email: email.trim(),

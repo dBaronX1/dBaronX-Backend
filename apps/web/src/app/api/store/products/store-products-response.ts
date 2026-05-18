@@ -1,6 +1,25 @@
 import { NextResponse } from "next/server";
 
+import { fetchSupabaseStorefrontProductCache } from "@/lib/store-products-supabase-fallback";
 import { extractStoreProducts, getMedusaStoreServerConfig, normalizeServerStoreProduct } from "@/lib/store-products-server";
+
+async function productsFallbackOrSafeFailure(status = 200, handle?: string, limit?: string) {
+  const fallback = await fetchSupabaseStorefrontProductCache({ handle, limit: Number(limit || 20) || 20 });
+  const product = handle ? fallback.products.find((item) => item.handle === handle) || fallback.products[0] || null : undefined;
+  if ((handle && product) || (!handle && fallback.products.length > 0)) {
+    return NextResponse.json(
+      {
+        success: true,
+        source: "supabase_storefront_product_cache_fallback",
+        message: "Products are showing from a storefront cache. Checkout still requires Medusa availability.",
+        ...(handle ? { product } : {}),
+        products: handle && product ? [product] : fallback.products,
+      },
+      { headers: { "cache-control": "no-store, max-age=0" } },
+    );
+  }
+  return safeFailure(status, handle);
+}
 
 function safeFailure(status = 200, handle?: string) {
   return NextResponse.json(
@@ -23,7 +42,7 @@ export async function storeProductsResponse({ handle = "", limit = "20" }: { han
   const { backendUrl, publishableKey } = getMedusaStoreServerConfig();
   if (!backendUrl || !publishableKey) {
     console.error("[store-products] product backend configuration is missing");
-    return safeFailure(200, handle);
+    return productsFallbackOrSafeFailure(200, handle, limit);
   }
 
   const url = new URL(`${backendUrl}/store/products`);
@@ -45,11 +64,15 @@ export async function storeProductsResponse({ handle = "", limit = "20" }: { han
         statusText: response.statusText,
         payloadShape: payload && typeof payload === "object" ? Object.keys(payload as Record<string, unknown>) : typeof payload,
       });
-      return safeFailure(200, handle);
+      return productsFallbackOrSafeFailure(200, handle, limit);
     }
 
     const products = extractStoreProducts(payload).map(normalizeServerStoreProduct);
     const product = handle ? products.find((item) => item.handle === handle) || null : undefined;
+    if ((handle && !product) || (!handle && products.length === 0)) {
+      console.warn("[store-products] medusa returned no visible products; trying storefront cache fallback", { handle: handle || undefined });
+      return productsFallbackOrSafeFailure(200, handle, limit);
+    }
 
     return NextResponse.json(
       {
@@ -62,6 +85,6 @@ export async function storeProductsResponse({ handle = "", limit = "20" }: { han
     );
   } catch (error) {
     console.error("[store-products] upstream product list unreachable", error);
-    return safeFailure(200, handle);
+    return productsFallbackOrSafeFailure(200, handle, limit);
   }
 }
