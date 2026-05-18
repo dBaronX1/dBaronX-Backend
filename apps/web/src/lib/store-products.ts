@@ -1,4 +1,4 @@
-export { useMedusaProducts as useStoreProducts } from "@/lib/hooks/useMedusaProducts";
+export { useSupabaseProducts as useStoreProducts } from "@/lib/hooks/useSupabaseProducts";
 export {
   productAvailabilityLabel,
   productDeliveryEstimate,

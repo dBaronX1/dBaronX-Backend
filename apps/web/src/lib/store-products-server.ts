@@ -1,3 +1,4 @@
+import { fetchSupabaseStorefrontProducts } from "@/lib/supabase-products";
 import {
   normalizeStoreProduct,
   productPrimaryVariantId,
@@ -80,6 +81,9 @@ function rocketStoreProductsUrl(options: { limit?: number; handle?: string } = {
 }
 
 export async function fetchRocketStoreProducts(options: { limit?: number; handle?: string } = {}): Promise<MedusaProductResult> {
+  const supabase = await fetchSupabaseStorefrontProducts(options);
+  if (supabase.products.length > 0 || supabase.reason === null) return supabase;
+
   const url = rocketStoreProductsUrl(options);
   if (url) {
     try {

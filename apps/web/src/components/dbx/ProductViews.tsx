@@ -47,14 +47,14 @@ export function DbxProductCard({ product }: { product: StoreProduct }) {
         <p style={{ margin: 0, color: "#fed7aa", lineHeight: 1.6 }}>{product.description || "Verified dBaronX product."}</p>
         <p style={{ margin: 0, fontSize: 22, fontWeight: 950 }}>{productDisplayPrice(product)}</p>
         <p style={{ margin: 0, color: "#fdba74" }}>Handle: {product.handle || "product"}</p>
-        <p style={{ margin: 0, color: "#fdba74" }}>Variant: {variantId || "select at checkout"}</p>
+        <p style={{ margin: 0, color: "#fdba74" }}>Variant: {variantId || "Unavailable for checkout"}</p>
         <p style={{ margin: 0, color: "#fdba74" }}>Delivery: {productDeliveryEstimate(product)}</p>
         <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
           <Link href={href} style={dbxButtonStyle}>View product</Link>
           {variantId ? (
             <Link href={`/checkout?variant=${encodeURIComponent(variantId)}&handle=${encodeURIComponent(String(product.handle || ""))}`} style={{ ...dbxButtonStyle, background: "rgba(255,255,255,.08)", color: "#fff7ed", border: "1px solid rgba(255,255,255,.16)" }} data-default-variant-id={variantId}>Checkout</Link>
           ) : (
-            <span style={{ ...dbxButtonStyle, background: "rgba(255,255,255,.08)", color: "#fed7aa", border: "1px solid rgba(255,255,255,.16)", cursor: "not-allowed" }} data-default-variant-id="">Currently unavailable for checkout</span>
+            <span style={{ ...dbxButtonStyle, background: "rgba(255,255,255,.08)", color: "#fed7aa", border: "1px solid rgba(255,255,255,.16)", cursor: "not-allowed" }} data-default-variant-id="">Unavailable for checkout</span>
           )}
         </div>
       </div>
