@@ -1676,10 +1676,9 @@ export class StripeCheckoutService {
   private buildMetadata(
     input: CreateStripeCheckoutSessionDto,
   ): Record<string, string> {
+    const requestedSource = input.metadataSource || input.source;
     const metadataSource =
-      input.metadataSource === "dbaronx_first_sale"
-        ? "dbaronx_first_sale"
-        : "dbaronx";
+      requestedSource === "dbaronx_first_sale" ? "dbaronx_first_sale" : "dbaronx";
     return this.cleanMetadata({
       cartId: input.cartId,
       userId: input.userId || "",
@@ -1708,10 +1707,9 @@ export class StripeCheckoutService {
   private buildProductMetadata(
     input: CreateStripeCheckoutSessionDto,
   ): Record<string, string> {
+    const requestedSource = input.metadataSource || input.source;
     const metadataSource =
-      input.metadataSource === "dbaronx_first_sale"
-        ? "dbaronx_first_sale"
-        : "dbaronx";
+      requestedSource === "dbaronx_first_sale" ? "dbaronx_first_sale" : "dbaronx";
     return this.cleanMetadata({
       cartId: input.cartId,
       orderRef:
