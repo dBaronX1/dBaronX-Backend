@@ -52,7 +52,16 @@ The migration creates:
 
 After syncing products, review rows in `app_public.storefront_products`.
 
-Approve display only after verification:
+Approve display only after verification using the server-side helper (checkout remains disabled unless a real Medusa variant is already linked):
+
+```bash
+SUPABASE_URL=... \
+SUPABASE_SERVICE_ROLE_KEY=... \
+SUPABASE_SUPPLIER_PRODUCT_ID=<real-cj-product-id> \
+node scripts/approve-supabase-storefront-product.mjs
+```
+
+Equivalent SQL:
 
 ```sql
 update app_public.storefront_products

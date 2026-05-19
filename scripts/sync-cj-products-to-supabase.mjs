@@ -1,8 +1,16 @@
 #!/usr/bin/env node
 import { readFile } from "node:fs/promises";
-import { createClient } from "@supabase/supabase-js";
 
-const SECRET_KEYS = /TOKEN|KEY|SECRET|DATABASE_URL|SERVICE_ROLE/i;
+
+async function loadSupabaseCreateClient() {
+  try {
+    const mod = await import("@supabase/supabase-js");
+    return mod.createClient;
+  } catch (error) {
+    const fallback = await import("../apps/api/node_modules/@supabase/supabase-js/dist/index.cjs");
+    return fallback.createClient || fallback.default?.createClient;
+  }
+}
 
 function env(name, fallback = "") {
   return String(process.env[name] || fallback).trim();
@@ -27,12 +35,20 @@ function publicBlocker(message) {
   return String(message || "unknown_blocker").replace(/[A-Za-z0-9_\-]{24,}/g, "[redacted]");
 }
 
-function requireEnv() {
-  const missing = [];
-  for (const name of ["SUPABASE_URL", "SUPABASE_SERVICE_ROLE_KEY"]) {
-    if (!env(name)) missing.push(name);
+function assertServerRuntime() {
+  if (typeof globalThis.window !== "undefined" || typeof globalThis.document !== "undefined") {
+    throw new Error("server_side_only_cj_supabase_sync");
   }
-  if (!env("CJ_ACCESS_TOKEN") && !env("CJ_API_KEY") && !env("CJ_SYNC_INPUT_FILE")) {
+}
+
+function requireEnv(options) {
+  const missing = [];
+  if (!options.dryRun) {
+    for (const name of ["SUPABASE_URL", "SUPABASE_SERVICE_ROLE_KEY"]) {
+      if (!env(name)) missing.push(name);
+    }
+  }
+  if (!env("CJ_ACCESS_TOKEN") && !env("CJ_API_KEY") && !options.inputFile) {
     missing.push("CJ_ACCESS_TOKEN_or_CJ_API_KEY_or_CJ_SYNC_INPUT_FILE");
   }
   return missing;
@@ -236,7 +252,7 @@ async function upsertProducts(supabase, products, options) {
 }
 
 async function main() {
-  const missing = requireEnv();
+  assertServerRuntime();
   const options = {
     limit: intEnv("CJ_SYNC_LIMIT", 50),
     dryRun: boolEnv("CJ_SYNC_DRY_RUN", false),
@@ -245,6 +261,7 @@ async function main() {
     defaultCurrency: env("CJ_SYNC_DEFAULT_CURRENCY", "usd"),
     inputFile: env("CJ_SYNC_INPUT_FILE"),
   };
+  const missing = requireEnv(options);
   const blockers = missing.map((name) => `${name.toLowerCase()}_missing`);
   if (missing.length) {
     printJson({ success: false, sessionId: null, totalSeen: 0, totalUpserted: 0, totalVerified: 0, totalRejected: 0, blockers, nextManualStep: "Set server-side Supabase service-role and CJ credentials, or provide CJ_SYNC_INPUT_FILE for manual JSON import." });
@@ -252,7 +269,8 @@ async function main() {
     return;
   }
 
-  const supabase = createClient(env("SUPABASE_URL"), env("SUPABASE_SERVICE_ROLE_KEY"), { auth: { persistSession: false, autoRefreshToken: false } });
+  const createClient = options.dryRun ? null : await loadSupabaseCreateClient();
+  const supabase = options.dryRun ? null : createClient(env("SUPABASE_URL"), env("SUPABASE_SERVICE_ROLE_KEY"), { auth: { persistSession: false, autoRefreshToken: false } });
   let sessionId = null;
   try {
     const session = await createSession(supabase, options, blockers);
@@ -284,10 +302,6 @@ async function main() {
     printJson({ success: false, sessionId, totalSeen: 0, totalUpserted: 0, totalVerified: 0, totalRejected: 0, blockers: blockers.map(publicBlocker), nextManualStep: "Resolve blockers and rerun. Do not publish products until verification is complete." });
     process.exitCode = 1;
   }
-}
-
-for (const key of Object.keys(process.env)) {
-  if (SECRET_KEYS.test(key) && process.env[key]) process.env[key] = process.env[key];
 }
 
 main();

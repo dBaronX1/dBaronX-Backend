@@ -33,10 +33,10 @@ CJ_SYNC_REQUESTED_BY=operator-name
 ## Dry run
 
 ```bash
-CJ_SYNC_DRY_RUN=true CJ_SYNC_INPUT_FILE=./cj-products.json node scripts/sync-cj-products-to-supabase.mjs
+CJ_SYNC_DRY_RUN=true CJ_SYNC_INPUT_FILE=./scripts/fixtures/cj-first-shirt-product.json node scripts/sync-cj-products-to-supabase.mjs
 ```
 
-Dry run validates normalization and output shape without writing products or sessions.
+Dry run validates normalization and output shape without writing products or sessions, and it does not require Supabase secrets when `CJ_SYNC_INPUT_FILE` is provided.
 
 ## Sync run
 
@@ -67,7 +67,16 @@ Do not auto-publish unverified supplier products because public pages must not i
 
 ## Approving products
 
-Approve only after manual or admin review:
+Approve only after manual or admin review. The helper uses the Supabase service-role key only in Node/server execution and keeps checkout disabled unless the row already has a real `medusa_variant_id`:
+
+```bash
+SUPABASE_URL=... \
+SUPABASE_SERVICE_ROLE_KEY=... \
+SUPABASE_SUPPLIER_PRODUCT_ID=<real-cj-product-id> \
+node scripts/approve-supabase-storefront-product.mjs
+```
+
+Equivalent SQL:
 
 ```sql
 update app_public.storefront_products
