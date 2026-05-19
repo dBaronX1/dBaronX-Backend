@@ -78,6 +78,37 @@ export class CreateStripeCheckoutSessionDto {
   @MaxLength(2048)
   cancelUrl!: string;
 
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(120)
+  metadataSource?: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(120)
+  source?: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(120)
+  supplier?: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(120)
+  supplierProductId?: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(120)
+  supplierSku?: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(180)
+  handle?: string;
+
   @IsOptional()
   @IsString()
   @MaxLength(180)

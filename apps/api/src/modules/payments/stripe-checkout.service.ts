@@ -1641,6 +1641,10 @@ export class StripeCheckoutService {
         metadata.orderIntentId ||
         null,
       source: metadata.source || null,
+      supplier: metadata.supplier || null,
+      supplierProductId: metadata.supplierProductId || null,
+      supplierSku: metadata.supplierSku || null,
+      handle: metadata.handle || null,
       checkoutRef: metadata.checkoutRef || null,
       customerRef: metadata.customerRef || null,
       userId: metadata.userId || null,
@@ -1688,7 +1692,11 @@ export class StripeCheckoutService {
       variantId: input.variantId || "",
       supplierRefs: (input.supplierRefs || []).join(","),
       orderIntentId: input.orderIntentId || "",
-      source: "dbaronx",
+      source: input.metadataSource || input.source || "dbaronx_first_sale",
+      supplier: input.supplier || "cj",
+      supplierProductId: input.supplierProductId || "2408300732091605000",
+      supplierSku: input.supplierSku || "CJDS212420104DW",
+      handle: input.handle || "mens-cotton-linen-long-sleeve-casual-shirt",
       mode: input.checkoutMode || "test",
     });
   }
@@ -1710,7 +1718,11 @@ export class StripeCheckoutService {
       productId: input.productId || "",
       variantId: input.variantId || "",
       orderIntentId: input.orderIntentId || "",
-      source: "dbaronx",
+      source: input.metadataSource || input.source || "dbaronx_first_sale",
+      supplier: input.supplier || "cj",
+      supplierProductId: input.supplierProductId || "2408300732091605000",
+      supplierSku: input.supplierSku || "CJDS212420104DW",
+      handle: input.handle || "mens-cotton-linen-long-sleeve-casual-shirt",
       mode: input.checkoutMode || "test",
     });
   }
