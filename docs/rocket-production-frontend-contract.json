@@ -64,14 +64,43 @@
   },
   "authRequirements": {
     "source": "Supabase Auth",
-    "routes": ["/register", "/login", "/account", "/profile"],
-    "allowedUserFields": ["email", "full_name_or_display_name", "safe_user_reference", "referral_if_available"],
-    "forbidden": ["browser_service_role_exposure", "browser_only_admin_decisions"]
+    "routes": [
+      "/register",
+      "/login",
+      "/account",
+      "/profile"
+    ],
+    "allowedUserFields": [
+      "email",
+      "full_name_or_display_name",
+      "safe_user_reference",
+      "referral_if_available"
+    ],
+    "forbidden": [
+      "browser_service_role_exposure",
+      "browser_only_admin_decisions"
+    ],
+    "profileTable": "app_public.user_profiles",
+    "profilePath": "Use authenticated session + RLS to read/write app_public.user_profiles."
   },
   "aiStoriesContract": {
     "endpoint": "POST /api/ai-stories",
-    "request": ["prompt", "title?", "genre?", "length?", "tone?", "language?"],
-    "response": ["success", "provider", "content", "story", "saved", "message?"],
+    "request": [
+      "prompt",
+      "title?",
+      "genre?",
+      "length?",
+      "tone?",
+      "language?"
+    ],
+    "response": [
+      "success",
+      "provider",
+      "content",
+      "story",
+      "saved",
+      "message?"
+    ],
     "rules": [
       "render_data_content",
       "do_not_render_story_object_as_text",
@@ -121,6 +150,34 @@
       "fake_fulfilled",
       "fake_shipped",
       "fake_generated"
-    ]
+    ],
+    "controlledProduct": {
+      "handle": "mens-cotton-linen-long-sleeve-casual-shirt",
+      "supplier": "cj",
+      "supplier_product_id": "2408300732091605000",
+      "supplier_sku": "CJDS212420104DW",
+      "amount": 1999,
+      "currency": "usd"
+    },
+    "requestMarker": "metadataSource_or_source=dbaronx_first_sale",
+    "canBypassMedusaVariantOnlyForControlledProduct": true,
+    "webhookProofRequiredForPaidFulfilled": true
+  },
+  "publicWordingRule": {
+    "brand": "dBaronX",
+    "forbiddenPublicTerms": [
+      "Rocket",
+      "Supabase",
+      "Medusa",
+      "API",
+      "backend",
+      "database",
+      "table",
+      "schema",
+      "provider",
+      "framework",
+      "build tool"
+    ],
+    "fallbackMessage": "We could not load your dBaronX account details right now. Please try again."
   }
 }

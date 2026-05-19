@@ -2,6 +2,11 @@
 
 This checklist is for the **Rocket repo** only and is sourced from the backend contract in `dbaronx-ecosystem`.
 
+## Public wording safety
+
+- [ ] All customer-facing copy uses dBaronX wording only.
+- [ ] Customer-visible UI/error messages do not include internal stack/tool names (Rocket, Supabase, Medusa, API, backend, database, table, schema, provider, framework, build tools).
+
 ## Product integration
 
 - [ ] `src/lib/supabase-products.ts`
@@ -23,6 +28,8 @@ This checklist is for the **Rocket repo** only and is sourced from the backend c
 - [ ] Checkout button/card components wired to backend checkout contract
 - [ ] Payment success/cancel/status pages
 - [ ] Uses `POST /api/checkout/stripe/session` only
+- [ ] Controlled first-sale payload can send `metadataSource/source = dbaronx_first_sale`
+- [ ] First-sale fallback may proceed without `medusa_variant_id` only for controlled product metadata
 - [ ] Opens checkout only from backend-returned `checkoutUrl`
 - [ ] Never marks paid client-side
 - [ ] Never creates fake order success/fulfillment state
@@ -36,6 +43,8 @@ This checklist is for the **Rocket repo** only and is sourced from the backend c
 - [ ] `src/app/profile/page.tsx`
 - [ ] `src/middleware.ts`
 - [ ] Auth source is Supabase Auth
+- [ ] Profile read/write uses `app_public.user_profiles`
+- [ ] Profile fallback message is dBaronX-safe
 - [ ] Browser never receives `SUPABASE_SERVICE_ROLE_KEY`
 
 ## AI stories integration
