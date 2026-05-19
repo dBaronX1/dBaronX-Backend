@@ -118,4 +118,29 @@ export class CreateStripeCheckoutSessionDto {
   @IsEmail()
   @MaxLength(320)
   customerEmail?: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(120)
+  metadataSource?: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(120)
+  supplier?: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(120)
+  supplierProductId?: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(120)
+  supplierSku?: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(160)
+  handle?: string;
 }
