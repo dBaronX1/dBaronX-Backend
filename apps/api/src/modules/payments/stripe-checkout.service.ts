@@ -1641,6 +1641,10 @@ export class StripeCheckoutService {
         metadata.orderIntentId ||
         null,
       source: metadata.source || null,
+      supplier: metadata.supplier || null,
+      supplierProductId: metadata.supplierProductId || null,
+      supplierSku: metadata.supplierSku || null,
+      handle: metadata.handle || null,
       checkoutRef: metadata.checkoutRef || null,
       customerRef: metadata.customerRef || null,
       userId: metadata.userId || null,
