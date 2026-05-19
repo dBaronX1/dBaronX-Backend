@@ -2,6 +2,12 @@
 
 This contract defines how the separate Rocket frontend repo (`dBaronX/dbaronx`) must integrate with this backend/unified repo (`dBaronX/dbaronx-ecosystem`) for first production sale readiness.
 
+## Public wording safety rule
+
+- All customer-facing text must use **dBaronX** language only.
+- Customer-facing UI/error copy must **not** mention internal platform/tool names (including Rocket, Supabase, Medusa, API, backend, database, table, schema, provider, framework, or build tools).
+- If profile/checkout data is temporarily unavailable, show neutral wording such as: `We couldn't load your dBaronX account details right now. Please try again.`
+
 ## 1) Product display contract
 
 - **Primary source**: `app_public.storefront_products` via backend public API (`GET /api/storefront/products` and `GET /api/storefront/products/:handle`).
@@ -76,8 +82,11 @@ This contract defines how the separate Rocket frontend repo (`dBaronX/dbaronx`) 
   - `blockers`
 - **Hard rules**:
   - open Stripe only from backend-returned `checkoutUrl`
+  - for the controlled first-sale product, Rocket may send `metadataSource` or `source` with `dbaronx_first_sale`
+  - backend may create Stripe checkout without `medusa_variant_id` only for this controlled first-sale fallback metadata
   - never mark paid in Rocket
   - never create fake order success states
+  - never mark ordered/fulfilled without verified webhook proof
   - payment proof comes from verified Stripe webhook + backend settlement status
 
 ## 4) Payment/order status contract
@@ -127,6 +136,9 @@ This contract defines how the separate Rocket frontend repo (`dBaronX/dbaronx`) 
 ## 5) Account/profile contract
 
 - **Auth source**: Supabase Auth.
+- **Profile table**: `app_public.user_profiles` (source of account display data after auth).
+- **Preferred integration path**: Rocket account/profile pages read/write `app_public.user_profiles` with authenticated user sessions and RLS.
+- **Fallback message when profile read/write fails**: `We couldn't update your dBaronX profile right now. Please try again.`
 - **Required Rocket routes/pages**:
   - `/register`
   - `/login`
