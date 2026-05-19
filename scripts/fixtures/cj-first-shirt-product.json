@@ -1,0 +1,27 @@
+{
+  "data": {
+    "list": [
+      {
+        "pid": "cj-first-shirt-product-demo",
+        "productName": "dBaronX First Shirt Supplier Draft",
+        "description": "Fixture-only CJ shirt payload for Supabase storefront sync smoke tests. Operators must verify the real supplier record before public display.",
+        "shortDescription": "Fixture CJ shirt draft for sync validation.",
+        "productSku": "CJ-DBX-FIRST-SHIRT-DEMO",
+        "productImage": "https://example.com/dbx-first-shirt-front.png",
+        "productImages": [
+          "https://example.com/dbx-first-shirt-front.png",
+          "https://example.com/dbx-first-shirt-back.png"
+        ],
+        "sellPrice": "12.50",
+        "retailPrice": "29.00",
+        "currency": "USD",
+        "inventoryQuantity": 25,
+        "shippingCountry": "US",
+        "deliveryEstimate": "Supplier estimate must be verified manually",
+        "categoryName": "Apparel",
+        "tags": ["shirt", "fixture", "cj-sync"],
+        "medusa_variant_id": null
+      }
+    ]
+  }
+}
