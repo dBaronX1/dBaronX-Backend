@@ -1,0 +1,126 @@
+{
+  "productSource": {
+    "table": "app_public.storefront_products",
+    "apiList": "/api/storefront/products",
+    "apiByHandle": "/api/storefront/products/:handle"
+  },
+  "productFields": [
+    "id",
+    "handle",
+    "title",
+    "description",
+    "short_description",
+    "thumbnail",
+    "image_url",
+    "images",
+    "price_minor",
+    "currency_code",
+    "inventory_quantity",
+    "stock_status",
+    "delivery_estimate",
+    "supplier",
+    "supplier_product_id",
+    "supplier_sku",
+    "medusa_product_id",
+    "medusa_variant_id",
+    "checkout_enabled",
+    "metadata"
+  ],
+  "productVisibilityRules": {
+    "active": true,
+    "verification_status": "verified",
+    "forbiddenPublicFields": [
+      "cost_minor",
+      "cj_raw_if_unsafe",
+      "internal_notes",
+      "secrets"
+    ]
+  },
+  "checkoutEndpoint": "POST /api/checkout/stripe/session",
+  "checkoutPayload": [
+    "amount",
+    "currency",
+    "productName",
+    "productId_or_handle",
+    "checkoutRef",
+    "successUrl",
+    "cancelUrl",
+    "metadataSource_or_source=dbaronx_first_sale",
+    "supplier",
+    "supplierProductId",
+    "supplierSku",
+    "handle"
+  ],
+  "checkoutResponse": [
+    "success",
+    "checkoutUrl",
+    "sessionId",
+    "blockers"
+  ],
+  "paymentStatusEndpoints": {
+    "paymentStatus": "GET /api/checkout/stripe/settlement-status",
+    "orderStatus": "GET /api/orders/customer/status?reference=...",
+    "settlementStorageStatus": "GET /api/checkout/stripe/settlement-storage-readiness (internal guarded)"
+  },
+  "authRequirements": {
+    "source": "Supabase Auth",
+    "routes": ["/register", "/login", "/account", "/profile"],
+    "allowedUserFields": ["email", "full_name_or_display_name", "safe_user_reference", "referral_if_available"],
+    "forbidden": ["browser_service_role_exposure", "browser_only_admin_decisions"]
+  },
+  "aiStoriesContract": {
+    "endpoint": "POST /api/ai-stories",
+    "request": ["prompt", "title?", "genre?", "length?", "tone?", "language?"],
+    "response": ["success", "provider", "content", "story", "saved", "message?"],
+    "rules": [
+      "render_data_content",
+      "do_not_render_story_object_as_text",
+      "do_not_send_user_id_anonymous",
+      "provider_keys_server_side_only"
+    ]
+  },
+  "telegramLinks": {
+    "bot": "https://t.me/dBaronX_bot",
+    "customerCommands": [
+      "/shop",
+      "/products",
+      "/product <handle_or_id>",
+      "/cart_help",
+      "/checkout_help",
+      "/order_status <order_or_email_or_reference>",
+      "/payment_status <checkout_session_or_order_ref>",
+      "/support",
+      "/contact_support"
+    ]
+  },
+  "requiredPublicEnv": [
+    "NEXT_PUBLIC_API_BASE_URL",
+    "NEXT_PUBLIC_SUPABASE_URL",
+    "NEXT_PUBLIC_SUPABASE_ANON_KEY"
+  ],
+  "requiredServerEnv": [
+    "SUPABASE_SERVICE_ROLE_KEY",
+    "AI_PROVIDER_KEY"
+  ],
+  "forbiddenBrowserEnv": [
+    "SUPABASE_SERVICE_ROLE_KEY",
+    "DATABASE_URL",
+    "CJ_ACCESS_TOKEN",
+    "CJ_API_KEY",
+    "STRIPE_SECRET_KEY",
+    "STRIPE_WEBHOOK_SECRET",
+    "INTERNAL_SERVICE_TOKEN"
+  ],
+  "firstSaleFallbackRules": {
+    "allowWhen": [
+      "checkout_enabled=true_and_medusa_variant_id_present",
+      "or_backend_first_sale_stripe_fallback_explicitly_enabled"
+    ],
+    "neverDo": [
+      "fake_paid",
+      "fake_fulfilled",
+      "fake_shipped",
+      "fake_generated"
+    ]
+  }
+}
