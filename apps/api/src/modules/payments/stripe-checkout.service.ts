@@ -1038,6 +1038,15 @@ export class StripeCheckoutService {
       blockers.push("stripe_session_amount_or_currency_missing");
     }
 
+    await this.upsertCustomerOrderAndFulfillmentTask({
+      session,
+      eventId: event.id,
+      paymentIntentId,
+      amountMinor: amount,
+      currency,
+      metadata,
+    });
+
     const orderSync = await this.evaluateOrderSyncReadiness(
       metadata,
       session.id,
@@ -1156,6 +1165,53 @@ export class StripeCheckoutService {
       livemode: event.livemode,
       receivedAt: new Date().toISOString(),
     });
+  }
+
+  private async upsertCustomerOrderAndFulfillmentTask(input: {
+    session: Stripe.Checkout.Session;
+    eventId: string;
+    paymentIntentId: string | null;
+    amountMinor: number | null;
+    currency: string | null;
+    metadata: Record<string, string | null>;
+  }): Promise<void> {
+    const email = String(input.session.customer_details?.email || input.session.customer_email || input.metadata.email || "").trim().toLowerCase();
+    if (!email) return;
+    const shipping = (input.session as any).shipping_details;
+    const payload = {
+      user_id: input.metadata.userId || null,
+      email,
+      checkout_ref: input.metadata.checkoutRef || input.session.client_reference_id || input.session.id,
+      stripe_session_id: input.session.id,
+      stripe_payment_intent_id: input.paymentIntentId,
+      payment_status: "paid_verified",
+      order_status: "pending_fulfillment",
+      fulfillment_status: "manual_review_required",
+      product_handle: input.metadata.productHandle || null,
+      product_title: input.metadata.productTitle || null,
+      amount_minor: input.amountMinor,
+      currency: input.currency,
+      supplier: input.metadata.supplier || "cj",
+      supplier_product_id: input.metadata.supplierProductId || null,
+      supplier_sku: input.metadata.supplierSku || null,
+      shipping_name: shipping?.name || null,
+      shipping_address: shipping?.address || {},
+      updated_at: new Date().toISOString(),
+    };
+    const { data: order } = await this.supabase.getClient().schema("app_public").from("customer_orders")
+      .upsert(payload, { onConflict: "stripe_session_id" }).select("id").single();
+    if (!order?.id) return;
+    await this.supabase.getClient().schema("app_private").from("fulfillment_tasks").upsert({
+      order_id: order.id,
+      supplier: payload.supplier,
+      supplier_product_id: payload.supplier_product_id,
+      supplier_sku: payload.supplier_sku,
+      status: "queued_manual_review",
+      manual_required: true,
+      automation_eligible: false,
+      blockers: ["manual_cj_placement_required"],
+      updated_at: new Date().toISOString(),
+    }, { onConflict: "order_id" });
   }
 
   private unverifiedWebhookResult(blockers: string[]): StripeWebhookResult {

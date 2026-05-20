@@ -21,6 +21,8 @@ import { PaymentReadinessService } from "./payment-readiness.service";
 import { EconomicReadinessController } from "./economic-readiness.controller";
 import { StripeCheckoutController } from "./stripe-checkout.controller";
 import { StripeCheckoutService } from "./stripe-checkout.service";
+import { AdminFulfillmentController, OrdersStatusController, PaymentsStatusController } from "./orders-status.controller";
+import { OrderFulfillmentService } from "./order-fulfillment.service";
 import { EconomicEventService } from "../../shared/services/economic-event.service";
 import { SupabaseEconomicEventRepository } from "../../shared/services/supabase-economic-event.repository";
 
@@ -33,6 +35,9 @@ import { SupabaseEconomicEventRepository } from "../../shared/services/supabase-
     StripeCheckoutController,
     PaymentReadinessController,
     EconomicReadinessController,
+    OrdersStatusController,
+    PaymentsStatusController,
+    AdminFulfillmentController,
   ],
   providers: [
     InternalRequestHeadersService,
@@ -51,6 +56,7 @@ import { SupabaseEconomicEventRepository } from "../../shared/services/supabase-
     PaymentReadinessService,
     EconomicEventService,
     SupabaseEconomicEventRepository,
+    OrderFulfillmentService,
     {
       provide: "EconomicEventRepository",
       useExisting: SupabaseEconomicEventRepository,
@@ -65,6 +71,7 @@ import { SupabaseEconomicEventRepository } from "../../shared/services/supabase-
     PaymentReadinessService,
     EconomicEventService,
     SupabaseEconomicEventRepository,
+    OrderFulfillmentService,
     {
       provide: "EconomicEventRepository",
       useExisting: SupabaseEconomicEventRepository,
