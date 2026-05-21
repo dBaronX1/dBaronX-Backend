@@ -15,12 +15,13 @@ export class OrderFulfillmentService {
     return { success: true, orders: data ?? [] };
   }
 
-  async statusByReference(ref: string, email?: string) {
-    if (!ref) throw new BadRequestException("ref is required");
-    let q = this.supabase.getClient().schema("app_public").from("customer_orders")
+  async statusByReference(ref?: string, email?: string, orderId?: string) {
+    if (!ref && !orderId) throw new BadRequestException("ref or id is required");
+    const query = this.supabase.getClient().schema("app_public").from("customer_orders")
       .select("id,checkout_ref,payment_status,order_status,fulfillment_status,product_title,amount_minor,currency,tracking_number,tracking_url,created_at,updated_at,email")
-      .eq("checkout_ref", ref).limit(1).maybeSingle();
-    const { data, error } = await q;
+      .limit(1);
+    const filtered = orderId ? query.eq("id", orderId) : query.eq("checkout_ref", ref!);
+    const { data, error } = await filtered.maybeSingle();
     if (error) throw new BadRequestException(error.message);
     if (!data) return { success: false, blocker: "order_not_found" };
     if (email && data.email.toLowerCase() !== email.toLowerCase()) return { success: false, blocker: "email_mismatch" };
@@ -30,7 +31,7 @@ export class OrderFulfillmentService {
   }
 
   async paymentStatus(sessionId?: string, checkoutRef?: string, email?: string) {
-    if (!sessionId && !checkoutRef) throw new BadRequestException("session_id or checkout_ref is required");
+    if (!sessionId && !checkoutRef) throw new BadRequestException("session_id, checkout_session_id, checkout_ref, or ref is required");
     let query = this.supabase.getClient().schema("app_public").from("customer_orders")
       .select("checkout_ref,stripe_session_id,payment_status,order_status,fulfillment_status,updated_at,email").limit(1);
     query = sessionId ? query.eq("stripe_session_id", sessionId) : query.eq("checkout_ref", checkoutRef!);
