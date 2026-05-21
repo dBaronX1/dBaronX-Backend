@@ -14,8 +14,8 @@ export class OrdersStatusController {
 
   @Public()
   @Get("status")
-  async status(@Query("ref") ref: string, @Query("email") email?: string) {
-    return this.orders.statusByReference(ref, email);
+  async status(@Query("ref") ref?: string, @Query("checkout_ref") checkoutRef?: string, @Query("id") orderId?: string, @Query("email") email?: string) {
+    return this.orders.statusByReference(ref || checkoutRef, email, orderId);
   }
 
   @UseGuards(JwtAuthGuard)
@@ -32,8 +32,14 @@ export class PaymentsStatusController {
 
   @Public()
   @Get("status")
-  async status(@Query("session_id") sessionId?: string, @Query("checkout_ref") checkoutRef?: string, @Query("email") email?: string) {
-    return this.orders.paymentStatus(sessionId, checkoutRef, email);
+  async status(
+    @Query("session_id") sessionId?: string,
+    @Query("checkout_session_id") checkoutSessionId?: string,
+    @Query("checkout_ref") checkoutRef?: string,
+    @Query("ref") ref?: string,
+    @Query("email") email?: string,
+  ) {
+    return this.orders.paymentStatus(sessionId || checkoutSessionId, checkoutRef || ref, email);
   }
 }
 
