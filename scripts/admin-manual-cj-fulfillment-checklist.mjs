@@ -27,8 +27,10 @@ function buildBase(path) {
 
 function matchesFilter(task) {
   if (!CHECKOUT_REF && !ORDER_ID) return true;
-  if (ORDER_ID && task.order_id === ORDER_ID) return true;
-  if (CHECKOUT_REF && (task.checkout_ref === CHECKOUT_REF || task.order_checkout_ref === CHECKOUT_REF)) return true;
+  const orderIdCandidates = [task.order_id, task.order?.id].filter(Boolean);
+  if (ORDER_ID && orderIdCandidates.includes(ORDER_ID)) return true;
+  const checkoutRefCandidates = [task.checkout_ref, task.order_checkout_ref, task.order?.checkout_ref].filter(Boolean);
+  if (CHECKOUT_REF && checkoutRefCandidates.includes(CHECKOUT_REF)) return true;
   return false;
 }
 
@@ -42,7 +44,9 @@ async function getTasks() {
 }
 
 function printTask(task) {
-  console.log(`- task_id=${task.id} order_id=${task.order_id} status=${task.status} manual_required=${task.manual_required} automation_eligible=${task.automation_eligible} supplier=${task.supplier || 'n/a'} sku=${task.supplier_sku || 'n/a'}`);
+  console.log(`- task_id=${task.id} order_id=${task.order_id || 'n/a'} checkout_ref=${task.checkout_ref || 'n/a'} task_status=${task.task_status || task.status || 'n/a'} manual_required=${task.manual_required} automation_eligible=${task.automation_eligible}`);
+  console.log(`  payment_status=${task.payment_status || 'n/a'} order_status=${task.order_status || 'n/a'} fulfillment_status=${task.fulfillment_status || 'n/a'}`);
+  console.log(`  product='${task.product_title || 'n/a'}' supplier=${task.supplier || 'n/a'} supplier_product_id=${task.supplier_product_id || 'n/a'} sku=${task.supplier_sku || 'n/a'}`);
 }
 
 function checklist(task) {
