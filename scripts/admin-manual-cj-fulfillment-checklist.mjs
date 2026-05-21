@@ -27,11 +27,38 @@ function buildBase(path) {
 
 function matchesFilter(task) {
   if (!CHECKOUT_REF && !ORDER_ID) return true;
-  const orderIdCandidates = [task.order_id, task.order?.id].filter(Boolean);
+  const orderIdCandidates = [task.order_id, task.orderId, task.order?.id, task.order?.order_id, task.order?.orderId].filter(Boolean);
   if (ORDER_ID && orderIdCandidates.includes(ORDER_ID)) return true;
-  const checkoutRefCandidates = [task.checkout_ref, task.order_checkout_ref, task.order?.checkout_ref].filter(Boolean);
+  const checkoutRefCandidates = [
+    task.checkout_ref,
+    task.checkoutRef,
+    task.order_checkout_ref,
+    task.order?.checkout_ref,
+    task.order?.checkoutRef,
+  ].filter(Boolean);
   if (CHECKOUT_REF && checkoutRefCandidates.includes(CHECKOUT_REF)) return true;
   return false;
+}
+
+function summarizePresence(tasks) {
+  const hasCheckoutRef = tasks.some((task) => [task.checkout_ref, task.checkoutRef, task.order_checkout_ref, task.order?.checkout_ref, task.order?.checkoutRef].some(Boolean));
+  const hasStripeSessionId = tasks.some((task) => [task.stripe_session_id, task.stripeSessionId, task.order?.stripe_session_id, task.order?.stripeSessionId].some(Boolean));
+  const hasOrderId = tasks.some((task) => [task.order_id, task.orderId, task.order?.id, task.order?.order_id, task.order?.orderId].some(Boolean));
+  return { hasCheckoutRef, hasStripeSessionId, hasOrderId };
+}
+
+function redactRef(value) {
+  if (!value) return 'n/a';
+  const str = String(value);
+  if (str.length <= 8) return `${str.slice(0, 2)}***${str.slice(-2)}`;
+  return `${str.slice(0, 4)}***${str.slice(-4)}`;
+}
+
+function printSafeRefs(task) {
+  const orderId = task.order_id ?? task.orderId ?? task.order?.id ?? task.order?.order_id ?? task.order?.orderId;
+  const checkoutRef = task.checkout_ref ?? task.checkoutRef ?? task.order_checkout_ref ?? task.order?.checkout_ref ?? task.order?.checkoutRef;
+  const stripeSessionId = task.stripe_session_id ?? task.stripeSessionId ?? task.order?.stripe_session_id ?? task.order?.stripeSessionId;
+  console.log(`  refs: order_id=${redactRef(orderId)} checkout_ref=${redactRef(checkoutRef)} stripe_session_id=${redactRef(stripeSessionId)}`);
 }
 
 async function getTasks() {
@@ -47,6 +74,7 @@ function printTask(task) {
   console.log(`- task_id=${task.id} order_id=${task.order_id || 'n/a'} checkout_ref=${task.checkout_ref || 'n/a'} task_status=${task.task_status || task.status || 'n/a'} manual_required=${task.manual_required} automation_eligible=${task.automation_eligible}`);
   console.log(`  payment_status=${task.payment_status || 'n/a'} order_status=${task.order_status || 'n/a'} fulfillment_status=${task.fulfillment_status || 'n/a'}`);
   console.log(`  product='${task.product_title || 'n/a'}' supplier=${task.supplier || 'n/a'} supplier_product_id=${task.supplier_product_id || 'n/a'} sku=${task.supplier_sku || 'n/a'}`);
+  printSafeRefs(task);
 }
 
 function checklist(task) {
@@ -68,7 +96,10 @@ async function main() {
   console.log(`Mode: ${DBX_CONFIRM_ADMIN_ACTION ? 'CONFIRMATION ENABLED' : 'DRY RUN CHECKLIST ONLY'}`);
   const tasks = await getTasks();
   const filtered = tasks.filter(matchesFilter);
+  const presence = summarizePresence(tasks);
   console.log(`Found ${tasks.length} total task(s); ${filtered.length} matching filter(s).`);
+  console.log(`Presence: checkout_ref=${presence.hasCheckoutRef} stripe_session_id=${presence.hasStripeSessionId} order_id=${presence.hasOrderId}`);
+  console.log(`Lookup filter: CHECKOUT_REF=${CHECKOUT_REF ? redactRef(CHECKOUT_REF) : 'n/a'} ORDER_ID=${ORDER_ID ? redactRef(ORDER_ID) : 'n/a'}`);
   if (!filtered.length) {
     console.log('No matching tasks found.');
     return;
