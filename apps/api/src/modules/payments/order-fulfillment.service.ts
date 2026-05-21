@@ -46,9 +46,66 @@ export class OrderFulfillmentService {
 
   async adminListTasks() {
     const { data, error } = await this.supabase.getClient().schema("app_private").from("fulfillment_tasks")
-      .select("id,order_id,supplier,supplier_product_id,supplier_sku,status,manual_required,automation_eligible,assigned_to,created_at,updated_at")
+      .select(`
+        id,
+        order_id,
+        supplier,
+        supplier_product_id,
+        supplier_sku,
+        status,
+        manual_required,
+        automation_eligible,
+        assigned_to,
+        created_at,
+        updated_at,
+        order:customer_orders!fulfillment_tasks_order_id_fkey(
+          id,
+          checkout_ref,
+          stripe_session_id,
+          product_title,
+          product_handle,
+          amount_minor,
+          currency,
+          payment_status,
+          order_status,
+          fulfillment_status,
+          supplier,
+          supplier_product_id,
+          supplier_sku,
+          tracking_number,
+          tracking_url
+        )
+      `)
       .order("created_at", { ascending: false });
     if (error) throw new BadRequestException(error.message);
-    return { success: true, tasks: data ?? [] };
+    const tasks = (data ?? []).map((task) => {
+      const order = Array.isArray(task.order) ? task.order[0] : task.order;
+      return {
+        id: task.id,
+        task_status: task.status,
+        status: task.status,
+        order_id: task.order_id ?? order?.id ?? null,
+        checkout_ref: order?.checkout_ref ?? null,
+        stripe_session_id: order?.stripe_session_id ?? null,
+        product_title: order?.product_title ?? null,
+        product_handle: order?.product_handle ?? null,
+        amount_minor: order?.amount_minor ?? null,
+        currency: order?.currency ?? null,
+        payment_status: order?.payment_status ?? null,
+        order_status: order?.order_status ?? null,
+        fulfillment_status: order?.fulfillment_status ?? null,
+        supplier: task.supplier ?? order?.supplier ?? null,
+        supplier_product_id: task.supplier_product_id ?? order?.supplier_product_id ?? null,
+        supplier_sku: task.supplier_sku ?? order?.supplier_sku ?? null,
+        manual_required: task.manual_required,
+        automation_eligible: task.automation_eligible,
+        tracking_number: order?.tracking_number ?? null,
+        tracking_url: order?.tracking_url ?? null,
+        assigned_to: task.assigned_to,
+        created_at: task.created_at,
+        updated_at: task.updated_at,
+      };
+    });
+    return { success: true, tasks };
   }
 }

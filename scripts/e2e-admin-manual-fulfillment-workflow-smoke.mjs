@@ -9,6 +9,8 @@ const checks = [
   ['internal token header required by guard', 'apps/api/src/shared/guards/internal-auth.guard.ts', '"x-internal-token"'],
   ['customer cannot mark placed via JWT routes', 'apps/api/src/modules/payments/orders-status.controller.ts', '@UseGuards(JwtAuthGuard)'],
   ['mark placed does not mark shipped', 'apps/api/src/modules/payments/orders-status.controller.ts', 'placed_with_supplier'],
+  ['admin list includes checkout reference', 'apps/api/src/modules/payments/order-fulfillment.service.ts', 'checkout_ref'],
+  ['admin list includes stripe session mapping', 'apps/api/src/modules/payments/order-fulfillment.service.ts', 'stripe_session_id'],
   ['tracking requires tracking number/url', 'apps/api/src/modules/payments/orders-status.controller.ts', 'trackingNumber or trackingUrl required'],
   ['no fake delivered status write', 'apps/api/src/modules/payments/orders-status.controller.ts', 'delivered'],
   ['manual_required default true in migration', 'supabase/migrations/202605200001_customer_orders_and_manual_fulfillment_queue.sql', 'manual_required boolean not null default true'],
@@ -20,7 +22,9 @@ const checks = [
 let failed = false;
 for (const [name, file, pattern] of checks) {
   const src = fs.readFileSync(file, 'utf8');
-  const pass = pattern === 'delivered' ? !src.includes('fulfillment_status: "delivered"') && !src.includes('status: "delivered"') : src.includes(pattern);
+  const pass = pattern === 'delivered'
+    ? !src.includes('fulfillment_status: "delivered"') && !src.includes('status: "delivered"')
+    : src.includes(pattern);
   console.log(`${pass ? 'PASS' : 'FAIL'}: ${name}`);
   if (!pass) failed = true;
 }
