@@ -1139,3 +1139,51 @@ Use Stripe test mode before live money:
 4. Deploy Telegram bot after customer-discovery docs/commands match the storefront route.
 5. Run first-product readiness, first-sale readiness, Telegram journey smoke, first-transaction-with-ops smoke, first Stripe test transaction smoke, and post-payment settlement smoke.
 6. Rotate the Medusa database password before live money if an old `DATABASE_URL` was exposed in a local shell, ticket, chat, logs, or screenshots during seed attempts.
+
+## Controlled verified CJ product batch (no bulk sync)
+
+Use this path only for **2–4 manually verified CJ products**. Do not bulk import, scrape, or call CJ API from seed scripts.
+
+### How to choose extra CJ products
+
+- Pick products with stable listing pages (`sourceUrl`) and accessible images.
+- Confirm supplier is CJ and capture `supplierProductId` + `supplierSku` exactly.
+- Avoid restricted/sensitive categories until legal/compliance review is complete.
+
+### Product verification checklist
+
+- Required fields: `title`, `handle`, `description`, `priceMinor`, `costMinor`, `supplier=cj`, `supplierProductId`, `supplierSku`, `sourceUrl`, `imageUrl`, `stockQty>0`, `shippingCountries`, `deliveryEstimate`.
+- No demo words in customer-facing content: `demo`, `mock`, `sample`, `test`.
+- Metadata must be set exactly:
+  - `realSupplierProduct: true`
+  - `demo: false`
+  - `supplierVerificationStatus: verified_for_checkout`
+  - `supplierVerificationBlockers: []`
+
+### Cost / price / margin check
+
+- Validate cost in USD minor units (`supplierCostAmount` / `costMinor`).
+- Validate selling price in USD minor units (`priceMinor`).
+- Reject negative/zero cost or price; verify target margin before publish.
+
+### Stock / shipping check
+
+- Require positive stock quantity proof before seed.
+- Require shipping countries and delivery estimate before seed.
+- Keep Telegram wording as guidance only; do not promise fulfillment beyond verified data.
+
+### Seed command
+
+```bash
+DBX_CONFIRM_CJ_PRODUCT_BATCH_SEED=true pnpm first-products:seed:cj-batch
+```
+
+### Readiness command
+
+```bash
+pnpm first-products:readiness
+```
+
+### Warning
+
+Bulk CJ sync is **not enabled** yet. Manual controlled verification remains mandatory.
