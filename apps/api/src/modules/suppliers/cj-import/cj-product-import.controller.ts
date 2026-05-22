@@ -3,7 +3,7 @@ import { InternalAuthGuard } from "../../../shared/guards/internal-auth.guard";
 import { CjProductImportService } from "./cj-product-import.service";
 import { CjProductPublishService } from "./cj-product-publish.service";
 
-@Controller("api/admin/cj/products")
+@Controller("admin/cj/products")
 @UseGuards(InternalAuthGuard)
 export class CjProductImportController {
   constructor(private readonly importer: CjProductImportService, private readonly publisher: CjProductPublishService) {}
