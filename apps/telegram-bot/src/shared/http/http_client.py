@@ -61,8 +61,11 @@ class InternalHttpClient:
             "x-caller-surface": "telegram",
             "x-correlation-id": request_id or str(uuid.uuid4()),
         }
-        if internal and settings.INTERNAL_SERVICE_TOKEN:
-            headers["x-internal-token"] = settings.INTERNAL_SERVICE_TOKEN
+        if internal and settings.internal_service_token:
+            token = settings.internal_service_token.strip()
+            if token:
+                headers["x-internal-token"] = token
+                headers["Authorization"] = f"Bearer {token}"
         if actor_id:
             headers["x-actor-id"] = actor_id
         if request_id:

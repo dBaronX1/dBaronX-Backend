@@ -42,7 +42,10 @@ class Settings(BaseSettings):
     MEDUSA_URL: str = ""
     MEDUSA_BACKEND_URL: str = ""
     NEXT_PUBLIC_MEDUSA_BACKEND_URL: str = ""
-    INTERNAL_SERVICE_TOKEN: str = ""
+    INTERNAL_SERVICE_TOKEN: str = Field(default="", validation_alias=AliasChoices("INTERNAL_SERVICE_TOKEN", "DBX_INTERNAL_SERVICE_TOKEN", "API_INTERNAL_SERVICE_TOKEN", "NESTJS_INTERNAL_SERVICE_TOKEN"))
+    DBX_INTERNAL_SERVICE_TOKEN: str = ""
+    API_INTERNAL_SERVICE_TOKEN: str = ""
+    NESTJS_INTERNAL_SERVICE_TOKEN: str = ""
     BOT_PUBLIC_BASE_URL: str = Field(default="", validation_alias=AliasChoices("BOT_PUBLIC_BASE_URL", "TELEGRAM_BOT_PUBLIC_BASE_URL", "BOT_BASE_URL", "TELEGRAM_BOT_BASE_URL"))
     TELEGRAM_BOT_PUBLIC_BASE_URL: str = ""
     BOT_BASE_URL: str = ""
@@ -120,7 +123,7 @@ class Settings(BaseSettings):
             "fastapiBaseUrlPresent": bool(self.fastapi_base_url),
             "adminGuardConfigured": bool(self.admin_id_set or self.admin_username_set or self.admin_chat_id_set),
             "telegramWebhookSecretPresent": bool(self.TELEGRAM_WEBHOOK_SECRET),
-            "internalTokenPresent": bool(self.INTERNAL_SERVICE_TOKEN),
+            "internalTokenPresent": bool(self.internal_service_token),
             "webhookPath": "/webhook/telegram",
             "healthPath": "/health",
             "readyPath": "/ready",
@@ -141,12 +144,16 @@ class Settings(BaseSettings):
             blockers.append("FASTAPI_BASE_URL_missing")
         if not self.medusa_base_url:
             blockers.append("MEDUSA_BASE_URL_missing")
-        if not self.INTERNAL_SERVICE_TOKEN:
+        if not self.internal_service_token:
             blockers.append("INTERNAL_SERVICE_TOKEN_missing")
         if not self.bot_public_base_url:
             blockers.append("BOT_PUBLIC_BASE_URL_missing")
         return blockers
 
+
+    @property
+    def internal_service_token(self) -> str:
+        return (self.INTERNAL_SERVICE_TOKEN or self.DBX_INTERNAL_SERVICE_TOKEN or self.API_INTERNAL_SERVICE_TOKEN or self.NESTJS_INTERNAL_SERVICE_TOKEN).strip()
 
 def _parse_csv_list(raw_value: str) -> list[str]:
     raw = (raw_value or "").strip()

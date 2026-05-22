@@ -261,3 +261,7 @@ class NestJsClient:
 
     async def cj_publish_approved(self, *, actor_id: str, request_id: str | None = None) -> dict[str, Any]:
         return await self._http.post(self._base_url, _api_path("/admin/cj/products/publish-approved"), json_body={}, actor_id=actor_id, request_id=request_id)
+
+
+    async def cj_import_readiness(self, *, actor_id: str, request_id: str | None = None) -> dict[str, Any]:
+        return await self._http.get(self._base_url, _api_path("/admin/cj/products/readiness"), actor_id=actor_id, request_id=request_id)

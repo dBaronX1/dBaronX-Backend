@@ -5,7 +5,7 @@ import {
   UnauthorizedException,
 } from "@nestjs/common";
 import { Reflector } from "@nestjs/core";
-import { timingSafeEqual } from "crypto";
+import { createHash, timingSafeEqual } from "crypto";
 import { IS_PUBLIC_KEY } from "../decorators/public.decorator";
 import { EnvUtil } from "../utils/env.util";
 
@@ -34,23 +34,22 @@ export class InternalAuthGuard implements CanActivate {
       context?: Record<string, unknown>;
     }>();
 
-    const providedToken = this.extractHeader(
-      request.headers,
-      "x-internal-token",
-    );
+    const expectedToken = this.getExpectedToken();
+    const providedInternal = this.extractHeader(request.headers, "x-internal-token")
+      || this.extractHeader(request.headers, "x-dbxi-internal-token");
+    const providedBearer = this.extractBearerToken(request.headers);
+    const providedToken = providedInternal || providedBearer;
 
-    const expectedToken = EnvUtil.getString("INTERNAL_SERVICE_TOKEN", "").trim();
-
-    if (!expectedToken) {
-      throw new UnauthorizedException("Internal auth not configured");
-    }
-
-    if (!providedToken) {
-      throw new UnauthorizedException("Missing internal token");
-    }
-
-    if (!this.safeCompare(providedToken, expectedToken)) {
-      throw new UnauthorizedException("Invalid internal token");
+    if (!expectedToken || !providedToken || !this.safeCompare(providedToken, expectedToken)) {
+      throw new UnauthorizedException({
+        success: false,
+        blocker: "unauthorized_internal_token",
+        diagnostics: {
+          expectedTokenConfigured: Boolean(expectedToken),
+          receivedInternalHeader: Boolean(providedInternal),
+          receivedBearerHeader: Boolean(providedBearer),
+        },
+      });
     }
 
     request.context = {
@@ -76,14 +75,24 @@ export class InternalAuthGuard implements CanActivate {
     return String(raw || "").trim();
   }
 
-  private safeCompare(a: string, b: string): boolean {
-    const aBuffer = Buffer.from(a);
-    const bBuffer = Buffer.from(b);
-
-    if (aBuffer.length !== bBuffer.length) {
-      return false;
+  private getExpectedToken(): string {
+    const aliases = ["INTERNAL_SERVICE_TOKEN", "DBX_INTERNAL_SERVICE_TOKEN", "API_INTERNAL_SERVICE_TOKEN", "NESTJS_INTERNAL_SERVICE_TOKEN"];
+    for (const key of aliases) {
+      const value = EnvUtil.getString(key, "").trim();
+      if (value) return value;
     }
+    return "";
+  }
 
-    return timingSafeEqual(aBuffer, bBuffer);
+  private extractBearerToken(headers: Record<string, unknown>): string {
+    const auth = this.extractHeader(headers, "authorization");
+    if (!auth.toLowerCase().startsWith("bearer ")) return "";
+    return auth.slice(7).trim();
+  }
+
+  private safeCompare(a: string, b: string): boolean {
+    const aHash = createHash("sha256").update(a).digest();
+    const bHash = createHash("sha256").update(b).digest();
+    return timingSafeEqual(aHash, bHash);
   }
 }

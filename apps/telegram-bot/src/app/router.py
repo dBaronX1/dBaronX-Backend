@@ -30,6 +30,7 @@ from handlers.cj_import_admin_handler import (
     cj_import_approve_handler,
     cj_import_reject_handler,
     cj_publish_approved_handler,
+    cj_import_readiness_handler,
 )
 from handlers.control_surface_handler import control_surface_handler
 from handlers.customer_handler import customer_command_handler
@@ -179,6 +180,7 @@ def register_handlers(application: Application) -> None:
     application.add_handler(CommandHandler("cj_import_reject", cj_import_reject_handler))
     application.add_handler(CommandHandler("cj_publish_approved", cj_publish_approved_handler))
     application.add_handler(CommandHandler("api_probe_cj_import", api_probe_cj_import_handler))
+    application.add_handler(CommandHandler("cj_import_readiness", cj_import_readiness_handler))
     application.add_handler(
         CommandHandler(
             "commerce_reconciliation_help",
