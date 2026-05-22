@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from urllib.parse import urlparse
 from typing import Any
 
 from core.settings import get_settings
@@ -34,6 +35,11 @@ class NestJsClient:
         config = _normalize_api_path_config(get_settings().api_base_url)
         self._base_url = config.base_url
         self.api_base_had_api_suffix = config.api_base_had_api_suffix
+
+    @property
+    def api_host(self) -> str:
+        parsed = urlparse(self._base_url)
+        return parsed.netloc or self._base_url
 
     async def get_system_admin_pack(
         self,

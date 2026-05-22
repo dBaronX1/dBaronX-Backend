@@ -13,6 +13,7 @@ const requiredCommands = [
   'cj_import_approve',
   'cj_import_reject',
   'cj_publish_approved',
+  'api_probe_cj_import',
 ];
 for (const cmd of requiredCommands) {
   if (!router.includes(`CommandHandler("${cmd}"`)) throw new Error(`missing router registration: ${cmd}`);
@@ -40,8 +41,9 @@ for (const suffix of endpointSuffixes) {
 if (!client.includes('def _normalize_api_path_config')) throw new Error('api base normalization helper missing');
 if (!client.includes('api_base_had_api_suffix')) throw new Error('api suffix diagnostic flag missing');
 if (!handler.includes('endpointPath:')) throw new Error('endpoint path diagnostic missing');
+if (!handler.includes('apiHost:')) throw new Error('api host diagnostic missing');
 if (!handler.includes('apiBaseHadApiSuffix:')) throw new Error('api suffix diagnostic missing');
-if (!handler.includes('next action: Check Telegram API_BASE_URL; use host root without /api or rely on normalized client.')) {
+if (!handler.includes('Check Telegram API_BASE_URL host points to dbaronx-api-unified service root.')) {
   throw new Error('next action diagnostic missing');
 }
 
@@ -80,6 +82,9 @@ for (const phrase of forbiddenMutations) {
 
 if (handler.includes('INTERNAL_SERVICE_TOKEN')) {
   throw new Error('handler should not include internal token in diagnostics');
+}
+if (handler.includes('TELEGRAM_BOT_TOKEN') || handler.includes('CJ_ACCESS_TOKEN')) {
+  throw new Error('handler should not include secret tokens in diagnostics');
 }
 
 console.log('ok telegram cj import admin smoke');
