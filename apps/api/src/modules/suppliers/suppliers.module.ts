@@ -17,10 +17,15 @@ import { SupplierOrchestrationService } from "./supplier-orchestration.service";
 import { SupplierReadinessController } from "./supplier-readiness.controller";
 import { SupplierReadinessService } from "./supplier-readiness.service";
 import { SuppliersController } from "./suppliers.controller";
+import { CjProductImportController } from "./cj-import/cj-product-import.controller";
+import { CjProductImportService } from "./cj-import/cj-product-import.service";
+import { CjProductPublishService } from "./cj-import/cj-product-publish.service";
+import { CjProductCategoryMapperService } from "./cj-import/cj-product-category-mapper.service";
+import { CjProductValidationService } from "./cj-import/cj-product-validation.service";
 
 @Module({
   imports: [ConfigModule, CommerceModule, WalletModule],
-  controllers: [SuppliersController, SupplierLifecycleController, SupplierReadinessController],
+  controllers: [SuppliersController, SupplierLifecycleController, SupplierReadinessController, CjProductImportController],
   providers: [
     SupabaseService,
     InternalRequestHeadersService,
@@ -34,6 +39,10 @@ import { SuppliersController } from "./suppliers.controller";
     SupplierOrchestrationService,
     SupplierLifecycleService,
     CjSupplierAdapterService,
+    CjProductImportService,
+    CjProductPublishService,
+    CjProductCategoryMapperService,
+    CjProductValidationService,
   ],
   exports: [
     SupplierAdminService,
@@ -41,6 +50,10 @@ import { SuppliersController } from "./suppliers.controller";
     SupplierLifecycleService,
     SupplierReadinessService,
     CjSupplierAdapterService,
+    CjProductImportService,
+    CjProductPublishService,
+    CjProductCategoryMapperService,
+    CjProductValidationService,
   ],
 })
 export class SuppliersModule {}
