@@ -1187,3 +1187,9 @@ pnpm first-products:readiness
 ### Warning
 
 Bulk CJ sync is **not enabled** yet. Manual controlled verification remains mandatory.
+
+## CJ onboarding + Telegram approval controls
+- Product onboarding now follows file-batch validation and explicit admin approval before publish.
+- Fulfillment admin routes: POST /api/admin/fulfillment/tasks/:id/approve-cj and /disapprove-cj (InternalAuthGuard).
+- Dry-run remains default for CJ ordering. Live placement requires DBX_ENABLE_CJ_AUTO_ORDER=true and DBX_CONFIRM_CJ_ORDER_PLACEMENT=true plus admin approval record.
+- Keep refunds/voids manual unless a real payment refund endpoint succeeds.

@@ -1,11 +1,20 @@
 import { BadRequestException, Injectable, UnauthorizedException } from "@nestjs/common";
 import { SupabaseService } from "../../shared/services/supabase.service";
 
+const ALLOWED_DISAPPROVE_REASONS = new Set([
+  "fraud_risk",
+  "address_issue",
+  "stock_issue",
+  "shipping_cost_issue",
+  "customer_request",
+  "manual_review",
+]);
+
 @Injectable()
 export class OrderFulfillmentService {
   constructor(private readonly supabase: SupabaseService) {}
 
-  async listMine(userId?: string) {
+  async listMine(userId?: string) { /* unchanged */
     if (!userId) throw new UnauthorizedException("Authentication required");
     const { data, error } = await this.supabase.getClient().schema("app_public").from("customer_orders")
       .select("id,checkout_ref,payment_status,order_status,fulfillment_status,product_title,amount_minor,currency,tracking_number,tracking_url,created_at,updated_at")
@@ -15,7 +24,7 @@ export class OrderFulfillmentService {
     return { success: true, orders: data ?? [] };
   }
 
-  async statusByReference(ref?: string, email?: string, orderId?: string) {
+  async statusByReference(ref?: string, email?: string, orderId?: string) { /* unchanged */
     if (!ref && !orderId) throw new BadRequestException("ref or id is required");
     const query = this.supabase.getClient().schema("app_public").from("customer_orders")
       .select("id,checkout_ref,payment_status,order_status,fulfillment_status,product_title,amount_minor,currency,tracking_number,tracking_url,created_at,updated_at,email")
@@ -30,7 +39,7 @@ export class OrderFulfillmentService {
     return { success: true, order: safe };
   }
 
-  async paymentStatus(sessionId?: string, checkoutRef?: string, email?: string) {
+  async paymentStatus(sessionId?: string, checkoutRef?: string, email?: string) { /* unchanged */
     if (!sessionId && !checkoutRef) throw new BadRequestException("session_id, checkout_session_id, checkout_ref, or ref is required");
     let query = this.supabase.getClient().schema("app_public").from("customer_orders")
       .select("checkout_ref,stripe_session_id,payment_status,order_status,fulfillment_status,updated_at,email").limit(1);
@@ -46,66 +55,52 @@ export class OrderFulfillmentService {
 
   async adminListTasks() {
     const { data, error } = await this.supabase.getClient().schema("app_private").from("fulfillment_tasks")
-      .select(`
-        id,
-        order_id,
-        supplier,
-        supplier_product_id,
-        supplier_sku,
-        status,
-        manual_required,
-        automation_eligible,
-        assigned_to,
-        created_at,
-        updated_at,
-        order:customer_orders!fulfillment_tasks_order_id_fkey(
-          id,
-          checkout_ref,
-          stripe_session_id,
-          product_title,
-          product_handle,
-          amount_minor,
-          currency,
-          payment_status,
-          order_status,
-          fulfillment_status,
-          supplier,
-          supplier_product_id,
-          supplier_sku,
-          tracking_number,
-          tracking_url
-        )
-      `)
+      .select(`id,order_id,supplier,supplier_product_id,supplier_sku,status,manual_required,automation_eligible,assigned_to,blockers,created_at,updated_at,order:customer_orders!fulfillment_tasks_order_id_fkey(id,checkout_ref,stripe_session_id,product_title,amount_minor,currency,payment_status,order_status,fulfillment_status,supplier,supplier_product_id,supplier_sku,shipping_address)`)
       .order("created_at", { ascending: false });
     if (error) throw new BadRequestException(error.message);
-    const tasks = (data ?? []).map((task) => {
-      const order = Array.isArray(task.order) ? task.order[0] : task.order;
-      return {
-        id: task.id,
-        task_status: task.status,
-        status: task.status,
-        order_id: task.order_id ?? order?.id ?? null,
-        checkout_ref: order?.checkout_ref ?? null,
-        stripe_session_id: order?.stripe_session_id ?? null,
-        product_title: order?.product_title ?? null,
-        product_handle: order?.product_handle ?? null,
-        amount_minor: order?.amount_minor ?? null,
-        currency: order?.currency ?? null,
-        payment_status: order?.payment_status ?? null,
-        order_status: order?.order_status ?? null,
-        fulfillment_status: order?.fulfillment_status ?? null,
-        supplier: task.supplier ?? order?.supplier ?? null,
-        supplier_product_id: task.supplier_product_id ?? order?.supplier_product_id ?? null,
-        supplier_sku: task.supplier_sku ?? order?.supplier_sku ?? null,
-        manual_required: task.manual_required,
-        automation_eligible: task.automation_eligible,
-        tracking_number: order?.tracking_number ?? null,
-        tracking_url: order?.tracking_url ?? null,
-        assigned_to: task.assigned_to,
-        created_at: task.created_at,
-        updated_at: task.updated_at,
-      };
-    });
-    return { success: true, tasks };
+    return { success: true, tasks: data ?? [] };
+  }
+
+  async approveCjTask(id: string, override = false) {
+    const { data: task, error } = await this.supabase.getClient().schema("app_private").from("fulfillment_tasks")
+      .select("id,order_id,status,manual_required,automation_eligible,supplier,supplier_product_id,supplier_sku,cj_order_id,order:customer_orders!fulfillment_tasks_order_id_fkey(id,payment_status,shipping_address,supplier,supplier_product_id,supplier_sku)")
+      .eq("id", id).maybeSingle();
+    if (error || !task) throw new BadRequestException("task_not_found");
+    const order = Array.isArray(task.order) ? task.order[0] : task.order;
+    const shipping = order?.shipping_address ?? {};
+    const shippingComplete = Boolean(shipping?.country && shipping?.city && shipping?.address1 && shipping?.postal_code);
+    const blockers: string[] = [];
+    if (order?.payment_status !== "paid_verified") blockers.push("payment_not_verified");
+    if (!task.manual_required) blockers.push("manual_review_not_required");
+    if (!task.automation_eligible && !override) blockers.push("automation_not_eligible_without_override");
+    if (!shippingComplete) blockers.push("shipping_details_incomplete");
+    if ((task.supplier ?? order?.supplier) !== "cj") blockers.push("supplier_not_cj");
+    if (!(task.supplier_product_id ?? order?.supplier_product_id)) blockers.push("supplier_product_id_missing");
+    if (!(task.supplier_sku ?? order?.supplier_sku)) blockers.push("supplier_sku_missing");
+    if (task.cj_order_id) blockers.push("cj_order_already_exists");
+    if (blockers.length) return { success: false, blocker: "approve_rejected", blockers };
+    const updatedAt = new Date().toISOString();
+    await this.supabase.getClient().schema("app_private").from("fulfillment_tasks").update({
+      status: "approved_for_cj_order",
+      admin_approved_at: updatedAt,
+      admin_override: override,
+      blockers: [],
+      updated_at: updatedAt,
+    }).eq("id", id);
+    await this.supabase.getClient().schema("app_public").from("customer_orders").update({ fulfillment_status: "manual_review_required", updated_at: updatedAt }).eq("id", task.order_id);
+    return { success: true, status: "approved_for_cj_order", dryRunDefault: true };
+  }
+
+  async disapproveCjTask(id: string, reason: string, note?: string) {
+    if (!ALLOWED_DISAPPROVE_REASONS.has(reason)) throw new BadRequestException("invalid_disapprove_reason");
+    const updatedAt = new Date().toISOString();
+    const { error } = await this.supabase.getClient().schema("app_private").from("fulfillment_tasks").update({
+      status: "disapproved_hold",
+      disapprove_reason: reason,
+      disapprove_note: note ?? null,
+      updated_at: updatedAt,
+    }).eq("id", id);
+    if (error) throw new BadRequestException(error.message);
+    return { success: true, status: "disapproved_hold", reason };
   }
 }

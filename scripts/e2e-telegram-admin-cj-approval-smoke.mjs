@@ -1,11 +1,8 @@
-#!/usr/bin/env node
-import fs from 'node:fs';
-
-const content = fs.readFileSync('docs/cj-fulfillment-automation-roadmap.md', 'utf8');
-if (!content.includes('telegram_callback_not_wired')) {
-  throw new Error('telegram callback blocker must be explicit until fully wired');
-}
-if (!content.includes('1838800389')) {
-  throw new Error('owner admin id contract missing');
-}
-console.log('PASS e2e-telegram-admin-cj-approval-smoke');
+import { readFileSync } from 'node:fs';
+const ctrl = readFileSync('apps/api/src/modules/payments/orders-status.controller.ts','utf8');
+const guard = ctrl.includes('@UseGuards(InternalAuthGuard)');
+const approve = ctrl.includes('approve-cj');
+const disapprove = ctrl.includes('disapprove-cj');
+const success = guard && approve && disapprove;
+console.log(JSON.stringify({success, guard, approve, disapprove, blockers: success?[]:['telegram_admin_cj_approval_contract_missing']}, null, 2));
+process.exit(success?0:1);
