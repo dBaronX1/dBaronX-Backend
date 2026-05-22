@@ -150,6 +150,15 @@ class Settings(BaseSettings):
             blockers.append("BOT_PUBLIC_BASE_URL_missing")
         return blockers
 
+    @property
+    def internal_token_source(self) -> str:
+        aliases = ("INTERNAL_SERVICE_TOKEN", "DBX_INTERNAL_SERVICE_TOKEN", "API_INTERNAL_SERVICE_TOKEN", "NESTJS_INTERNAL_SERVICE_TOKEN")
+        for key in aliases:
+            if bool((os.getenv(key, "") or "").strip()):
+                return key
+        return "none"
+
+
 
     @property
     def internal_service_token(self) -> str:

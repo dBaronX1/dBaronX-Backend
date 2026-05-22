@@ -34,21 +34,27 @@ export class InternalAuthGuard implements CanActivate {
       context?: Record<string, unknown>;
     }>();
 
-    const expectedToken = this.getExpectedToken();
-    const providedInternal = this.extractHeader(request.headers, "x-internal-token")
-      || this.extractHeader(request.headers, "x-dbxi-internal-token");
+    const expected = this.getExpectedToken();
+    const receivedInternalHeader = this.extractHeader(request.headers, "x-internal-token");
+    const receivedDbxInternalHeader = this.extractHeader(request.headers, "x-dbxi-internal-token");
+    const providedInternal = receivedInternalHeader || receivedDbxInternalHeader;
     const providedBearer = this.extractBearerToken(request.headers);
     const providedToken = providedInternal || providedBearer;
+    const matched = Boolean(expected.token && providedToken && this.safeCompare(providedToken, expected.token));
 
-    if (!expectedToken || !providedToken || !this.safeCompare(providedToken, expectedToken)) {
+    if (!matched) {
       throw new UnauthorizedException({
         success: false,
         blocker: "unauthorized_internal_token",
         diagnostics: {
-          expectedTokenConfigured: Boolean(expectedToken),
-          receivedInternalHeader: Boolean(providedInternal),
+          expectedTokenConfigured: Boolean(expected.token),
+          expectedTokenSource: expected.source,
+          receivedInternalHeader: Boolean(receivedInternalHeader),
+          receivedDbxInternalHeader: Boolean(receivedDbxInternalHeader),
           receivedBearerHeader: Boolean(providedBearer),
+          receivedAnyAcceptedHeader: Boolean(providedInternal || providedBearer),
           normalizedHeaderNonEmpty: Boolean(providedToken),
+          tokenMatched: false,
         },
       });
     }
@@ -76,13 +82,13 @@ export class InternalAuthGuard implements CanActivate {
     return String(raw || "").trim();
   }
 
-  private getExpectedToken(): string {
-    const aliases = ["INTERNAL_SERVICE_TOKEN", "DBX_INTERNAL_SERVICE_TOKEN", "API_INTERNAL_SERVICE_TOKEN", "NESTJS_INTERNAL_SERVICE_TOKEN"];
+  private getExpectedToken(): { token: string; source: string } {
+    const aliases = ["INTERNAL_SERVICE_TOKEN", "DBX_INTERNAL_SERVICE_TOKEN", "API_INTERNAL_SERVICE_TOKEN", "NESTJS_INTERNAL_SERVICE_TOKEN"] as const;
     for (const key of aliases) {
       const value = EnvUtil.getString(key, "").trim();
-      if (value) return value;
+      if (value) return { token: value, source: key };
     }
-    return "";
+    return { token: "", source: "none" };
   }
 
   private extractBearerToken(headers: Record<string, unknown>): string {
