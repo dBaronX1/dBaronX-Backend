@@ -1,0 +1,27 @@
+import fs from 'node:fs';
+
+const guard = fs.readFileSync('apps/api/src/shared/guards/internal-auth.guard.ts', 'utf8');
+const settings = fs.readFileSync('apps/telegram-bot/src/core/settings.py', 'utf8');
+const http = fs.readFileSync('apps/telegram-bot/src/shared/http/http_client.py', 'utf8');
+const handler = fs.readFileSync('apps/telegram-bot/src/handlers/cj_import_admin_handler.py', 'utf8');
+const router = fs.readFileSync('apps/telegram-bot/src/app/router.py', 'utf8');
+const controller = fs.readFileSync('apps/api/src/modules/suppliers/cj-import/cj-product-import.controller.ts', 'utf8');
+const service = fs.readFileSync('apps/api/src/modules/suppliers/cj-import/cj-product-import.service.ts', 'utf8');
+
+['INTERNAL_SERVICE_TOKEN','DBX_INTERNAL_SERVICE_TOKEN','API_INTERNAL_SERVICE_TOKEN','NESTJS_INTERNAL_SERVICE_TOKEN'].forEach(k=>{if(!guard.includes(k)) throw new Error('guard missing alias '+k);});
+if (!guard.includes('x-internal-token')) throw new Error('missing x-internal-token');
+if (!guard.includes('x-dbxi-internal-token')) throw new Error('missing x-dbxi-internal-token');
+if (!guard.includes('extractBearerToken')) throw new Error('missing bearer support');
+if (guard.includes('query')) throw new Error('guard should not accept query token');
+if (!guard.includes('unauthorized_internal_token')) throw new Error('missing safe blocker');
+if (!settings.includes('AliasChoices("INTERNAL_SERVICE_TOKEN", "DBX_INTERNAL_SERVICE_TOKEN", "API_INTERNAL_SERVICE_TOKEN", "NESTJS_INTERNAL_SERVICE_TOKEN")')) throw new Error('settings missing aliases');
+if (!http.includes('x-internal-token')) throw new Error('token header missing');
+if (!http.includes('Authorization')) throw new Error('bearer header missing');
+if (!handler.includes('api_probe_cj_import_handler')) throw new Error('probe handler missing');
+if (!handler.includes('cj_import_readiness_handler')) throw new Error('readiness handler missing');
+if (!router.includes('"api_probe_cj_import"')) throw new Error('probe route missing');
+if (!router.includes('"cj_import_readiness"')) throw new Error('readiness route missing');
+if (!controller.includes('@Get("readiness")')) throw new Error('api readiness endpoint missing');
+if (!service.includes('migration_missing')) throw new Error('migration blocker missing');
+if (!service.includes('cj_credentials_missing')) throw new Error('credential blocker missing');
+console.log('ok cj internal auth/readiness smoke');

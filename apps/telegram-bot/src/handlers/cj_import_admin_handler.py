@@ -6,6 +6,7 @@ from telegram import Update
 from telegram.ext import ContextTypes
 
 from services.nestjs_client import NestJsClient
+from core.settings import get_settings
 from shared.context.actor_context import build_actor_context
 from shared.security.admin_guard import require_admin
 
@@ -169,12 +170,18 @@ async def api_probe_cj_import_handler(update: Update, context: ContextTypes.DEFA
     if not blockers:
         blockers = ["none"]
     http_status = int(payload.get("statusCode") or 200)
+    blocker = "route_auth_ok" if payload.get("success") else blockers[0]
+    next_action = "None" if blocker == "route_auth_ok" else "Check internal token aliases and API guard diagnostics."
     lines = [
         "CJ Import API Probe",
         f"apiHost: {client.api_host}",
         f"endpointPath: {endpoint_path}",
         f"httpStatus: {http_status}",
-        f"blocker: {blockers[0]}",
+        f"blocker: {blocker}",
+        f"internalTokenConfigured: {'true' if bool(get_settings().internal_service_token) else 'false'}",
+        f"tokenHeaderSent: {'true' if bool(get_settings().internal_service_token) else 'false'}",
+        f"apiBaseHadApiSuffix: {'true' if client.api_base_had_api_suffix else 'false'}",
+        f"nextAction: {next_action}",
     ]
     await _reply(update, "\n".join(lines))
 
@@ -215,3 +222,24 @@ async def cj_publish_approved_handler(update: Update, context: ContextTypes.DEFA
         return await _handle_admin_failure(update, payload, api_host=client.api_host, endpoint_path=client.cj_products_endpoint_path("/publish-approved"), api_base_had_api_suffix=client.api_base_had_api_suffix)
     data = payload.get("data") if isinstance(payload.get("data"), dict) else {}
     await _reply(update, f"published={data.get('published', 0)}")
+
+
+async def cj_import_readiness_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    if not await require_admin(update, context):
+        return
+    actor = build_actor_context(update)
+    client = NestJsClient()
+    payload = await client.cj_import_readiness(actor_id=actor.telegram_user_id)
+    if not payload.get("success"):
+        return await _handle_admin_failure(update, payload, api_host=client.api_host, endpoint_path=client.cj_products_endpoint_path("/readiness"), api_base_had_api_suffix=client.api_base_had_api_suffix)
+    data = payload.get("data") if isinstance(payload.get("data"), dict) else {}
+    checks = data.get("checks") if isinstance(data.get("checks"), dict) else {}
+    blockers = data.get("blockers") if isinstance(data.get("blockers"), list) else []
+    await _reply(update, "\n".join([
+        "CJ Import Readiness",
+        f"migrationReady: {checks.get('migrationReady')}",
+        f"cjCredentialsConfigured: {checks.get('cjCredentialsConfigured')}",
+        f"storefrontPublishTargetReady: {checks.get('storefrontPublishTargetReady')}",
+        f"blockers: {', '.join(blockers) if blockers else 'none'}",
+        f"nextAction: {data.get('nextAction', 'none')}"
+    ]))

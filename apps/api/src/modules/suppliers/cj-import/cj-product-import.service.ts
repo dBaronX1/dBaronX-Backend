@@ -34,6 +34,33 @@ export class CjProductImportService {
 
   async listRuns() { return this.supabase.schema("app_private").from("cj_product_import_runs").select("*").order("created_at", { ascending: false }).limit(20); }
   async listItems() { return this.supabase.schema("app_private").from("cj_product_import_items").select("*").order("created_at", { ascending: false }).limit(100); }
+  async readiness() {
+    const checks = {
+      internalAuth: "passed",
+      migrationReady: false,
+      importRunsTableReady: false,
+      importItemsTableReady: false,
+      cjCredentialsConfigured: false,
+      storefrontPublishTargetReady: false,
+      categoryMapperReady: Boolean(this.mapper),
+      publishAdapterReady: true,
+    };
+    const blockers: string[] = [];
+    const runs = await this.supabase.schema("app_private").from("cj_product_import_runs").select("id").limit(1);
+    checks.importRunsTableReady = !runs.error;
+    const items = await this.supabase.schema("app_private").from("cj_product_import_items").select("id").limit(1);
+    checks.importItemsTableReady = !items.error;
+    const storefront = await this.supabase.schema("app_public").from("storefront_products").select("id").limit(1);
+    checks.storefrontPublishTargetReady = !storefront.error;
+    checks.migrationReady = checks.importRunsTableReady && checks.importItemsTableReady;
+    if (!checks.migrationReady) blockers.push("migration_missing");
+    if (!checks.storefrontPublishTargetReady) blockers.push("storefront_publish_target_missing");
+    const cred = await this.cjAdapter.preflightCredentials();
+    checks.cjCredentialsConfigured = cred.cjTokenPresent;
+    if (!checks.cjCredentialsConfigured) blockers.push("cj_credentials_missing");
+    return { success: blockers.length === 0, blockers, checks, nextAction: blockers.length ? "Resolve listed blockers and redeploy." : "Ready for CJ import." };
+  }
+
 
   private normalize(raw: any, runId?: string) {
     const mapped = this.mapper.map({ category: raw.category, title: raw.title, description: raw.description });

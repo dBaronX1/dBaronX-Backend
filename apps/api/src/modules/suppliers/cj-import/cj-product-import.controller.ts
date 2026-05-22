@@ -15,4 +15,5 @@ export class CjProductImportController {
   @Post("import-items/:id/approve") approve(@Param("id") id: string) { return this.publisher.approve(id); }
   @Post("import-items/:id/reject") reject(@Param("id") id: string) { return this.publisher.reject(id); }
   @Post("publish-approved") publishApproved() { return this.publisher.publishApproved(); }
+  @Get("readiness") readiness() { return this.importer.readiness(); }
 }
