@@ -52,6 +52,16 @@ export class AdminFulfillmentController {
   @Get("tasks")
   async tasks() { return this.orders.adminListTasks(); }
 
+  @Post("tasks/:id/approve-cj")
+  async approveCj(@Param("id") id: string, @Body() body: { adminOverride?: boolean }) {
+    return this.orders.approveCjTask(id, Boolean(body?.adminOverride));
+  }
+
+  @Post("tasks/:id/disapprove-cj")
+  async disapproveCj(@Param("id") id: string, @Body() body: { reason?: string; note?: string }) {
+    return this.orders.disapproveCjTask(id, String(body?.reason || ""), body?.note);
+  }
+
   @Post("tasks/:id/mark-placed")
   async markPlaced(@Param("id") id: string) {
     const { error } = await this.supabase.getClient().schema("app_private").from("fulfillment_tasks")
