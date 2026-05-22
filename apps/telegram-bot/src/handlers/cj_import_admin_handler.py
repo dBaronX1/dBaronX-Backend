@@ -92,19 +92,27 @@ def _safe_status_summary(runs_payload: dict[str, Any], items_payload: dict[str, 
 async def _handle_admin_failure(
     update: Update,
     *payloads: dict[str, Any],
+    api_host: str | None = None,
     endpoint_path: str | None = None,
     api_base_had_api_suffix: bool | None = None,
 ) -> None:
     blockers = _collect_blockers(*payloads)
     if not blockers:
         blockers = ["invalid_response"]
+    http_status = next((int(payload.get("statusCode") or 0) for payload in payloads if int(payload.get("statusCode") or 0) > 0), 0)
+    next_action = "Check API deployment, internal token, and migration status."
+    if "endpoint_not_found" in blockers:
+        next_action = "Check Telegram API_BASE_URL host points to dbaronx-api-unified service root."
     lines = [SAFE_ADMIN_ERROR, f"blockers: {', '.join(blockers[:6])}"]
+    if api_host:
+        lines.append(f"apiHost: {api_host}")
     if endpoint_path:
         lines.append(f"endpointPath: {endpoint_path}")
     if api_base_had_api_suffix is not None:
         lines.append(f"apiBaseHadApiSuffix: {'true' if api_base_had_api_suffix else 'false'}")
-    if 'endpoint_not_found' in blockers:
-        lines.append('next action: Check Telegram API_BASE_URL; use host root without /api or rely on normalized client.')
+    if http_status:
+        lines.append(f"httpStatus: {http_status}")
+    lines.append(f"next action: {next_action}")
     await _reply(update, "\n".join(lines))
 
 
@@ -118,7 +126,7 @@ async def cj_import_preview_handler(update: Update, context: ContextTypes.DEFAUL
     client = NestJsClient()
     payload = await client.cj_import_preview(category=category, limit=limit, actor_id=actor.telegram_user_id)
     if not payload.get("success"):
-        return await _handle_admin_failure(update, payload, endpoint_path=client.cj_products_endpoint_path("/import-preview"), api_base_had_api_suffix=client.api_base_had_api_suffix)
+        return await _handle_admin_failure(update, payload, api_host=client.api_host, endpoint_path=client.cj_products_endpoint_path("/import-preview"), api_base_had_api_suffix=client.api_base_had_api_suffix)
     items = _extract_rows(payload)
     await _reply(update, f"preview: items={len(items)} category={category} limit={limit}")
 
@@ -133,7 +141,7 @@ async def cj_import_run_handler(update: Update, context: ContextTypes.DEFAULT_TY
     client = NestJsClient()
     payload = await client.cj_import_run(category=category, limit=limit, actor_id=actor.telegram_user_id)
     if not payload.get("success"):
-        return await _handle_admin_failure(update, payload, endpoint_path=client.cj_products_endpoint_path("/import-run"), api_base_had_api_suffix=client.api_base_had_api_suffix)
+        return await _handle_admin_failure(update, payload, api_host=client.api_host, endpoint_path=client.cj_products_endpoint_path("/import-run"), api_base_had_api_suffix=client.api_base_had_api_suffix)
     data = payload.get("data") if isinstance(payload.get("data"), dict) else {}
     await _reply(update, f"run: imported={data.get('imported', 0)} accepted={data.get('accepted', 0)} rejected={data.get('rejected', 0)}")
 
@@ -146,8 +154,29 @@ async def cj_import_status_handler(update: Update, context: ContextTypes.DEFAULT
     runs = await client.cj_import_runs(actor_id=actor.telegram_user_id)
     items = await client.cj_import_items(actor_id=actor.telegram_user_id)
     if not runs.get("success") or not items.get("success"):
-        return await _handle_admin_failure(update, runs, items, endpoint_path=client.cj_products_endpoint_path("/import-runs"), api_base_had_api_suffix=client.api_base_had_api_suffix)
+        return await _handle_admin_failure(update, runs, items, api_host=client.api_host, endpoint_path=client.cj_products_endpoint_path("/import-runs"), api_base_had_api_suffix=client.api_base_had_api_suffix)
     await _reply(update, _safe_status_summary(runs, items))
+
+
+async def api_probe_cj_import_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    if not await require_admin(update, context):
+        return
+    actor = build_actor_context(update)
+    client = NestJsClient()
+    endpoint_path = client.cj_products_endpoint_path("/import-runs")
+    payload = await client.cj_import_runs(actor_id=actor.telegram_user_id)
+    blockers = [] if payload.get("success") else _collect_blockers(payload)
+    if not blockers:
+        blockers = ["none"]
+    http_status = int(payload.get("statusCode") or 200)
+    lines = [
+        "CJ Import API Probe",
+        f"apiHost: {client.api_host}",
+        f"endpointPath: {endpoint_path}",
+        f"httpStatus: {http_status}",
+        f"blocker: {blockers[0]}",
+    ]
+    await _reply(update, "\n".join(lines))
 
 
 async def cj_import_approve_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -159,7 +188,7 @@ async def cj_import_approve_handler(update: Update, context: ContextTypes.DEFAUL
     client = NestJsClient()
     payload = await client.cj_import_approve(item_id=context.args[0], actor_id=actor.telegram_user_id)
     if not payload.get("success"):
-        return await _handle_admin_failure(update, payload, endpoint_path=client.cj_products_endpoint_path(f"/import-items/{context.args[0]}/approve"), api_base_had_api_suffix=client.api_base_had_api_suffix)
+        return await _handle_admin_failure(update, payload, api_host=client.api_host, endpoint_path=client.cj_products_endpoint_path(f"/import-items/{context.args[0]}/approve"), api_base_had_api_suffix=client.api_base_had_api_suffix)
     await _reply(update, f"approved: {context.args[0]}")
 
 
@@ -172,7 +201,7 @@ async def cj_import_reject_handler(update: Update, context: ContextTypes.DEFAULT
     client = NestJsClient()
     payload = await client.cj_import_reject(item_id=context.args[0], actor_id=actor.telegram_user_id)
     if not payload.get("success"):
-        return await _handle_admin_failure(update, payload, endpoint_path=client.cj_products_endpoint_path(f"/import-items/{context.args[0]}/reject"), api_base_had_api_suffix=client.api_base_had_api_suffix)
+        return await _handle_admin_failure(update, payload, api_host=client.api_host, endpoint_path=client.cj_products_endpoint_path(f"/import-items/{context.args[0]}/reject"), api_base_had_api_suffix=client.api_base_had_api_suffix)
     await _reply(update, f"rejected: {context.args[0]}")
 
 
@@ -183,6 +212,6 @@ async def cj_publish_approved_handler(update: Update, context: ContextTypes.DEFA
     client = NestJsClient()
     payload = await client.cj_publish_approved(actor_id=actor.telegram_user_id)
     if not payload.get("success"):
-        return await _handle_admin_failure(update, payload, endpoint_path=client.cj_products_endpoint_path("/publish-approved"), api_base_had_api_suffix=client.api_base_had_api_suffix)
+        return await _handle_admin_failure(update, payload, api_host=client.api_host, endpoint_path=client.cj_products_endpoint_path("/publish-approved"), api_base_had_api_suffix=client.api_base_had_api_suffix)
     data = payload.get("data") if isinstance(payload.get("data"), dict) else {}
     await _reply(update, f"published={data.get('published', 0)}")

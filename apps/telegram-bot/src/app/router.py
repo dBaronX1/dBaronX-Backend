@@ -23,6 +23,7 @@ from handlers.callback_fallback_handler import callback_fallback_handler
 from handlers.command_manifest_handler import command_manifest_handler
 from handlers.commerce_admin_handler import commerce_admin_handler
 from handlers.cj_import_admin_handler import (
+    api_probe_cj_import_handler,
     cj_import_preview_handler,
     cj_import_run_handler,
     cj_import_status_handler,
@@ -177,6 +178,7 @@ def register_handlers(application: Application) -> None:
     application.add_handler(CommandHandler("cj_import_approve", cj_import_approve_handler))
     application.add_handler(CommandHandler("cj_import_reject", cj_import_reject_handler))
     application.add_handler(CommandHandler("cj_publish_approved", cj_publish_approved_handler))
+    application.add_handler(CommandHandler("api_probe_cj_import", api_probe_cj_import_handler))
     application.add_handler(
         CommandHandler(
             "commerce_reconciliation_help",
