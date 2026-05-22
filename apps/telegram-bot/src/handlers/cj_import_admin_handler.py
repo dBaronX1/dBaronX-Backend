@@ -174,12 +174,13 @@ async def api_probe_cj_import_handler(update: Update, context: ContextTypes.DEFA
     next_action = "None" if blocker == "route_auth_ok" else "Check internal token aliases and API guard diagnostics."
     lines = [
         "CJ Import API Probe",
+        f"internalTokenConfigured: {'true' if bool(get_settings().internal_service_token) else 'false'}",
+        f"tokenHeaderSent: {'true' if bool(get_settings().internal_service_token) else 'false'}",
+        f"authHeaderSent: {'true' if bool(get_settings().internal_service_token) else 'false'}",
         f"apiHost: {client.api_host}",
         f"endpointPath: {endpoint_path}",
         f"httpStatus: {http_status}",
         f"blocker: {blocker}",
-        f"internalTokenConfigured: {'true' if bool(get_settings().internal_service_token) else 'false'}",
-        f"tokenHeaderSent: {'true' if bool(get_settings().internal_service_token) else 'false'}",
         f"apiBaseHadApiSuffix: {'true' if client.api_base_had_api_suffix else 'false'}",
         f"nextAction: {next_action}",
     ]

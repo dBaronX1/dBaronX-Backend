@@ -48,6 +48,7 @@ export class InternalAuthGuard implements CanActivate {
           expectedTokenConfigured: Boolean(expectedToken),
           receivedInternalHeader: Boolean(providedInternal),
           receivedBearerHeader: Boolean(providedBearer),
+          normalizedHeaderNonEmpty: Boolean(providedToken),
         },
       });
     }
