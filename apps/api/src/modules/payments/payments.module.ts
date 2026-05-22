@@ -23,6 +23,9 @@ import { StripeCheckoutController } from "./stripe-checkout.controller";
 import { StripeCheckoutService } from "./stripe-checkout.service";
 import { AdminFulfillmentController, OrdersStatusController, PaymentsStatusController } from "./orders-status.controller";
 import { OrderFulfillmentService } from "./order-fulfillment.service";
+import { CjApprovalController } from "./cj-approval.controller";
+import { CjApprovalService } from "./cj-approval.service";
+import { CjOrderDryRunService } from "./cj-order-dry-run.service";
 import { EconomicEventService } from "../../shared/services/economic-event.service";
 import { SupabaseEconomicEventRepository } from "../../shared/services/supabase-economic-event.repository";
 
@@ -38,6 +41,7 @@ import { SupabaseEconomicEventRepository } from "../../shared/services/supabase-
     OrdersStatusController,
     PaymentsStatusController,
     AdminFulfillmentController,
+    CjApprovalController,
   ],
   providers: [
     InternalRequestHeadersService,
@@ -57,6 +61,8 @@ import { SupabaseEconomicEventRepository } from "../../shared/services/supabase-
     EconomicEventService,
     SupabaseEconomicEventRepository,
     OrderFulfillmentService,
+    CjApprovalService,
+    CjOrderDryRunService,
     {
       provide: "EconomicEventRepository",
       useExisting: SupabaseEconomicEventRepository,
@@ -72,6 +78,8 @@ import { SupabaseEconomicEventRepository } from "../../shared/services/supabase-
     EconomicEventService,
     SupabaseEconomicEventRepository,
     OrderFulfillmentService,
+    CjApprovalService,
+    CjOrderDryRunService,
     {
       provide: "EconomicEventRepository",
       useExisting: SupabaseEconomicEventRepository,
