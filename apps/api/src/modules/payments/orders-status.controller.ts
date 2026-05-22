@@ -64,6 +64,14 @@ export class AdminFulfillmentController {
 
   @Post("tasks/:id/mark-placed")
   async markPlaced(@Param("id") id: string) {
+    const { data: task } = await this.supabase.getClient().schema("app_private").from("fulfillment_tasks")
+      .select("order_id,order:customer_orders!fulfillment_tasks_order_id_fkey(id,payment_status)")
+      .eq("id", id)
+      .maybeSingle();
+    const order = Array.isArray(task?.order) ? task.order[0] : task?.order;
+    if (!order?.id) return { success: false, blocker: "order_not_found" };
+    if (order.payment_status !== "paid_verified") return { success: false, blocker: "payment_not_verified" };
+
     const { error } = await this.supabase.getClient().schema("app_private").from("fulfillment_tasks")
       .update({ status: "placed_with_supplier", updated_at: new Date().toISOString() }).eq("id", id);
     if (error) throw new Error(error.message);
@@ -73,8 +81,14 @@ export class AdminFulfillmentController {
   @Post("tasks/:id/add-tracking")
   async addTracking(@Param("id") id: string, @Body() body: { trackingNumber?: string; trackingUrl?: string }) {
     if (!body.trackingNumber && !body.trackingUrl) throw new Error("trackingNumber or trackingUrl required");
-    const { data: task } = await this.supabase.getClient().schema("app_private").from("fulfillment_tasks").select("order_id").eq("id", id).maybeSingle();
-    if (!task?.order_id) throw new Error("task_not_found");
+    const { data: task } = await this.supabase.getClient().schema("app_private").from("fulfillment_tasks")
+      .select("order_id,order:customer_orders!fulfillment_tasks_order_id_fkey(id,payment_status)")
+      .eq("id", id)
+      .maybeSingle();
+    const order = Array.isArray(task?.order) ? task.order[0] : task?.order;
+    if (!order?.id) return { success: false, blocker: "order_not_found" };
+    if (order.payment_status !== "paid_verified") return { success: false, blocker: "payment_not_verified" };
+
     const updatedAt = new Date().toISOString();
     await this.supabase.getClient().schema("app_private").from("fulfillment_tasks").update({ status: "tracking_added", updated_at: updatedAt }).eq("id", id);
     await this.supabase.getClient().schema("app_public").from("customer_orders").update({ tracking_number: body.trackingNumber ?? null, tracking_url: body.trackingUrl ?? null, fulfillment_status: "tracking_added", updated_at: updatedAt }).eq("id", task.order_id);
