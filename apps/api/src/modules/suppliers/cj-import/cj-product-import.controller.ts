@@ -1,9 +1,9 @@
-import { Body, Controller, Get, Param, Post, UseGuards } from "@nestjs/common";
+import { Body, Controller, Get, Param, Post, UseGuards, VERSION_NEUTRAL } from "@nestjs/common";
 import { InternalAuthGuard } from "../../../shared/guards/internal-auth.guard";
 import { CjProductImportService } from "./cj-product-import.service";
 import { CjProductPublishService } from "./cj-product-publish.service";
 
-@Controller("admin/cj/products")
+@Controller({ path: "admin/cj/products", version: VERSION_NEUTRAL })
 @UseGuards(InternalAuthGuard)
 export class CjProductImportController {
   constructor(private readonly importer: CjProductImportService, private readonly publisher: CjProductPublishService) {}

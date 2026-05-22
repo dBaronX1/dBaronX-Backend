@@ -6,7 +6,11 @@ const txt=fs.readFileSync(p,'utf8');
 const client=fs.readFileSync(clientPath,'utf8');
 
 if (txt.includes('@Controller("api/admin/cj/products")')) throw new Error('controller base path must not include api/admin/cj/products');
-if (!txt.includes('@Controller("admin/cj/products")')) throw new Error('controller base path must be admin/cj/products');
+if (!txt.includes('admin/cj/products')) throw new Error('controller base path must be admin/cj/products');
+
+if (!txt.includes('VERSION_NEUTRAL')) throw new Error('controller must use VERSION_NEUTRAL');
+if (!txt.includes('@Controller({ path: "admin/cj/products", version: VERSION_NEUTRAL })')) throw new Error('controller must declare neutral version on admin/cj/products');
+if (txt.includes('version: "1"') || txt.includes("version: '1'")) throw new Error('controller must not be version 1 only');
 if (!txt.includes('@UseGuards(InternalAuthGuard)')) throw new Error('InternalAuthGuard missing');
 
 const expectedRuntimeRoutes = [
