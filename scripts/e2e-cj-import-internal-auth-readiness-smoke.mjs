@@ -30,3 +30,9 @@ if (!controller.includes('path: "admin/cj/products"')) throw new Error('api admi
 if (!service.includes('migration_missing')) throw new Error('migration blocker missing');
 if (!service.includes('cj_credentials_missing')) throw new Error('credential blocker missing');
 console.log('ok cj internal auth/readiness smoke');
+
+if (!guard.includes('expectedTokenSource')) throw new Error('missing expectedTokenSource diagnostic');
+if (!guard.includes('receivedDbxInternalHeader')) throw new Error('missing receivedDbxInternalHeader diagnostic');
+if (!guard.includes('receivedAnyAcceptedHeader')) throw new Error('missing receivedAnyAcceptedHeader diagnostic');
+if (!guard.includes('tokenMatched')) throw new Error('missing tokenMatched diagnostic');
+if (!handler.includes('internalTokenSource:')) throw new Error('missing internalTokenSource diagnostic');

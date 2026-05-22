@@ -41,6 +41,10 @@ class NestJsClient:
         parsed = urlparse(self._base_url)
         return parsed.netloc or self._base_url
 
+
+    def internal_auth_metadata(self) -> dict[str, object]:
+        return self._http.internal_auth_metadata()
+
     async def get_system_admin_pack(
         self,
         *,

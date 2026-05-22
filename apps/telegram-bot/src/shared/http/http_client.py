@@ -72,6 +72,18 @@ class InternalHttpClient:
             headers["x-request-id"] = request_id
         return headers
 
+
+    def internal_auth_metadata(self) -> dict[str, object]:
+        settings = get_settings()
+        token = (settings.internal_service_token or "").strip()
+        configured = bool(token)
+        return {
+            "internalTokenConfigured": configured,
+            "internalTokenSource": settings.internal_token_source,
+            "xInternalTokenHeaderPrepared": configured,
+            "bearerHeaderPrepared": configured,
+        }
+
     async def get(
         self,
         base_url: str,

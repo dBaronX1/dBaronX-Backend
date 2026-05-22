@@ -171,17 +171,62 @@ async def api_probe_cj_import_handler(update: Update, context: ContextTypes.DEFA
         blockers = ["none"]
     http_status = int(payload.get("statusCode") or 200)
     blocker = "route_auth_ok" if payload.get("success") else blockers[0]
-    next_action = "None" if blocker == "route_auth_ok" else "Check internal token aliases and API guard diagnostics."
+    meta = client.internal_auth_metadata()
+    data = payload.get("data") if isinstance(payload.get("data"), dict) else {}
+    diagnostics = data.get("diagnostics") if isinstance(data.get("diagnostics"), dict) else {}
+    api_diag_present = bool(diagnostics)
+    api_expected_configured = diagnostics.get("expectedTokenConfigured") if api_diag_present else None
+    api_expected_source = str(diagnostics.get("expectedTokenSource") or "none") if api_diag_present else "none"
+    api_received_internal = diagnostics.get("receivedInternalHeader") if api_diag_present else None
+    api_received_dbx = diagnostics.get("receivedDbxInternalHeader") if api_diag_present else None
+    api_received_bearer = diagnostics.get("receivedBearerHeader") if api_diag_present else None
+    api_received_any = diagnostics.get("receivedAnyAcceptedHeader") if api_diag_present else None
+    api_normalized_non_empty = diagnostics.get("normalizedHeaderNonEmpty") if api_diag_present else None
+    api_token_matched = diagnostics.get("tokenMatched") if api_diag_present else None
+
+    if not bool(meta.get("internalTokenConfigured")):
+        blocker = "token_not_configured_on_telegram"
+        next_action = "Set INTERNAL_SERVICE_TOKEN on Telegram bot service and redeploy."
+    elif api_diag_present and api_expected_configured is False:
+        blocker = "token_not_configured_on_api"
+        next_action = "Set INTERNAL_SERVICE_TOKEN on API service and redeploy."
+    elif api_diag_present and str(meta.get("internalTokenSource")) != api_expected_source and api_expected_source != "none":
+        blocker = "token_source_mismatch"
+        next_action = "Use the same canonical env key INTERNAL_SERVICE_TOKEN on both services, remove conflicting aliases, redeploy API then Telegram."
+    elif bool(meta.get("xInternalTokenHeaderPrepared")) and api_diag_present and not bool(api_received_internal) and not bool(api_received_dbx):
+        blocker = "token_header_not_sent"
+        next_action = "Header forwarding/client send path failed; inspect Telegram HTTP client."
+    elif bool(meta.get("bearerHeaderPrepared")) and api_diag_present and not bool(api_received_bearer):
+        blocker = "bearer_header_not_sent"
+        next_action = "Header forwarding/client send path failed; inspect Telegram HTTP client."
+    elif api_diag_present and bool(api_received_any) and api_token_matched is False:
+        blocker = "token_header_received_but_mismatch" if bool(api_received_internal) or bool(api_received_dbx) else "bearer_received_but_mismatch"
+        next_action = "Runtime token values differ. Copy one exact token into INTERNAL_SERVICE_TOKEN on both API and Telegram, remove aliases, redeploy both."
+    elif not api_diag_present and blocker != "route_auth_ok":
+        blocker = "auth_guard_diagnostics_missing"
+        next_action = "API guard diagnostics not deployed or response body not parsed."
+    else:
+        next_action = "None" if blocker == "route_auth_ok" else "Check internal token aliases and API guard diagnostics."
+
     lines = [
         "CJ Import API Probe",
-        f"internalTokenConfigured: {'true' if bool(get_settings().internal_service_token) else 'false'}",
-        f"tokenHeaderSent: {'true' if bool(get_settings().internal_service_token) else 'false'}",
-        f"authHeaderSent: {'true' if bool(get_settings().internal_service_token) else 'false'}",
         f"apiHost: {client.api_host}",
         f"endpointPath: {endpoint_path}",
         f"httpStatus: {http_status}",
         f"blocker: {blocker}",
+        f"internalTokenConfigured: {'true' if bool(meta.get('internalTokenConfigured')) else 'false'}",
+        f"internalTokenSource: {meta.get('internalTokenSource')}",
+        f"xInternalTokenHeaderPrepared: {'true' if bool(meta.get('xInternalTokenHeaderPrepared')) else 'false'}",
+        f"bearerHeaderPrepared: {'true' if bool(meta.get('bearerHeaderPrepared')) else 'false'}",
         f"apiBaseHadApiSuffix: {'true' if client.api_base_had_api_suffix else 'false'}",
+        f"apiExpectedTokenConfigured: {api_expected_configured if api_diag_present else 'unknown'}",
+        f"apiExpectedTokenSource: {api_expected_source if api_diag_present else 'unknown'}",
+        f"apiReceivedInternalHeader: {api_received_internal if api_diag_present else 'unknown'}",
+        f"apiReceivedDbxInternalHeader: {api_received_dbx if api_diag_present else 'unknown'}",
+        f"apiReceivedBearerHeader: {api_received_bearer if api_diag_present else 'unknown'}",
+        f"apiReceivedAnyAcceptedHeader: {api_received_any if api_diag_present else 'unknown'}",
+        f"apiNormalizedHeaderNonEmpty: {api_normalized_non_empty if api_diag_present else 'unknown'}",
+        f"apiTokenMatched: {api_token_matched if api_diag_present else 'unknown'}",
         f"nextAction: {next_action}",
     ]
     await _reply(update, "\n".join(lines))

@@ -43,8 +43,10 @@ if (!client.includes('api_base_had_api_suffix')) throw new Error('api suffix dia
 if (!handler.includes('endpointPath:')) throw new Error('endpoint path diagnostic missing');
 if (!handler.includes('apiHost:')) throw new Error('api host diagnostic missing');
 if (!handler.includes('internalTokenConfigured:')) throw new Error('internal token configured diagnostic missing');
-if (!handler.includes('tokenHeaderSent:')) throw new Error('token header diagnostic missing');
-if (!handler.includes('authHeaderSent:')) throw new Error('auth header diagnostic missing');
+if (!handler.includes('xInternalTokenHeaderPrepared:')) throw new Error('x-internal-token header diagnostic missing');
+if (!handler.includes('bearerHeaderPrepared:')) throw new Error('bearer header diagnostic missing');
+if (!handler.includes('internalTokenSource:')) throw new Error('internal token source diagnostic missing');
+if (!handler.includes('apiExpectedTokenSource:')) throw new Error('api expected token source diagnostic missing');
 if (!handler.includes('apiBaseHadApiSuffix:')) throw new Error('api suffix diagnostic missing');
 if (!handler.includes('Check Telegram API_BASE_URL host points to dbaronx-api-unified service root.')) {
   throw new Error('next action diagnostic missing');
