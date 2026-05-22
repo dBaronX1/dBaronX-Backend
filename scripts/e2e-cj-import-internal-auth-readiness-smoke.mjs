@@ -14,6 +14,10 @@ if (!guard.includes('x-dbxi-internal-token')) throw new Error('missing x-dbxi-in
 if (!guard.includes('extractBearerToken')) throw new Error('missing bearer support');
 if (guard.includes('query')) throw new Error('guard should not accept query token');
 if (!guard.includes('unauthorized_internal_token')) throw new Error('missing safe blocker');
+if (!guard.includes('expectedTokenConfigured')) throw new Error('missing expectedTokenConfigured diagnostic');
+if (!guard.includes('receivedInternalHeader')) throw new Error('missing receivedInternalHeader diagnostic');
+if (!guard.includes('receivedBearerHeader')) throw new Error('missing receivedBearerHeader diagnostic');
+if (!guard.includes('normalizedHeaderNonEmpty')) throw new Error('missing normalizedHeaderNonEmpty diagnostic');
 if (!settings.includes('AliasChoices("INTERNAL_SERVICE_TOKEN", "DBX_INTERNAL_SERVICE_TOKEN", "API_INTERNAL_SERVICE_TOKEN", "NESTJS_INTERNAL_SERVICE_TOKEN")')) throw new Error('settings missing aliases');
 if (!http.includes('x-internal-token')) throw new Error('token header missing');
 if (!http.includes('Authorization')) throw new Error('bearer header missing');
@@ -22,6 +26,7 @@ if (!handler.includes('cj_import_readiness_handler')) throw new Error('readiness
 if (!router.includes('"api_probe_cj_import"')) throw new Error('probe route missing');
 if (!router.includes('"cj_import_readiness"')) throw new Error('readiness route missing');
 if (!controller.includes('@Get("readiness")')) throw new Error('api readiness endpoint missing');
+if (!controller.includes('path: "admin/cj/products"')) throw new Error('api admin cj products base path missing');
 if (!service.includes('migration_missing')) throw new Error('migration blocker missing');
 if (!service.includes('cj_credentials_missing')) throw new Error('credential blocker missing');
 console.log('ok cj internal auth/readiness smoke');
