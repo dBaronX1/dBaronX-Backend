@@ -206,3 +206,24 @@ class NestJsClient:
             actor_id=actor_id,
             request_id=request_id,
         )
+
+    async def cj_import_preview(self, *, category: str, limit: int, actor_id: str, request_id: str | None = None) -> dict[str, Any]:
+        return await self._http.post(self._base_url, "/api/admin/cj/products/import-preview", json_body={"category": category, "limit": limit}, actor_id=actor_id, request_id=request_id)
+
+    async def cj_import_run(self, *, category: str, limit: int, actor_id: str, request_id: str | None = None) -> dict[str, Any]:
+        return await self._http.post(self._base_url, "/api/admin/cj/products/import-run", json_body={"category": category, "limit": limit}, actor_id=actor_id, request_id=request_id)
+
+    async def cj_import_runs(self, *, actor_id: str, request_id: str | None = None) -> dict[str, Any]:
+        return await self._http.get(self._base_url, "/api/admin/cj/products/import-runs", actor_id=actor_id, request_id=request_id)
+
+    async def cj_import_items(self, *, actor_id: str, request_id: str | None = None) -> dict[str, Any]:
+        return await self._http.get(self._base_url, "/api/admin/cj/products/import-items", actor_id=actor_id, request_id=request_id)
+
+    async def cj_import_approve(self, *, item_id: str, actor_id: str, request_id: str | None = None) -> dict[str, Any]:
+        return await self._http.post(self._base_url, f"/api/admin/cj/products/import-items/{item_id}/approve", json_body={}, actor_id=actor_id, request_id=request_id)
+
+    async def cj_import_reject(self, *, item_id: str, actor_id: str, request_id: str | None = None) -> dict[str, Any]:
+        return await self._http.post(self._base_url, f"/api/admin/cj/products/import-items/{item_id}/reject", json_body={}, actor_id=actor_id, request_id=request_id)
+
+    async def cj_publish_approved(self, *, actor_id: str, request_id: str | None = None) -> dict[str, Any]:
+        return await self._http.post(self._base_url, "/api/admin/cj/products/publish-approved", json_body={}, actor_id=actor_id, request_id=request_id)
