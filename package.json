@@ -40,7 +40,8 @@
     "medusa:launch-commerce:readiness": "node scripts/e2e-medusa-launch-commerce-readiness-smoke.mjs",
     "web:functionality-export:readiness": "node scripts/e2e-web-functionality-only-export-smoke.mjs",
     "first-products:seed:cj-batch": "pnpm --filter @dbaronx/medusa first-products:seed:cj-batch",
-    "first-products:readiness": "node scripts/e2e-cj-verified-product-batch-readiness-smoke.mjs"
+    "first-products:readiness": "node scripts/e2e-cj-verified-product-batch-readiness-smoke.mjs",
+    "cj:operator:onboard": "pnpm --filter dbaronx-api run cj:operator:onboard"
   },
   "pnpm": {
     "onlyBuiltDependencies": [
