@@ -6,7 +6,7 @@ Do **not** use the CJ operator as the Render API web service Start Command.
 
 If you set the web service Start Command to `CJ_OPERATOR_MODE=readiness ...` or import/onboarding modes, the process exits without starting an HTTP server, so the deploy is marked failed.
 
-Restore the API web start command to the normal API server start command (`node apps/api/dist/main.js` or the existing service start command that launches NestJS HTTP).
+Restore the API web start command to the normal API server start command (`pnpm --filter dbaronx-api start`, which runs `node dist/main.js` in `apps/api`, or equivalent NestJS HTTP start command).
 
 ## Approved execution paths
 
@@ -46,3 +46,30 @@ node apps/api/dist/scripts/cj-operator-onboard-products.js
 ```
 
 The CJ operator script is a Nest application context task and does not depend on Telegram bot runtime or internal-auth HTTP calls.
+
+
+## Readiness JSON interpretation contract
+
+Readiness output must include, at minimum:
+
+- `success`
+- `blockers`
+- `legacyBlockers`
+- `dbDiagnostics.databaseName`
+- `dbDiagnostics.databaseUser`
+- `dbDiagnostics.dbConnectionReady`
+- `dbDiagnostics.dbDiagnosticAvailable`
+- `dbDiagnostics.dbConnectionSource`
+- `dbDiagnostics.requiredTables`
+- `dbDiagnostics.missingTables`
+- `dbDiagnostics.safeDbErrorClass` (present when database connection/diagnostics fail)
+
+Do not print secrets in readiness output. Never include:
+
+- `DATABASE_URL`
+- DB host
+- DB password
+- full environment dumps
+- Supabase service-role key
+- CJ access token/key
+- internal service token
