@@ -8,6 +8,7 @@ interface HealthResponse {
   status: "ok";
   timestamp: string;
   version?: string;
+  internalAuthDiagnosticsBuild: "custom_exception_v2";
 }
 
 @Controller({ version: VERSION_NEUTRAL })
@@ -32,6 +33,7 @@ export class HealthController {
       service: "dbaronx-api",
       status: "ok",
       timestamp: new Date().toISOString(),
+      internalAuthDiagnosticsBuild: "custom_exception_v2",
       ...(version ? { version } : {}),
     };
   }

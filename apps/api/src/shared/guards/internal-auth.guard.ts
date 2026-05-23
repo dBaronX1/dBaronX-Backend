@@ -64,6 +64,9 @@ export class InternalAuthGuard implements CanActivate {
           receivedAnyAcceptedHeader: Boolean(providedInternal || providedBearer),
           normalizedHeaderNonEmpty: Boolean(providedToken),
           tokenMatched: false,
+          diagnosticsMode: "custom_exception_v2",
+          guardClass: "InternalAuthGuard",
+          exceptionClass: "InternalAuthUnauthorizedException",
         },
       } as const;
       throw new InternalAuthUnauthorizedException(safePayload);

@@ -33,13 +33,15 @@ export class AllExceptionsFilter implements ExceptionFilter {
     const status = this.resolveStatus(exception);
 
     const requestId = this.extractRequestId(request);
-    const internalAuthPayload = this.extractInternalAuthSafePayload(exception);
+    const internalAuthPayload = this.extractInternalAuthPayload(exception);
     if (internalAuthPayload?.blocker === "unauthorized_internal_token") {
       const correlationId = requestId;
       const reference = PublicReferenceUtil.fromRequestId(requestId);
       response.status(HttpStatus.UNAUTHORIZED).json({
-        ...internalAuthPayload,
         success: false,
+        blocker: "unauthorized_internal_token",
+        diagnostics: internalAuthPayload.diagnostics,
+        diagnosticsPreservedBy: "AllExceptionsFilter.custom_internal_auth_v2",
         statusCode: HttpStatus.UNAUTHORIZED,
         path: request.originalUrl || request.url,
         method: request.method,
@@ -324,6 +326,44 @@ export class AllExceptionsFilter implements ExceptionFilter {
     }
 
     return undefined;
+  }
+
+  private extractInternalAuthPayload(exception: unknown): {
+    blocker: "unauthorized_internal_token";
+    diagnostics: unknown;
+  } | undefined {
+    const response = exception instanceof HttpException ? exception.getResponse() : undefined;
+    const responseObject = this.isObject(response) ? response : undefined;
+
+    const blockerFromResponse = [
+      responseObject?.["blocker"],
+      this.isObject(responseObject?.["safePayload"]) ? responseObject?.["safePayload"]["blocker"] : undefined,
+      this.isObject(responseObject?.["response"]) ? responseObject?.["response"]["blocker"] : undefined,
+      this.isObject(responseObject?.["details"]) ? responseObject?.["details"]["blocker"] : undefined,
+    ].some((value) => value === "unauthorized_internal_token");
+
+    const safePayload = this.extractInternalAuthSafePayload(exception);
+    const fromSafePayload = safePayload?.blocker === "unauthorized_internal_token";
+    const fromInstance = exception instanceof InternalAuthUnauthorizedException;
+
+    if (!fromInstance && !fromSafePayload && !blockerFromResponse) {
+      return undefined;
+    }
+
+    const diagnosticsCandidates: unknown[] = [
+      safePayload?.diagnostics,
+      responseObject?.["diagnostics"],
+      this.isObject(responseObject?.["safePayload"]) ? responseObject?.["safePayload"]["diagnostics"] : undefined,
+      this.isObject(responseObject?.["response"]) ? responseObject?.["response"]["diagnostics"] : undefined,
+      this.isObject(responseObject?.["details"]) ? responseObject?.["details"]["diagnostics"] : undefined,
+    ];
+
+    const diagnostics = diagnosticsCandidates.find((candidate) => candidate !== undefined);
+
+    return {
+      blocker: "unauthorized_internal_token",
+      diagnostics: this.redactDetails(diagnostics ?? {}),
+    };
   }
 
   private extractInternalAuthSafePayload(exception: unknown): {
