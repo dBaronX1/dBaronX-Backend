@@ -32,7 +32,10 @@ if (!service.includes('cj_credentials_missing')) throw new Error('credential blo
 console.log('ok cj internal auth/readiness smoke');
 
 if (!guard.includes('expectedTokenSource')) throw new Error('missing expectedTokenSource diagnostic');
+if (!guard.includes('configuredAliases')) throw new Error('missing configuredAliases diagnostic');
+if (!guard.includes('aliasConflictPossible')) throw new Error('missing aliasConflictPossible diagnostic');
 if (!guard.includes('receivedDbxInternalHeader')) throw new Error('missing receivedDbxInternalHeader diagnostic');
 if (!guard.includes('receivedAnyAcceptedHeader')) throw new Error('missing receivedAnyAcceptedHeader diagnostic');
 if (!guard.includes('tokenMatched')) throw new Error('missing tokenMatched diagnostic');
 if (!handler.includes('internalTokenSource:')) throw new Error('missing internalTokenSource diagnostic');
+if (!controller.includes('@Get("auth-diagnostics")')) throw new Error('missing auth-diagnostics endpoint');
