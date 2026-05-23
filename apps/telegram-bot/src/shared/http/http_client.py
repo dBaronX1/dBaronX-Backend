@@ -80,6 +80,8 @@ class InternalHttpClient:
         return {
             "internalTokenConfigured": configured,
             "internalTokenSource": settings.internal_token_source,
+            "configuredAliases": settings.internal_token_aliases_configured,
+            "aliasConflictPossible": settings.internal_token_alias_conflict_possible,
             "xInternalTokenHeaderPrepared": configured,
             "bearerHeaderPrepared": configured,
         }

@@ -16,4 +16,18 @@ export class CjProductImportController {
   @Post("import-items/:id/reject") reject(@Param("id") id: string) { return this.publisher.reject(id); }
   @Post("publish-approved") publishApproved() { return this.publisher.publishApproved(); }
   @Get("readiness") readiness() { return this.importer.readiness(); }
+  @Get("auth-diagnostics")
+  authDiagnostics() {
+    const auth = InternalAuthGuard.inspectTokenConfig();
+    return {
+      success: true,
+      blocker: null,
+      checks: {
+        internalAuth: "passed",
+        expectedTokenSource: auth.source,
+        configuredAliases: auth.configuredAliases,
+        aliasConflictPossible: auth.aliasConflictPossible,
+      },
+    };
+  }
 }

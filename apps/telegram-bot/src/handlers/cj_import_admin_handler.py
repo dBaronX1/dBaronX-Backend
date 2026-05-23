@@ -177,6 +177,8 @@ async def api_probe_cj_import_handler(update: Update, context: ContextTypes.DEFA
     api_diag_present = bool(diagnostics)
     api_expected_configured = diagnostics.get("expectedTokenConfigured") if api_diag_present else None
     api_expected_source = str(diagnostics.get("expectedTokenSource") or "none") if api_diag_present else "none"
+    api_configured_aliases = diagnostics.get("configuredAliases") if api_diag_present and isinstance(diagnostics.get("configuredAliases"), list) else []
+    api_alias_conflict_possible = diagnostics.get("aliasConflictPossible") if api_diag_present else None
     api_received_internal = diagnostics.get("receivedInternalHeader") if api_diag_present else None
     api_received_dbx = diagnostics.get("receivedDbxInternalHeader") if api_diag_present else None
     api_received_bearer = diagnostics.get("receivedBearerHeader") if api_diag_present else None
@@ -184,27 +186,25 @@ async def api_probe_cj_import_handler(update: Update, context: ContextTypes.DEFA
     api_normalized_non_empty = diagnostics.get("normalizedHeaderNonEmpty") if api_diag_present else None
     api_token_matched = diagnostics.get("tokenMatched") if api_diag_present else None
 
-    if not bool(meta.get("internalTokenConfigured")):
-        blocker = "token_not_configured_on_telegram"
-        next_action = "Set INTERNAL_SERVICE_TOKEN on Telegram bot service and redeploy."
-    elif api_diag_present and api_expected_configured is False:
+    api_guard_diagnostics_missing = not api_diag_present and blocker != "route_auth_ok"
+    if api_expected_configured is False:
         blocker = "token_not_configured_on_api"
         next_action = "Set INTERNAL_SERVICE_TOKEN on API service and redeploy."
+    elif not bool(meta.get("internalTokenConfigured")):
+        blocker = "token_not_configured_on_telegram"
+        next_action = "Set INTERNAL_SERVICE_TOKEN on Telegram bot service and redeploy."
     elif api_diag_present and str(meta.get("internalTokenSource")) != api_expected_source and api_expected_source != "none":
         blocker = "token_source_mismatch"
-        next_action = "Use the same canonical env key INTERNAL_SERVICE_TOKEN on both services, remove conflicting aliases, redeploy API then Telegram."
-    elif bool(meta.get("xInternalTokenHeaderPrepared")) and api_diag_present and not bool(api_received_internal) and not bool(api_received_dbx):
+        next_action = "Use INTERNAL_SERVICE_TOKEN only on API and Telegram. Remove conflicting aliases or make all aliases identical. Redeploy API then Telegram."
+    elif api_diag_present and api_received_any is False:
         blocker = "token_header_not_sent"
-        next_action = "Header forwarding/client send path failed; inspect Telegram HTTP client."
-    elif bool(meta.get("bearerHeaderPrepared")) and api_diag_present and not bool(api_received_bearer):
-        blocker = "bearer_header_not_sent"
-        next_action = "Header forwarding/client send path failed; inspect Telegram HTTP client."
+        next_action = "Telegram did not reach API with an accepted auth header. Inspect Telegram HTTP client."
     elif api_diag_present and bool(api_received_any) and api_token_matched is False:
-        blocker = "token_header_received_but_mismatch" if bool(api_received_internal) or bool(api_received_dbx) else "bearer_received_but_mismatch"
-        next_action = "Runtime token values differ. Copy one exact token into INTERNAL_SERVICE_TOKEN on both API and Telegram, remove aliases, redeploy both."
-    elif not api_diag_present and blocker != "route_auth_ok":
+        blocker = "token_header_received_but_mismatch"
+        next_action = "API received auth header but token did not match selected API token source. Set one exact INTERNAL_SERVICE_TOKEN on both services and redeploy API then Telegram."
+    elif api_guard_diagnostics_missing:
         blocker = "auth_guard_diagnostics_missing"
-        next_action = "API guard diagnostics not deployed or response body not parsed."
+        next_action = "API guard diagnostics are not deployed or response body was not parsed."
     else:
         next_action = "None" if blocker == "route_auth_ok" else "Check internal token aliases and API guard diagnostics."
 
@@ -216,17 +216,22 @@ async def api_probe_cj_import_handler(update: Update, context: ContextTypes.DEFA
         f"blocker: {blocker}",
         f"internalTokenConfigured: {'true' if bool(meta.get('internalTokenConfigured')) else 'false'}",
         f"internalTokenSource: {meta.get('internalTokenSource')}",
+        f"configuredAliases: {', '.join(meta.get('configuredAliases', [])) if isinstance(meta.get('configuredAliases'), list) and meta.get('configuredAliases') else 'none'}",
+        f"aliasConflictPossible: {'true' if bool(meta.get('aliasConflictPossible')) else 'false'}",
         f"xInternalTokenHeaderPrepared: {'true' if bool(meta.get('xInternalTokenHeaderPrepared')) else 'false'}",
         f"bearerHeaderPrepared: {'true' if bool(meta.get('bearerHeaderPrepared')) else 'false'}",
         f"apiBaseHadApiSuffix: {'true' if client.api_base_had_api_suffix else 'false'}",
         f"apiExpectedTokenConfigured: {api_expected_configured if api_diag_present else 'unknown'}",
         f"apiExpectedTokenSource: {api_expected_source if api_diag_present else 'unknown'}",
+        f"apiConfiguredAliases: {', '.join(api_configured_aliases) if api_configured_aliases else 'none'}",
+        f"apiAliasConflictPossible: {api_alias_conflict_possible if api_diag_present else 'unknown'}",
         f"apiReceivedInternalHeader: {api_received_internal if api_diag_present else 'unknown'}",
         f"apiReceivedDbxInternalHeader: {api_received_dbx if api_diag_present else 'unknown'}",
         f"apiReceivedBearerHeader: {api_received_bearer if api_diag_present else 'unknown'}",
         f"apiReceivedAnyAcceptedHeader: {api_received_any if api_diag_present else 'unknown'}",
         f"apiNormalizedHeaderNonEmpty: {api_normalized_non_empty if api_diag_present else 'unknown'}",
         f"apiTokenMatched: {api_token_matched if api_diag_present else 'unknown'}",
+        f"apiGuardDiagnosticsMissing: {'true' if api_guard_diagnostics_missing else 'false'}",
         f"nextAction: {next_action}",
     ]
     await _reply(update, "\n".join(lines))
@@ -277,6 +282,8 @@ async def cj_import_readiness_handler(update: Update, context: ContextTypes.DEFA
     client = NestJsClient()
     payload = await client.cj_import_readiness(actor_id=actor.telegram_user_id)
     if not payload.get("success"):
+        if int(payload.get("statusCode") or 0) == 401:
+            return await api_probe_cj_import_handler(update, context)
         return await _handle_admin_failure(update, payload, api_host=client.api_host, endpoint_path=client.cj_products_endpoint_path("/readiness"), api_base_had_api_suffix=client.api_base_had_api_suffix)
     data = payload.get("data") if isinstance(payload.get("data"), dict) else {}
     checks = data.get("checks") if isinstance(data.get("checks"), dict) else {}

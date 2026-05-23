@@ -158,6 +158,24 @@ class Settings(BaseSettings):
                 return key
         return "none"
 
+    @property
+    def internal_token_aliases_configured(self) -> list[str]:
+        aliases = ("INTERNAL_SERVICE_TOKEN", "DBX_INTERNAL_SERVICE_TOKEN", "API_INTERNAL_SERVICE_TOKEN", "NESTJS_INTERNAL_SERVICE_TOKEN")
+        return [key for key in aliases if bool((os.getenv(key, "") or "").strip())]
+
+    @property
+    def internal_token_alias_conflict_possible(self) -> bool:
+        source = self.internal_token_source
+        if source != "INTERNAL_SERVICE_TOKEN":
+            return False
+        canonical = (os.getenv("INTERNAL_SERVICE_TOKEN", "") or "").strip()
+        if not canonical:
+            return False
+        for key in ("DBX_INTERNAL_SERVICE_TOKEN", "API_INTERNAL_SERVICE_TOKEN", "NESTJS_INTERNAL_SERVICE_TOKEN"):
+            value = (os.getenv(key, "") or "").strip()
+            if value and value != canonical:
+                return True
+        return False
 
 
     @property

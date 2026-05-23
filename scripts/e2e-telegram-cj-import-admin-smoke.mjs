@@ -47,6 +47,9 @@ if (!handler.includes('xInternalTokenHeaderPrepared:')) throw new Error('x-inter
 if (!handler.includes('bearerHeaderPrepared:')) throw new Error('bearer header diagnostic missing');
 if (!handler.includes('internalTokenSource:')) throw new Error('internal token source diagnostic missing');
 if (!handler.includes('apiExpectedTokenSource:')) throw new Error('api expected token source diagnostic missing');
+if (!handler.includes('apiConfiguredAliases:')) throw new Error('api configured aliases diagnostic missing');
+if (!handler.includes('apiAliasConflictPossible:')) throw new Error('api alias conflict diagnostic missing');
+if (!handler.includes('apiGuardDiagnosticsMissing:')) throw new Error('api guard diagnostics missing flag missing');
 if (!handler.includes('apiBaseHadApiSuffix:')) throw new Error('api suffix diagnostic missing');
 if (!handler.includes('Check Telegram API_BASE_URL host points to dbaronx-api-unified service root.')) {
   throw new Error('next action diagnostic missing');

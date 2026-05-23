@@ -13,6 +13,13 @@ export const INTERNAL_AUTH_REQUIRED_KEY = "dbx:internal_auth_required";
 
 @Injectable()
 export class InternalAuthGuard implements CanActivate {
+  static readonly TOKEN_ALIASES = [
+    "INTERNAL_SERVICE_TOKEN",
+    "DBX_INTERNAL_SERVICE_TOKEN",
+    "API_INTERNAL_SERVICE_TOKEN",
+    "NESTJS_INTERNAL_SERVICE_TOKEN",
+  ] as const;
+
   constructor(private readonly reflector: Reflector) {}
 
   canActivate(context: ExecutionContext): boolean {
@@ -49,6 +56,8 @@ export class InternalAuthGuard implements CanActivate {
         diagnostics: {
           expectedTokenConfigured: Boolean(expected.token),
           expectedTokenSource: expected.source,
+          configuredAliases: expected.configuredAliases,
+          aliasConflictPossible: expected.aliasConflictPossible,
           receivedInternalHeader: Boolean(receivedInternalHeader),
           receivedDbxInternalHeader: Boolean(receivedDbxInternalHeader),
           receivedBearerHeader: Boolean(providedBearer),
@@ -82,13 +91,30 @@ export class InternalAuthGuard implements CanActivate {
     return String(raw || "").trim();
   }
 
-  private getExpectedToken(): { token: string; source: string } {
-    const aliases = ["INTERNAL_SERVICE_TOKEN", "DBX_INTERNAL_SERVICE_TOKEN", "API_INTERNAL_SERVICE_TOKEN", "NESTJS_INTERNAL_SERVICE_TOKEN"] as const;
-    for (const key of aliases) {
-      const value = EnvUtil.getString(key, "").trim();
-      if (value) return { token: value, source: key };
-    }
-    return { token: "", source: "none" };
+  static inspectTokenConfig(): {
+    token: string;
+    source: string;
+    configuredAliases: string[];
+    aliasConflictPossible: boolean;
+  } {
+    const configured = InternalAuthGuard.TOKEN_ALIASES
+      .map((key) => ({ key, value: EnvUtil.getString(key, "").trim() }))
+      .filter((entry) => Boolean(entry.value));
+    const selected = configured[0];
+    const selectedToken = selected?.value || "";
+    const selectedSource = selected?.key || "none";
+    const aliasConflictPossible = selectedSource === "INTERNAL_SERVICE_TOKEN"
+      && configured.some((entry) => entry.key !== "INTERNAL_SERVICE_TOKEN" && entry.value !== selectedToken);
+    return {
+      token: selectedToken,
+      source: selectedSource,
+      configuredAliases: configured.map((entry) => entry.key),
+      aliasConflictPossible,
+    };
+  }
+
+  private getExpectedToken() {
+    return InternalAuthGuard.inspectTokenConfig();
   }
 
   private extractBearerToken(headers: Record<string, unknown>): string {
