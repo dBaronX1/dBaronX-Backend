@@ -21,6 +21,9 @@ if (!guard.includes('expectedTokenSource')) throw new Error('missing expectedTok
 if (!guard.includes('receivedInternalHeader')) throw new Error('missing receivedInternalHeader diagnostic');
 if (!guard.includes('receivedBearerHeader')) throw new Error('missing receivedBearerHeader diagnostic');
 if (!guard.includes('normalizedHeaderNonEmpty')) throw new Error('missing normalizedHeaderNonEmpty diagnostic');
+if (!guard.includes('diagnosticsMode: "custom_exception_v2"')) throw new Error('missing diagnostics mode marker');
+if (!guard.includes('guardClass: "InternalAuthGuard"')) throw new Error('missing guard class marker');
+if (!guard.includes('exceptionClass: "InternalAuthUnauthorizedException"')) throw new Error('missing exception class marker');
 if (!settings.includes('AliasChoices("INTERNAL_SERVICE_TOKEN", "DBX_INTERNAL_SERVICE_TOKEN", "API_INTERNAL_SERVICE_TOKEN", "NESTJS_INTERNAL_SERVICE_TOKEN")')) throw new Error('settings missing aliases');
 if (!http.includes('x-internal-token')) throw new Error('token header missing');
 if (!http.includes('Authorization')) throw new Error('bearer header missing');
@@ -62,3 +65,6 @@ if (!filter.includes('exception instanceof InternalAuthUnauthorizedException')) 
 if (!filter.includes('exception["safePayload"]')) throw new Error('filter must detect safePayload property');
 if (!filter.includes('status(HttpStatus.UNAUTHORIZED).json')) throw new Error('filter must return explicit 401 for internal auth diagnostics');
 if (!filter.includes('if (internalAuthPayload?.blocker === "unauthorized_internal_token")')) throw new Error('filter must gate diagnostic passthrough to unauthorized_internal_token only');
+if (!filter.includes('diagnosticsPreservedBy: "AllExceptionsFilter.custom_internal_auth_v2"')) throw new Error('filter missing diagnosticsPreservedBy marker');
+if (!filter.includes('exception instanceof InternalAuthUnauthorizedException')) throw new Error('filter must detect custom exception');
+if (!filter.includes('exception.getResponse()')) throw new Error('filter must inspect getResponse payload');

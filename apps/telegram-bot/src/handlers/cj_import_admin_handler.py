@@ -202,6 +202,7 @@ async def api_probe_cj_import_handler(update: Update, context: ContextTypes.DEFA
     meta = client.internal_auth_metadata()
     data = payload.get("data") if isinstance(payload.get("data"), dict) else {}
     diagnostics = _extract_api_diagnostics(payload)
+    response_obj = payload.get("response") if isinstance(payload.get("response"), dict) else {}
     api_diag_present = bool(diagnostics)
     api_expected_configured = diagnostics.get("expectedTokenConfigured") if api_diag_present else None
     api_expected_source = str(diagnostics.get("expectedTokenSource") or "none") if api_diag_present else "none"
@@ -213,6 +214,14 @@ async def api_probe_cj_import_handler(update: Update, context: ContextTypes.DEFA
     api_received_any = diagnostics.get("receivedAnyAcceptedHeader") if api_diag_present else None
     api_normalized_non_empty = diagnostics.get("normalizedHeaderNonEmpty") if api_diag_present else None
     api_token_matched = diagnostics.get("tokenMatched") if api_diag_present else None
+    api_diagnostics_mode = str(diagnostics.get("diagnosticsMode") or "unknown") if api_diag_present else "unknown"
+    api_guard_class = str(diagnostics.get("guardClass") or "unknown") if api_diag_present else "unknown"
+    api_exception_class = str(diagnostics.get("exceptionClass") or "unknown") if api_diag_present else "unknown"
+    api_diagnostics_preserved_by = str(
+        payload.get("diagnosticsPreservedBy")
+        or response_obj.get("diagnosticsPreservedBy")
+        or "unknown"
+    )
 
     api_guard_diagnostics_missing = not api_diag_present and int(payload.get("statusCode") or 0) == 401
     if api_expected_configured is False:
@@ -262,6 +271,10 @@ async def api_probe_cj_import_handler(update: Update, context: ContextTypes.DEFA
         f"apiReceivedAnyAcceptedHeader: {api_received_any if api_diag_present else 'unknown'}",
         f"apiNormalizedHeaderNonEmpty: {api_normalized_non_empty if api_diag_present else 'unknown'}",
         f"apiTokenMatched: {api_token_matched if api_diag_present else 'unknown'}",
+        f"apiDiagnosticsMode: {api_diagnostics_mode}",
+        f"apiDiagnosticsPreservedBy: {api_diagnostics_preserved_by}",
+        f"apiGuardClass: {api_guard_class}",
+        f"apiExceptionClass: {api_exception_class}",
         f"apiGuardDiagnosticsMissing: {'true' if api_guard_diagnostics_missing else 'false'}",
         f"nextAction: {next_action}",
     ]

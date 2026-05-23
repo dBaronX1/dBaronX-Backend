@@ -51,6 +51,10 @@ if (!handler.includes('internalTokenSource:')) throw new Error('internal token s
 if (!handler.includes('apiExpectedTokenSource:')) throw new Error('api expected token source diagnostic missing');
 if (!handler.includes('apiConfiguredAliases:')) throw new Error('api configured aliases diagnostic missing');
 if (!handler.includes('apiAliasConflictPossible:')) throw new Error('api alias conflict diagnostic missing');
+if (!handler.includes('apiDiagnosticsMode:')) throw new Error('api diagnostics mode missing');
+if (!handler.includes('apiDiagnosticsPreservedBy:')) throw new Error('api diagnosticsPreservedBy missing');
+if (!handler.includes('apiGuardClass:')) throw new Error('api guard class missing');
+if (!handler.includes('apiExceptionClass:')) throw new Error('api exception class missing');
 if (!handler.includes('apiGuardDiagnosticsMissing:')) throw new Error('api guard diagnostics missing flag missing');
 if (!handler.includes('_extract_api_diagnostics')) throw new Error('missing robust diagnostics extractor');
 if (!handler.includes('API 401 body still lacks diagnostics; inspect AllExceptionsFilter and InternalAuthGuard payload.')) throw new Error('missing explicit missing-diagnostics next action');

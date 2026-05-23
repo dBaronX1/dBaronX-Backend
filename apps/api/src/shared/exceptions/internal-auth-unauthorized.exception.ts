@@ -14,6 +14,9 @@ export type InternalAuthUnauthorizedSafePayload = {
     receivedAnyAcceptedHeader: boolean;
     normalizedHeaderNonEmpty: boolean;
     tokenMatched: false;
+    diagnosticsMode: "custom_exception_v2";
+    guardClass: "InternalAuthGuard";
+    exceptionClass: "InternalAuthUnauthorizedException";
   };
 };
 
