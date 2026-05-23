@@ -33,6 +33,9 @@ def sanitize_value(value: Any) -> Any:
 def normalize_response(payload: Any, *, status_code: int = 200, message: str | None = None) -> dict[str, Any]:
     if isinstance(payload, dict):
         blockers = payload.get("blockers") or payload.get("errors") or []
+        blocker = payload.get("blocker")
+        if blocker and blocker not in blockers:
+            blockers = [*blockers, str(blocker)]
         if not isinstance(blockers, list):
             blockers = [str(blockers)]
         success = payload.get("success")

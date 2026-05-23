@@ -251,6 +251,10 @@ class NestJsClient:
     async def cj_import_run(self, *, category: str, limit: int, actor_id: str, request_id: str | None = None) -> dict[str, Any]:
         return await self._http.post(self._base_url, _api_path("/admin/cj/products/import-run"), json_body={"category": category, "limit": limit}, actor_id=actor_id, request_id=request_id)
 
+
+    async def cj_auth_diagnostics(self, *, actor_id: str, request_id: str | None = None) -> dict[str, Any]:
+        return await self._http.get(self._base_url, _api_path("/admin/cj/products/auth-diagnostics"), actor_id=actor_id, request_id=request_id)
+
     async def cj_import_runs(self, *, actor_id: str, request_id: str | None = None) -> dict[str, Any]:
         return await self._http.get(self._base_url, _api_path("/admin/cj/products/import-runs"), actor_id=actor_id, request_id=request_id)
 

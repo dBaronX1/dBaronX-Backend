@@ -164,8 +164,13 @@ async def api_probe_cj_import_handler(update: Update, context: ContextTypes.DEFA
         return
     actor = build_actor_context(update)
     client = NestJsClient()
-    endpoint_path = client.cj_products_endpoint_path("/import-runs")
-    payload = await client.cj_import_runs(actor_id=actor.telegram_user_id)
+    auth_endpoint_path = client.cj_products_endpoint_path("/auth-diagnostics")
+    fallback_endpoint_path = client.cj_products_endpoint_path("/import-runs")
+    endpoint_path = auth_endpoint_path
+    payload = await client.cj_auth_diagnostics(actor_id=actor.telegram_user_id)
+    if int(payload.get("statusCode") or 0) == 404:
+        endpoint_path = fallback_endpoint_path
+        payload = await client.cj_import_runs(actor_id=actor.telegram_user_id)
     blockers = [] if payload.get("success") else _collect_blockers(payload)
     if not blockers:
         blockers = ["none"]
@@ -186,7 +191,7 @@ async def api_probe_cj_import_handler(update: Update, context: ContextTypes.DEFA
     api_normalized_non_empty = diagnostics.get("normalizedHeaderNonEmpty") if api_diag_present else None
     api_token_matched = diagnostics.get("tokenMatched") if api_diag_present else None
 
-    api_guard_diagnostics_missing = not api_diag_present and blocker != "route_auth_ok"
+    api_guard_diagnostics_missing = not api_diag_present and int(payload.get("statusCode") or 0) == 401
     if api_expected_configured is False:
         blocker = "token_not_configured_on_api"
         next_action = "Set INTERNAL_SERVICE_TOKEN on API service and redeploy."
@@ -202,6 +207,9 @@ async def api_probe_cj_import_handler(update: Update, context: ContextTypes.DEFA
     elif api_diag_present and bool(api_received_any) and api_token_matched is False:
         blocker = "token_header_received_but_mismatch"
         next_action = "API received auth header but token did not match selected API token source. Set one exact INTERNAL_SERVICE_TOKEN on both services and redeploy API then Telegram."
+    elif int(payload.get("statusCode") or 0) == 404:
+        blocker = "auth_diagnostics_route_missing"
+        next_action = "auth-diagnostics route missing; fell back to import-runs endpoint."
     elif api_guard_diagnostics_missing:
         blocker = "auth_guard_diagnostics_missing"
         next_action = "API guard diagnostics are not deployed or response body was not parsed."

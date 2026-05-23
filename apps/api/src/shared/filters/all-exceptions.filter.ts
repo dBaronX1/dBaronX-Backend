@@ -53,6 +53,14 @@ export class AllExceptionsFilter implements ExceptionFilter {
       details: normalized.details ?? null,
     };
 
+    if (normalized.blocker) {
+      body["blocker"] = normalized.blocker;
+    }
+
+    if (normalized.diagnostics) {
+      body["diagnostics"] = normalized.diagnostics;
+    }
+
     if (durationMs !== undefined) {
       body["durationMs"] = durationMs;
     }
@@ -93,6 +101,8 @@ export class AllExceptionsFilter implements ExceptionFilter {
     message: string | string[];
     code: string;
     details?: unknown;
+    blocker?: string;
+    diagnostics?: unknown;
     stack?: string;
   } {
     if (exception instanceof HttpException) {
@@ -125,11 +135,18 @@ export class AllExceptionsFilter implements ExceptionFilter {
           response["meta"] ??
           undefined;
 
+        const blocker = typeof response["blocker"] === "string" ? response["blocker"] : undefined;
+        const diagnostics = blocker === "unauthorized_internal_token"
+          ? this.redactDetails(response["diagnostics"])
+          : undefined;
+
         return {
           error,
           message,
           code,
           details: this.redactDetails(details),
+          blocker,
+          diagnostics,
           stack: exception.stack,
         };
       }
