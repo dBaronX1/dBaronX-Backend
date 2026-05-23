@@ -8,6 +8,7 @@ const router = fs.readFileSync('apps/telegram-bot/src/app/router.py', 'utf8');
 const controller = fs.readFileSync('apps/api/src/modules/suppliers/cj-import/cj-product-import.controller.ts', 'utf8');
 const service = fs.readFileSync('apps/api/src/modules/suppliers/cj-import/cj-product-import.service.ts', 'utf8');
 const filter = fs.readFileSync('apps/api/src/shared/filters/all-exceptions.filter.ts', 'utf8');
+const internalAuthException = fs.readFileSync('apps/api/src/shared/exceptions/internal-auth-unauthorized.exception.ts', 'utf8');
 
 ['INTERNAL_SERVICE_TOKEN','DBX_INTERNAL_SERVICE_TOKEN','API_INTERNAL_SERVICE_TOKEN','NESTJS_INTERNAL_SERVICE_TOKEN'].forEach(k=>{if(!guard.includes(k)) throw new Error('guard missing alias '+k);});
 if (!guard.includes('x-internal-token')) throw new Error('missing x-internal-token');
@@ -49,6 +50,15 @@ if (!filter.includes('response["error"]')) throw new Error('filter missing neste
 if (!filter.includes('response["details"]')) throw new Error('filter missing nested details blocker check');
 if (!filter.includes('candidate["diagnostics"]')) throw new Error('filter missing diagnostics preservation');
 if (!filter.includes('blocker !== "unauthorized_internal_token"')) throw new Error('filter should not preserve unrelated diagnostics');
-if (!guard.includes('throw new UnauthorizedException(payload)')) throw new Error('guard must throw explicit payload object');
+if (!guard.includes('throw new InternalAuthUnauthorizedException(safePayload)')) throw new Error('guard must throw InternalAuthUnauthorizedException for internal auth failure');
+if (guard.includes('throw new UnauthorizedException(payload)')) throw new Error('guard must not throw plain UnauthorizedException for internal auth failure');
 if (guard.includes('tokenHash') || guard.includes('tokenPrefix') || guard.includes('tokenSuffix') || guard.includes('tokenLength')) throw new Error('guard should not expose token derivatives');
 if (filter.includes('stack:') && !filter.includes('status >= 500')) throw new Error('filter stack handling changed unexpectedly');
+
+if (!internalAuthException.includes('class InternalAuthUnauthorizedException')) throw new Error('missing InternalAuthUnauthorizedException class');
+if (!internalAuthException.includes('readonly safePayload')) throw new Error('InternalAuthUnauthorizedException must expose safePayload');
+if (!filter.includes('extractInternalAuthSafePayload')) throw new Error('filter must extract internal auth safe payload before generic normalization');
+if (!filter.includes('exception instanceof InternalAuthUnauthorizedException')) throw new Error('filter must detect InternalAuthUnauthorizedException');
+if (!filter.includes('exception["safePayload"]')) throw new Error('filter must detect safePayload property');
+if (!filter.includes('status(HttpStatus.UNAUTHORIZED).json')) throw new Error('filter must return explicit 401 for internal auth diagnostics');
+if (!filter.includes('if (internalAuthPayload?.blocker === "unauthorized_internal_token")')) throw new Error('filter must gate diagnostic passthrough to unauthorized_internal_token only');

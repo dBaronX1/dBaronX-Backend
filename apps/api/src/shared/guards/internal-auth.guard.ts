@@ -2,12 +2,12 @@ import {
   CanActivate,
   ExecutionContext,
   Injectable,
-  UnauthorizedException,
 } from "@nestjs/common";
 import { Reflector } from "@nestjs/core";
 import { createHash, timingSafeEqual } from "crypto";
 import { IS_PUBLIC_KEY } from "../decorators/public.decorator";
 import { EnvUtil } from "../utils/env.util";
+import { InternalAuthUnauthorizedException } from "../exceptions/internal-auth-unauthorized.exception";
 
 export const INTERNAL_AUTH_REQUIRED_KEY = "dbx:internal_auth_required";
 
@@ -50,7 +50,7 @@ export class InternalAuthGuard implements CanActivate {
     const matched = Boolean(expected.token && providedToken && this.safeCompare(providedToken, expected.token));
 
     if (!matched) {
-      const payload = {
+      const safePayload = {
         success: false,
         blocker: "unauthorized_internal_token",
         diagnostics: {
@@ -66,7 +66,7 @@ export class InternalAuthGuard implements CanActivate {
           tokenMatched: false,
         },
       } as const;
-      throw new UnauthorizedException(payload);
+      throw new InternalAuthUnauthorizedException(safePayload);
     }
 
     request.context = {
