@@ -10,6 +10,11 @@ const service = fs.readFileSync('apps/api/src/modules/suppliers/cj-import/cj-pro
 const filter = fs.readFileSync('apps/api/src/shared/filters/all-exceptions.filter.ts', 'utf8');
 const internalAuthException = fs.readFileSync('apps/api/src/shared/exceptions/internal-auth-unauthorized.exception.ts', 'utf8');
 
+
+const healthController = fs.readFileSync('apps/api/src/health.controller.ts', 'utf8');
+if (!healthController.includes('internalAuthDiagnosticsBuild: "custom_exception_v2"')) throw new Error('health controller missing internalAuthDiagnosticsBuild marker');
+if (!healthController.includes('data: {')) throw new Error('health controller must return marker inside data envelope');
+if (!healthController.includes('RENDER_GIT_COMMIT') || !healthController.includes('GIT_COMMIT')) throw new Error('health controller missing commit proof env fallbacks');
 ['INTERNAL_SERVICE_TOKEN','DBX_INTERNAL_SERVICE_TOKEN','API_INTERNAL_SERVICE_TOKEN','NESTJS_INTERNAL_SERVICE_TOKEN'].forEach(k=>{if(!guard.includes(k)) throw new Error('guard missing alias '+k);});
 if (!guard.includes('x-internal-token')) throw new Error('missing x-internal-token');
 if (!guard.includes('x-dbxi-internal-token')) throw new Error('missing x-dbxi-internal-token');
