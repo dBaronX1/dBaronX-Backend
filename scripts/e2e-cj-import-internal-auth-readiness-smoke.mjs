@@ -16,6 +16,7 @@ if (!guard.includes('extractBearerToken')) throw new Error('missing bearer suppo
 if (guard.includes('query')) throw new Error('guard should not accept query token');
 if (!guard.includes('unauthorized_internal_token')) throw new Error('missing safe blocker');
 if (!guard.includes('expectedTokenConfigured')) throw new Error('missing expectedTokenConfigured diagnostic');
+if (!guard.includes('expectedTokenSource')) throw new Error('missing expectedTokenSource diagnostic');
 if (!guard.includes('receivedInternalHeader')) throw new Error('missing receivedInternalHeader diagnostic');
 if (!guard.includes('receivedBearerHeader')) throw new Error('missing receivedBearerHeader diagnostic');
 if (!guard.includes('normalizedHeaderNonEmpty')) throw new Error('missing normalizedHeaderNonEmpty diagnostic');
@@ -32,7 +33,6 @@ if (!service.includes('migration_missing')) throw new Error('migration blocker m
 if (!service.includes('cj_credentials_missing')) throw new Error('credential blocker missing');
 console.log('ok cj internal auth/readiness smoke');
 
-if (!guard.includes('expectedTokenSource')) throw new Error('missing expectedTokenSource diagnostic');
 if (!guard.includes('configuredAliases')) throw new Error('missing configuredAliases diagnostic');
 if (!guard.includes('aliasConflictPossible')) throw new Error('missing aliasConflictPossible diagnostic');
 if (!guard.includes('receivedDbxInternalHeader')) throw new Error('missing receivedDbxInternalHeader diagnostic');
@@ -43,4 +43,12 @@ if (!controller.includes('@Get("auth-diagnostics")')) throw new Error('missing a
 
 if (!filter.includes('unauthorized_internal_token')) throw new Error('filter missing unauthorized blocker passthrough');
 if (!filter.includes('diagnostics')) throw new Error('filter missing diagnostics passthrough');
+if (!filter.includes('extractUnauthorizedInternalTokenPayload')) throw new Error('filter missing unauthorized payload extraction');
+if (!filter.includes('response["body"]')) throw new Error('filter missing nested body blocker check');
+if (!filter.includes('response["error"]')) throw new Error('filter missing nested error blocker check');
+if (!filter.includes('response["details"]')) throw new Error('filter missing nested details blocker check');
+if (!filter.includes('candidate["diagnostics"]')) throw new Error('filter missing diagnostics preservation');
+if (!filter.includes('blocker !== "unauthorized_internal_token"')) throw new Error('filter should not preserve unrelated diagnostics');
+if (!guard.includes('throw new UnauthorizedException(payload)')) throw new Error('guard must throw explicit payload object');
+if (guard.includes('tokenHash') || guard.includes('tokenPrefix') || guard.includes('tokenSuffix') || guard.includes('tokenLength')) throw new Error('guard should not expose token derivatives');
 if (filter.includes('stack:') && !filter.includes('status >= 500')) throw new Error('filter stack handling changed unexpectedly');

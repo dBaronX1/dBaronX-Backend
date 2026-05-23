@@ -50,7 +50,7 @@ export class InternalAuthGuard implements CanActivate {
     const matched = Boolean(expected.token && providedToken && this.safeCompare(providedToken, expected.token));
 
     if (!matched) {
-      throw new UnauthorizedException({
+      const payload = {
         success: false,
         blocker: "unauthorized_internal_token",
         diagnostics: {
@@ -65,7 +65,8 @@ export class InternalAuthGuard implements CanActivate {
           normalizedHeaderNonEmpty: Boolean(providedToken),
           tokenMatched: false,
         },
-      });
+      } as const;
+      throw new UnauthorizedException(payload);
     }
 
     request.context = {

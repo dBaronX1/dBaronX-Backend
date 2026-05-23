@@ -118,6 +118,10 @@ export class AllExceptionsFilter implements ExceptionFilter {
       }
 
       if (this.isObject(response)) {
+        const unauthorizedDiagnostic = this.extractUnauthorizedInternalTokenPayload(
+          response,
+          exception.message,
+        );
         const message =
           (response["message"] as string | string[] | undefined) ||
           exception.message ||
@@ -135,10 +139,9 @@ export class AllExceptionsFilter implements ExceptionFilter {
           response["meta"] ??
           undefined;
 
-        const blocker = typeof response["blocker"] === "string" ? response["blocker"] : undefined;
-        const diagnostics = blocker === "unauthorized_internal_token"
-          ? this.redactDetails(response["diagnostics"])
-          : undefined;
+        const blocker = unauthorizedDiagnostic?.blocker
+          ?? (typeof response["blocker"] === "string" ? response["blocker"] : undefined);
+        const diagnostics = unauthorizedDiagnostic?.diagnostics;
 
         return {
           error,
@@ -273,6 +276,34 @@ export class AllExceptionsFilter implements ExceptionFilter {
 
   private isObject(value: unknown): value is JsonLike {
     return typeof value === "object" && value !== null && !Array.isArray(value);
+  }
+
+  private extractUnauthorizedInternalTokenPayload(
+    response: JsonLike,
+    exceptionMessage: string,
+  ): { blocker: "unauthorized_internal_token"; diagnostics?: unknown } | undefined {
+    const candidates: unknown[] = [
+      response,
+      this.isObject(response["body"]) ? response["body"] : undefined,
+      this.isObject(response["error"]) ? response["error"] : undefined,
+      this.isObject(response["details"]) ? response["details"] : undefined,
+    ];
+
+    for (const candidate of candidates) {
+      if (!this.isObject(candidate)) continue;
+      const blocker = candidate["blocker"];
+      if (blocker !== "unauthorized_internal_token") continue;
+      return {
+        blocker: "unauthorized_internal_token",
+        diagnostics: this.redactDetails(candidate["diagnostics"]),
+      };
+    }
+
+    if (exceptionMessage === "unauthorized_internal_token") {
+      return { blocker: "unauthorized_internal_token" };
+    }
+
+    return undefined;
   }
 
   private redactDetails(details: unknown): unknown {

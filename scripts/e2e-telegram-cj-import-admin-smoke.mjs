@@ -5,6 +5,7 @@ const handler = fs.readFileSync('apps/telegram-bot/src/handlers/cj_import_admin_
 const client = fs.readFileSync('apps/telegram-bot/src/services/nestjs_client.py', 'utf8');
 const guard = fs.readFileSync('apps/telegram-bot/src/shared/security/admin_guard.py', 'utf8');
 const settings = fs.readFileSync('apps/telegram-bot/src/core/settings.py', 'utf8');
+const http = fs.readFileSync('apps/telegram-bot/src/shared/http/http_client.py', 'utf8');
 
 const requiredCommands = [
   'cj_import_preview',
@@ -51,6 +52,11 @@ if (!handler.includes('apiExpectedTokenSource:')) throw new Error('api expected 
 if (!handler.includes('apiConfiguredAliases:')) throw new Error('api configured aliases diagnostic missing');
 if (!handler.includes('apiAliasConflictPossible:')) throw new Error('api alias conflict diagnostic missing');
 if (!handler.includes('apiGuardDiagnosticsMissing:')) throw new Error('api guard diagnostics missing flag missing');
+if (!handler.includes('_extract_api_diagnostics')) throw new Error('missing robust diagnostics extractor');
+if (!handler.includes('API 401 body still lacks diagnostics; inspect AllExceptionsFilter and InternalAuthGuard payload.')) throw new Error('missing explicit missing-diagnostics next action');
+if (!handler.includes('apiResponseKeys:')) throw new Error('missing apiResponseKeys debug shape');
+if (!handler.includes('apiDetailsKeys:')) throw new Error('missing apiDetailsKeys debug shape');
+if (!handler.includes('apiErrorKeys:')) throw new Error('missing apiErrorKeys debug shape');
 if (!handler.includes('apiBaseHadApiSuffix:')) throw new Error('api suffix diagnostic missing');
 if (!handler.includes('Check Telegram API_BASE_URL host points to dbaronx-api-unified service root.')) {
   throw new Error('next action diagnostic missing');
@@ -92,6 +98,9 @@ for (const phrase of forbiddenMutations) {
 if (handler.includes('INTERNAL_SERVICE_TOKEN')) {
   throw new Error('handler should not include internal token in diagnostics');
 }
+if (!http.includes('"response": payload')) throw new Error('http client must preserve raw non-2xx payload');
+if (!http.includes('"diagnostics": diagnostics')) throw new Error('http client must preserve parsed diagnostics');
+if (!http.includes('for nested_key in ("data", "error", "details", "response")')) throw new Error('http client nested diagnostics fallback missing');
 if (handler.includes('TELEGRAM_BOT_TOKEN') || handler.includes('CJ_ACCESS_TOKEN')) {
   throw new Error('handler should not include secret tokens in diagnostics');
 }
