@@ -12,14 +12,16 @@ type DbDiagnostics = {
   databaseName: string | null;
   databaseUser: string | null;
   requiredTables: {
-    cjProductImportRuns: boolean;
-    cjProductImportItems: boolean;
-    storefrontProducts: boolean;
-    fulfillmentTasks: boolean;
+    cjProductImportRuns: boolean | null;
+    cjProductImportItems: boolean | null;
+    storefrontProducts: boolean | null;
+    fulfillmentTasks: boolean | null;
   };
   missingTables: string[];
   dbConnectionReady: boolean;
   dbDiagnosticAvailable: boolean;
+  dbConnectionSource: 'DATABASE_URL' | 'POSTGRES_URL' | 'SUPABASE_DB_URL' | 'none';
+  safeDbErrorClass?: string;
 };
 
 const HARD_MAX_PER_CATEGORY = 100;
@@ -36,80 +38,122 @@ function parseCategories(): CjCategorySlug[] {
 }
 
 async function loadDbDiagnostics(supabase: SupabaseService): Promise<{ diagnostics: DbDiagnostics; blockers: string[] }> {
+  void supabase;
   const diagnostics: DbDiagnostics = {
     databaseName: null,
     databaseUser: null,
     requiredTables: {
-      cjProductImportRuns: false,
-      cjProductImportItems: false,
-      storefrontProducts: false,
-      fulfillmentTasks: false,
+      cjProductImportRuns: null,
+      cjProductImportItems: null,
+      storefrontProducts: null,
+      fulfillmentTasks: null,
     },
     missingTables: [],
     dbConnectionReady: false,
     dbDiagnosticAvailable: false,
+    dbConnectionSource: 'none',
   };
   const blockers: string[] = [];
+  const connectionSource = process.env.DATABASE_URL
+    ? 'DATABASE_URL'
+    : process.env.POSTGRES_URL
+      ? 'POSTGRES_URL'
+      : process.env.SUPABASE_DB_URL
+        ? 'SUPABASE_DB_URL'
+        : 'none';
+  diagnostics.dbConnectionSource = connectionSource;
+  const connectionString =
+    connectionSource === 'DATABASE_URL'
+      ? process.env.DATABASE_URL
+      : connectionSource === 'POSTGRES_URL'
+        ? process.env.POSTGRES_URL
+        : connectionSource === 'SUPABASE_DB_URL'
+          ? process.env.SUPABASE_DB_URL
+          : undefined;
 
-  if (!process.env.SUPABASE_URL || !process.env.SUPABASE_SERVICE_ROLE_KEY) {
+  if (!connectionString) {
     blockers.push('db_env_missing');
+    blockers.push('db_connection_failed');
+    blockers.push('db_diagnostic_unavailable');
     return { diagnostics, blockers };
   }
 
-  let probe: { data: any; error: any };
+  const classifyDbError = (error: unknown): string => {
+    const code = typeof error === 'object' && error !== null && 'code' in error ? String((error as { code?: unknown }).code || '') : '';
+    if (code.startsWith('28')) return 'auth_error';
+    if (code.startsWith('08')) return 'connection_error';
+    if (code === '3D000') return 'database_not_found';
+    if (code === '42501') return 'permission_denied';
+    return 'unknown_error';
+  };
+
   try {
-    probe = await supabase.getClient().rpc('exec_sql', {
-      query: `select
-        current_database() as database_name,
-        current_user as database_user,
-        to_regclass('app_private.cj_product_import_runs') as cj_product_import_runs,
-        to_regclass('app_private.cj_product_import_items') as cj_product_import_items,
-        to_regclass('app_public.storefront_products') as storefront_products,
-        to_regclass('app_private.fulfillment_tasks') as fulfillment_tasks`,
-    });
+    // eslint-disable-next-line @typescript-eslint/no-var-requires
+    const { Client } = require('pg');
+    const client = new Client({ connectionString });
+    await client.connect();
+    const probe = await client.query(`select
+      current_database() as database_name,
+      current_user as database_user,
+      to_regclass('app_private.cj_product_import_runs')::text as cj_product_import_runs,
+      to_regclass('app_private.cj_product_import_items')::text as cj_product_import_items,
+      to_regclass('app_public.storefront_products')::text as storefront_products,
+      to_regclass('app_private.fulfillment_tasks')::text as fulfillment_tasks;`);
+    await client.end();
+    const row = probe.rows?.[0];
+    diagnostics.dbDiagnosticAvailable = Boolean(row);
+    diagnostics.dbConnectionReady = Boolean(row);
+    diagnostics.databaseName = row?.database_name ?? null;
+    diagnostics.databaseUser = row?.database_user ?? null;
+    diagnostics.requiredTables.cjProductImportRuns = row?.cj_product_import_runs !== null;
+    diagnostics.requiredTables.cjProductImportItems = row?.cj_product_import_items !== null;
+    diagnostics.requiredTables.storefrontProducts = row?.storefront_products !== null;
+    diagnostics.requiredTables.fulfillmentTasks = row?.fulfillment_tasks !== null;
+    if (!diagnostics.dbConnectionReady) {
+      blockers.push('db_connection_failed');
+      blockers.push('db_diagnostic_unavailable');
+      return { diagnostics, blockers };
+    }
+
+    if (!diagnostics.requiredTables.cjProductImportRuns) diagnostics.missingTables.push('app_private.cj_product_import_runs');
+    if (!diagnostics.requiredTables.cjProductImportItems) diagnostics.missingTables.push('app_private.cj_product_import_items');
+    if (!diagnostics.requiredTables.storefrontProducts) diagnostics.missingTables.push('app_public.storefront_products');
+    if (!diagnostics.requiredTables.fulfillmentTasks) diagnostics.missingTables.push('app_private.fulfillment_tasks');
+
+    if (!diagnostics.requiredTables.cjProductImportRuns) blockers.push('cj_import_runs_table_missing');
+    if (!diagnostics.requiredTables.cjProductImportItems) blockers.push('cj_import_items_table_missing');
+    if (!diagnostics.requiredTables.storefrontProducts) blockers.push('storefront_products_table_missing');
+    if (!diagnostics.requiredTables.fulfillmentTasks) blockers.push('fulfillment_tasks_table_missing');
+
+    if (diagnostics.missingTables.length > 0) blockers.push('wrong_database_or_migration_not_applied');
   } catch (error) {
-    const msg = String((error as Error)?.message || '').toLowerCase();
-    if (msg.includes('permission denied') || msg.includes('insufficient_privilege')) blockers.push('db_permission_denied');
-    else blockers.push('db_connection_failed');
-    blockers.push('migration_check_failed');
+    diagnostics.safeDbErrorClass = classifyDbError(error);
+    blockers.push('db_connection_failed');
+    blockers.push('db_diagnostic_unavailable');
+    if (diagnostics.safeDbErrorClass === 'permission_denied' || diagnostics.safeDbErrorClass === 'auth_error') {
+      blockers.push('db_permission_denied');
+    }
     return { diagnostics, blockers };
   }
-
-  if (probe.error) {
-    const msg = String(probe.error.message || '').toLowerCase();
-    if (msg.includes('permission denied') || msg.includes('insufficient_privilege')) blockers.push('db_permission_denied');
-    else blockers.push('db_connection_failed');
-    blockers.push('migration_check_failed');
-    return { diagnostics, blockers };
-  }
-
-  const row = Array.isArray(probe.data) ? probe.data[0] : probe.data;
-  diagnostics.dbDiagnosticAvailable = Boolean(row);
-  diagnostics.dbConnectionReady = Boolean(row);
-  diagnostics.databaseName = row?.database_name ?? null;
-  diagnostics.databaseUser = row?.database_user ?? null;
-  diagnostics.requiredTables.cjProductImportRuns = Boolean(row?.cj_product_import_runs);
-  diagnostics.requiredTables.cjProductImportItems = Boolean(row?.cj_product_import_items);
-  diagnostics.requiredTables.storefrontProducts = Boolean(row?.storefront_products);
-  diagnostics.requiredTables.fulfillmentTasks = Boolean(row?.fulfillment_tasks);
-
-  if (!diagnostics.requiredTables.cjProductImportRuns) diagnostics.missingTables.push('app_private.cj_product_import_runs');
-  if (!diagnostics.requiredTables.cjProductImportItems) diagnostics.missingTables.push('app_private.cj_product_import_items');
-  if (!diagnostics.requiredTables.storefrontProducts) diagnostics.missingTables.push('app_public.storefront_products');
-  if (!diagnostics.requiredTables.fulfillmentTasks) diagnostics.missingTables.push('app_private.fulfillment_tasks');
-
-  if (!diagnostics.requiredTables.cjProductImportRuns) blockers.push('cj_import_runs_table_missing');
-  if (!diagnostics.requiredTables.cjProductImportItems) blockers.push('cj_import_items_table_missing');
-  if (!diagnostics.requiredTables.storefrontProducts) blockers.push('storefront_products_table_missing');
-  if (!diagnostics.requiredTables.fulfillmentTasks) blockers.push('fulfillment_tasks_table_missing');
-
-  if (diagnostics.missingTables.length > 0) blockers.push('wrong_database_or_migration_not_applied');
 
   return { diagnostics, blockers };
 }
 
+function isTrue(value: string | undefined): boolean {
+  return String(value || '').toLowerCase() === 'true';
+}
+
+function warnIfLikelyWrongStartCommand(mode: Mode) {
+  if (process.env.PORT && mode === 'readiness') {
+    console.log(JSON.stringify({
+      warning: 'Do not use CJ operator as the API web service Start Command. Restore normal API start command.',
+    }));
+  }
+}
+
 async function main() {
   const mode = (process.env.CJ_OPERATOR_MODE || 'readiness') as Mode;
+  warnIfLikelyWrongStartCommand(mode);
   const categories = parseCategories();
   const limit = parseLimit(process.env.CJ_OPERATOR_LIMIT_PER_CATEGORY || process.env.CJ_OPERATOR_LIMIT, DEFAULT_LIMIT_PER_CATEGORY);
   const confirmation = process.env.DBX_CONFIRM_CJ_OPERATOR_ONBOARDING === 'true';
@@ -145,7 +189,7 @@ async function main() {
 
     if (mode === 'readiness' || blockerSet.length > 0) {
       console.log(JSON.stringify({ success: blockerSet.length === 0, mode, categories, blockers: blockerSet, legacyBlockers, dbDiagnostics: diagnostics, results, nextAction: blockerSet.length ? 'Resolve blockers before import/publish.' : 'Ready for operator onboarding.' }, null, 2));
-      process.exitCode = blockerSet.length ? 1 : 0;
+      process.exitCode = blockerSet.length ? (isTrue(process.env.CJ_OPERATOR_READINESS_EXIT_ZERO) ? 0 : 1) : 0;
       return;
     }
 
