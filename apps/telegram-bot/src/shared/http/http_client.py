@@ -32,6 +32,13 @@ def sanitize_value(value: Any) -> Any:
 
 def normalize_response(payload: Any, *, status_code: int = 200, message: str | None = None) -> dict[str, Any]:
     if isinstance(payload, dict):
+        diagnostics = payload.get("diagnostics")
+        if not isinstance(diagnostics, dict):
+            for nested_key in ("data", "error", "details", "response"):
+                nested = payload.get(nested_key)
+                if isinstance(nested, dict) and isinstance(nested.get("diagnostics"), dict):
+                    diagnostics = nested.get("diagnostics")
+                    break
         blockers = payload.get("blockers") or payload.get("errors") or []
         blocker = payload.get("blocker")
         if blocker and blocker not in blockers:
@@ -47,8 +54,11 @@ def normalize_response(payload: Any, *, status_code: int = 200, message: str | N
             "blockers": blockers,
             "statusCode": int(payload.get("statusCode", status_code) or status_code),
             "message": str(payload.get("message") or message or "ok"),
+            "blocker": str(blocker) if blocker else None,
+            "diagnostics": diagnostics if isinstance(diagnostics, dict) else None,
+            "response": payload,
         }
-    return {"success": status_code < 400, "data": payload, "blockers": [], "statusCode": status_code, "message": message or "ok"}
+    return {"success": status_code < 400, "data": payload, "blockers": [], "statusCode": status_code, "message": message or "ok", "blocker": None, "diagnostics": None, "response": payload}
 
 
 class InternalHttpClient:

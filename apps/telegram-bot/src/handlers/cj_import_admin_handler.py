@@ -57,6 +57,29 @@ def _collect_blockers(*payloads: dict[str, Any]) -> list[str]:
     return uniq
 
 
+def _extract_api_diagnostics(payload: dict[str, Any]) -> dict[str, Any]:
+    direct = payload.get("diagnostics")
+    if isinstance(direct, dict):
+        return direct
+    response = payload.get("response")
+    if isinstance(response, dict):
+        if isinstance(response.get("diagnostics"), dict):
+            return response.get("diagnostics")
+        for nested in ("data", "error", "details", "response"):
+            container = response.get(nested)
+            if isinstance(container, dict) and isinstance(container.get("diagnostics"), dict):
+                return container.get("diagnostics")
+    data = payload.get("data")
+    if isinstance(data, dict):
+        if isinstance(data.get("diagnostics"), dict):
+            return data.get("diagnostics")
+        for nested in ("data", "error", "details", "response"):
+            container = data.get(nested)
+            if isinstance(container, dict) and isinstance(container.get("diagnostics"), dict):
+                return container.get("diagnostics")
+    return {}
+
+
 def _safe_status_summary(runs_payload: dict[str, Any], items_payload: dict[str, Any]) -> str:
     runs = _extract_rows(runs_payload)
     items = _extract_rows(items_payload)
@@ -178,7 +201,7 @@ async def api_probe_cj_import_handler(update: Update, context: ContextTypes.DEFA
     blocker = "route_auth_ok" if payload.get("success") else blockers[0]
     meta = client.internal_auth_metadata()
     data = payload.get("data") if isinstance(payload.get("data"), dict) else {}
-    diagnostics = data.get("diagnostics") if isinstance(data.get("diagnostics"), dict) else {}
+    diagnostics = _extract_api_diagnostics(payload)
     api_diag_present = bool(diagnostics)
     api_expected_configured = diagnostics.get("expectedTokenConfigured") if api_diag_present else None
     api_expected_source = str(diagnostics.get("expectedTokenSource") or "none") if api_diag_present else "none"
@@ -212,7 +235,7 @@ async def api_probe_cj_import_handler(update: Update, context: ContextTypes.DEFA
         next_action = "auth-diagnostics route missing; fell back to import-runs endpoint."
     elif api_guard_diagnostics_missing:
         blocker = "auth_guard_diagnostics_missing"
-        next_action = "API guard diagnostics are not deployed or response body was not parsed."
+        next_action = "API 401 body still lacks diagnostics; inspect AllExceptionsFilter and InternalAuthGuard payload."
     else:
         next_action = "None" if blocker == "route_auth_ok" else "Check internal token aliases and API guard diagnostics."
 
@@ -242,6 +265,15 @@ async def api_probe_cj_import_handler(update: Update, context: ContextTypes.DEFA
         f"apiGuardDiagnosticsMissing: {'true' if api_guard_diagnostics_missing else 'false'}",
         f"nextAction: {next_action}",
     ]
+    if api_guard_diagnostics_missing:
+        response = payload.get("response") if isinstance(payload.get("response"), dict) else {}
+        details = response.get("details") if isinstance(response.get("details"), dict) else {}
+        error = response.get("error") if isinstance(response.get("error"), dict) else {}
+        lines.extend([
+            f"apiResponseKeys: {', '.join(sorted(response.keys())) if response else 'none'}",
+            f"apiDetailsKeys: {', '.join(sorted(details.keys())) if details else 'none'}",
+            f"apiErrorKeys: {', '.join(sorted(error.keys())) if error else 'none'}",
+        ])
     await _reply(update, "\n".join(lines))
 
 
