@@ -44,21 +44,39 @@ export class CjProductImportService {
       storefrontPublishTargetReady: false,
       categoryMapperReady: Boolean(this.mapper),
       publishAdapterReady: true,
+      fulfillmentTasksTableReady: false,
     };
     const blockers: string[] = [];
+
     const runs = await this.supabase.schema("app_private").from("cj_product_import_runs").select("id").limit(1);
     checks.importRunsTableReady = !runs.error;
     const items = await this.supabase.schema("app_private").from("cj_product_import_items").select("id").limit(1);
     checks.importItemsTableReady = !items.error;
     const storefront = await this.supabase.schema("app_public").from("storefront_products").select("id").limit(1);
     checks.storefrontPublishTargetReady = !storefront.error;
-    checks.migrationReady = checks.importRunsTableReady && checks.importItemsTableReady;
-    if (!checks.migrationReady) blockers.push("migration_missing");
-    if (!checks.storefrontPublishTargetReady) blockers.push("storefront_publish_target_missing");
+    const fulfillment = await this.supabase.schema("app_private").from("fulfillment_tasks").select("id").limit(1);
+    checks.fulfillmentTasksTableReady = !fulfillment.error;
+
+    checks.migrationReady = checks.importRunsTableReady
+      && checks.importItemsTableReady
+      && checks.storefrontPublishTargetReady
+      && checks.fulfillmentTasksTableReady;
+
+    if (!checks.importRunsTableReady) blockers.push("cj_import_runs_table_missing");
+    if (!checks.importItemsTableReady) blockers.push("cj_import_items_table_missing");
+    if (!checks.storefrontPublishTargetReady) blockers.push("storefront_products_table_missing");
+    if (!checks.fulfillmentTasksTableReady) blockers.push("fulfillment_tasks_table_missing");
+
     const cred = await this.cjAdapter.preflightCredentials();
     checks.cjCredentialsConfigured = cred.cjTokenPresent;
     if (!checks.cjCredentialsConfigured) blockers.push("cj_credentials_missing");
-    return { success: blockers.length === 0, blockers, checks, nextAction: blockers.length ? "Resolve listed blockers and redeploy." : "Ready for CJ import." };
+
+    return {
+      success: blockers.length === 0,
+      blockers,
+      checks,
+      nextAction: blockers.length ? "Resolve listed blockers and redeploy." : "Ready for CJ import.",
+    };
   }
 
 
