@@ -8,6 +8,19 @@ import { SupabaseService } from '../shared/services/supabase.service';
 
 type Mode = 'readiness'|'preview'|'import'|'auto-approve-safe'|'publish-approved'|'onboard-category'|'onboard-batch';
 type CategoryResult = { category: string; previewed: number; imported: number; accepted: number; rejected: number; autoApproved: number; published: number; skipped: number; blockers: string[] };
+type DbDiagnostics = {
+  databaseName: string | null;
+  databaseUser: string | null;
+  requiredTables: {
+    cjProductImportRuns: boolean;
+    cjProductImportItems: boolean;
+    storefrontProducts: boolean;
+    fulfillmentTasks: boolean;
+  };
+  missingTables: string[];
+  dbConnectionReady: boolean;
+  dbDiagnosticAvailable: boolean;
+};
 
 const HARD_MAX_PER_CATEGORY = 100;
 const DEFAULT_LIMIT_PER_CATEGORY = 20;
@@ -20,6 +33,79 @@ function parseCategories(): CjCategorySlug[] {
   const raw = [...(single ? [single] : []), ...multi];
   const unique = Array.from(new Set(raw.length ? raw : ['fashion']));
   return unique.filter((c): c is CjCategorySlug => c in CJ_PRODUCT_CATEGORIES);
+}
+
+async function loadDbDiagnostics(supabase: SupabaseService): Promise<{ diagnostics: DbDiagnostics; blockers: string[] }> {
+  const diagnostics: DbDiagnostics = {
+    databaseName: null,
+    databaseUser: null,
+    requiredTables: {
+      cjProductImportRuns: false,
+      cjProductImportItems: false,
+      storefrontProducts: false,
+      fulfillmentTasks: false,
+    },
+    missingTables: [],
+    dbConnectionReady: false,
+    dbDiagnosticAvailable: false,
+  };
+  const blockers: string[] = [];
+
+  if (!process.env.SUPABASE_URL || !process.env.SUPABASE_SERVICE_ROLE_KEY) {
+    blockers.push('db_env_missing');
+    return { diagnostics, blockers };
+  }
+
+  let probe: { data: any; error: any };
+  try {
+    probe = await supabase.getClient().rpc('exec_sql', {
+      query: `select
+        current_database() as database_name,
+        current_user as database_user,
+        to_regclass('app_private.cj_product_import_runs') as cj_product_import_runs,
+        to_regclass('app_private.cj_product_import_items') as cj_product_import_items,
+        to_regclass('app_public.storefront_products') as storefront_products,
+        to_regclass('app_private.fulfillment_tasks') as fulfillment_tasks`,
+    });
+  } catch (error) {
+    const msg = String((error as Error)?.message || '').toLowerCase();
+    if (msg.includes('permission denied') || msg.includes('insufficient_privilege')) blockers.push('db_permission_denied');
+    else blockers.push('db_connection_failed');
+    blockers.push('migration_check_failed');
+    return { diagnostics, blockers };
+  }
+
+  if (probe.error) {
+    const msg = String(probe.error.message || '').toLowerCase();
+    if (msg.includes('permission denied') || msg.includes('insufficient_privilege')) blockers.push('db_permission_denied');
+    else blockers.push('db_connection_failed');
+    blockers.push('migration_check_failed');
+    return { diagnostics, blockers };
+  }
+
+  const row = Array.isArray(probe.data) ? probe.data[0] : probe.data;
+  diagnostics.dbDiagnosticAvailable = Boolean(row);
+  diagnostics.dbConnectionReady = Boolean(row);
+  diagnostics.databaseName = row?.database_name ?? null;
+  diagnostics.databaseUser = row?.database_user ?? null;
+  diagnostics.requiredTables.cjProductImportRuns = Boolean(row?.cj_product_import_runs);
+  diagnostics.requiredTables.cjProductImportItems = Boolean(row?.cj_product_import_items);
+  diagnostics.requiredTables.storefrontProducts = Boolean(row?.storefront_products);
+  diagnostics.requiredTables.fulfillmentTasks = Boolean(row?.fulfillment_tasks);
+
+  if (!diagnostics.requiredTables.cjProductImportRuns) diagnostics.missingTables.push('app_private.cj_product_import_runs');
+  if (!diagnostics.requiredTables.cjProductImportItems) diagnostics.missingTables.push('app_private.cj_product_import_items');
+  if (!diagnostics.requiredTables.storefrontProducts) diagnostics.missingTables.push('app_public.storefront_products');
+  if (!diagnostics.requiredTables.fulfillmentTasks) diagnostics.missingTables.push('app_private.fulfillment_tasks');
+
+  if (!diagnostics.requiredTables.cjProductImportRuns) blockers.push('cj_import_runs_table_missing');
+  if (!diagnostics.requiredTables.cjProductImportItems) blockers.push('cj_import_items_table_missing');
+  if (!diagnostics.requiredTables.storefrontProducts) blockers.push('storefront_products_table_missing');
+  if (!diagnostics.requiredTables.fulfillmentTasks) blockers.push('fulfillment_tasks_table_missing');
+
+  if (diagnostics.missingTables.length > 0) blockers.push('wrong_database_or_migration_not_applied');
+
+  return { diagnostics, blockers };
 }
 
 async function main() {
@@ -47,14 +133,19 @@ async function main() {
 
     const readiness = await importer.readiness();
     blockers.push(...readiness.blockers);
-    if (!readiness.checks?.migrationReady) blockers.push('migration_missing');
     if (!readiness.checks?.storefrontPublishTargetReady) blockers.push('storefront_publish_target_missing');
     if (!readiness.checks?.categoryMapperReady) blockers.push('category_mapper_missing');
     if (!readiness.checks?.cjCredentialsConfigured) blockers.push('cj_credentials_missing');
 
-    if (mode === 'readiness' || blockers.length > 0) {
-      console.log(JSON.stringify({ success: blockers.length === 0, mode, categories, blockers: Array.from(new Set(blockers)), results, nextAction: blockers.length ? 'Resolve blockers before import/publish.' : 'Ready for operator onboarding.' }, null, 2));
-      process.exitCode = blockers.length ? 1 : 0;
+    const { diagnostics, blockers: dbBlockers } = await loadDbDiagnostics(supabase);
+    blockers.push(...dbBlockers);
+
+    const blockerSet = Array.from(new Set(blockers));
+    const legacyBlockers = blockerSet.length > 0 ? ['migration_missing'] : [];
+
+    if (mode === 'readiness' || blockerSet.length > 0) {
+      console.log(JSON.stringify({ success: blockerSet.length === 0, mode, categories, blockers: blockerSet, legacyBlockers, dbDiagnostics: diagnostics, results, nextAction: blockerSet.length ? 'Resolve blockers before import/publish.' : 'Ready for operator onboarding.' }, null, 2));
+      process.exitCode = blockerSet.length ? 1 : 0;
       return;
     }
 
@@ -102,7 +193,7 @@ async function main() {
       }
     }
 
-    console.log(JSON.stringify({ success: results.every((r) => r.blockers.length === 0), mode, categories, blockers: Array.from(new Set(blockers)), results, nextAction: 'Review summary and rerun as needed.' }, null, 2));
+    console.log(JSON.stringify({ success: results.every((r) => r.blockers.length === 0), mode, categories, blockers: blockerSet, legacyBlockers, dbDiagnostics: diagnostics, results, nextAction: 'Review summary and rerun as needed.' }, null, 2));
   } finally {
     await app.close();
   }
