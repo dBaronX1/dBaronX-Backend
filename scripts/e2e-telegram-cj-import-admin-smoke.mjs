@@ -27,6 +27,7 @@ if (!settings.includes('INTERNAL_SERVICE_TOKEN')) throw new Error('internal toke
 const endpointSuffixes = [
   '/admin/cj/products/import-preview',
   '/admin/cj/products/import-run',
+  '/admin/cj/products/auth-diagnostics',
   '/admin/cj/products/import-runs',
   '/admin/cj/products/import-items',
   '/admin/cj/products/import-items/{item_id}/approve',
@@ -96,3 +97,6 @@ if (handler.includes('TELEGRAM_BOT_TOKEN') || handler.includes('CJ_ACCESS_TOKEN'
 }
 
 console.log('ok telegram cj import admin smoke');
+
+if (!client.includes('cj_auth_diagnostics')) throw new Error('missing auth diagnostics client method');
+if (!handler.includes('cj_auth_diagnostics')) throw new Error('probe does not call auth diagnostics first');

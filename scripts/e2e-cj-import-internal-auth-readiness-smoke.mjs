@@ -7,6 +7,7 @@ const handler = fs.readFileSync('apps/telegram-bot/src/handlers/cj_import_admin_
 const router = fs.readFileSync('apps/telegram-bot/src/app/router.py', 'utf8');
 const controller = fs.readFileSync('apps/api/src/modules/suppliers/cj-import/cj-product-import.controller.ts', 'utf8');
 const service = fs.readFileSync('apps/api/src/modules/suppliers/cj-import/cj-product-import.service.ts', 'utf8');
+const filter = fs.readFileSync('apps/api/src/shared/filters/all-exceptions.filter.ts', 'utf8');
 
 ['INTERNAL_SERVICE_TOKEN','DBX_INTERNAL_SERVICE_TOKEN','API_INTERNAL_SERVICE_TOKEN','NESTJS_INTERNAL_SERVICE_TOKEN'].forEach(k=>{if(!guard.includes(k)) throw new Error('guard missing alias '+k);});
 if (!guard.includes('x-internal-token')) throw new Error('missing x-internal-token');
@@ -39,3 +40,7 @@ if (!guard.includes('receivedAnyAcceptedHeader')) throw new Error('missing recei
 if (!guard.includes('tokenMatched')) throw new Error('missing tokenMatched diagnostic');
 if (!handler.includes('internalTokenSource:')) throw new Error('missing internalTokenSource diagnostic');
 if (!controller.includes('@Get("auth-diagnostics")')) throw new Error('missing auth-diagnostics endpoint');
+
+if (!filter.includes('unauthorized_internal_token')) throw new Error('filter missing unauthorized blocker passthrough');
+if (!filter.includes('diagnostics')) throw new Error('filter missing diagnostics passthrough');
+if (filter.includes('stack:') && !filter.includes('status >= 500')) throw new Error('filter stack handling changed unexpectedly');
