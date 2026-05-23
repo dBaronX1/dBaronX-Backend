@@ -10,6 +10,7 @@ import {
 import { Request, Response } from "express";
 import { PublicReferenceUtil } from "../utils/public-reference.util";
 import { SecurityUtil } from "../utils/security.util";
+import { InternalAuthUnauthorizedException } from "../exceptions/internal-auth-unauthorized.exception";
 
 type JsonLike = Record<string, unknown>;
 
@@ -30,9 +31,28 @@ export class AllExceptionsFilter implements ExceptionFilter {
     >();
 
     const status = this.resolveStatus(exception);
-    const normalized = this.normalizeException(exception, status);
 
     const requestId = this.extractRequestId(request);
+    const internalAuthPayload = this.extractInternalAuthSafePayload(exception);
+    if (internalAuthPayload?.blocker === "unauthorized_internal_token") {
+      const correlationId = requestId;
+      const reference = PublicReferenceUtil.fromRequestId(requestId);
+      response.status(HttpStatus.UNAUTHORIZED).json({
+        ...internalAuthPayload,
+        success: false,
+        statusCode: HttpStatus.UNAUTHORIZED,
+        path: request.originalUrl || request.url,
+        method: request.method,
+        timestamp: new Date().toISOString(),
+        requestId,
+        correlationId,
+        reference,
+      });
+      return;
+    }
+
+    const normalized = this.normalizeException(exception, status);
+
     const correlationId = requestId;
     const reference = PublicReferenceUtil.fromRequestId(requestId);
     const startedAt = this.resolveStartedAt(request);
@@ -304,6 +324,32 @@ export class AllExceptionsFilter implements ExceptionFilter {
     }
 
     return undefined;
+  }
+
+  private extractInternalAuthSafePayload(exception: unknown): {
+    success: false;
+    blocker: "unauthorized_internal_token";
+    diagnostics: unknown;
+  } | undefined {
+    const maybe = exception instanceof InternalAuthUnauthorizedException
+      ? exception.safePayload
+      : (this.isObject(exception) && this.isObject(exception["safePayload"]) ? exception["safePayload"] : undefined);
+
+    if (!this.isObject(maybe)) {
+      return undefined;
+    }
+
+    if (maybe["blocker"] !== "unauthorized_internal_token") {
+      return undefined;
+    }
+
+    const diagnostics = this.redactDetails(maybe["diagnostics"]);
+
+    return {
+      success: false,
+      blocker: "unauthorized_internal_token",
+      diagnostics,
+    };
   }
 
   private redactDetails(details: unknown): unknown {
