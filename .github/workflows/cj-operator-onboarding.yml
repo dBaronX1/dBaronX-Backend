@@ -1,0 +1,94 @@
+name: CJ Operator Onboarding
+
+on:
+  workflow_dispatch:
+    inputs:
+      mode:
+        description: Operator mode
+        type: choice
+        options:
+          - readiness
+          - onboard-category
+          - onboard-batch
+        default: readiness
+      category:
+        description: Single category for onboard-category mode
+        required: false
+        default: fashion
+      categories:
+        description: CSV categories for onboard-batch mode
+        required: false
+        default: fashion,home-living,tech,sports,agriculture
+      limitPerCategory:
+        description: Max products per category
+        required: false
+        default: '20'
+      autoApproveSafe:
+        description: Auto approve safe items after import
+        type: boolean
+        required: false
+        default: false
+      publishApproved:
+        description: Publish approved items after import
+        type: boolean
+        required: false
+        default: false
+      readinessExitZero:
+        description: Exit 0 in readiness mode when blockers exist
+        type: boolean
+        required: false
+        default: true
+
+jobs:
+  run-cj-operator:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node 20
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 9
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Build API
+        run: pnpm --filter dbaronx-api build
+
+      - name: Run CJ operator
+        shell: bash
+        env:
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+          CJ_ACCESS_TOKEN: ${{ secrets.CJ_ACCESS_TOKEN }}
+          CJ_API_KEY: ${{ secrets.CJ_API_KEY }}
+          CJ_OPERATOR_MODE: ${{ inputs.mode }}
+          CJ_OPERATOR_CATEGORY: ${{ inputs.category }}
+          CJ_OPERATOR_CATEGORIES: ${{ inputs.categories }}
+          CJ_OPERATOR_LIMIT_PER_CATEGORY: ${{ inputs.limitPerCategory }}
+          CJ_OPERATOR_AUTO_APPROVE_SAFE: ${{ inputs.autoApproveSafe }}
+          CJ_OPERATOR_PUBLISH_APPROVED: ${{ inputs.publishApproved }}
+          CJ_OPERATOR_READINESS_EXIT_ZERO: ${{ inputs.readinessExitZero }}
+          DBX_CONFIRM_CJ_OPERATOR_ONBOARDING: ${{ (inputs.mode == 'onboard-category' || inputs.mode == 'onboard-batch') && 'true' || '' }}
+        run: |
+          mkdir -p artifacts
+          node apps/api/dist/scripts/cj-operator-onboard-products.js | tee artifacts/cj-operator-output.json
+
+      - name: Upload operator output
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: cj-operator-output
+          path: artifacts/cj-operator-output.json
+          if-no-files-found: warn

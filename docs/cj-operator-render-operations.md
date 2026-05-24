@@ -12,10 +12,11 @@ Restore the API web start command to the normal API server start command (`pnpm 
 
 Use CJ operator only as a one-off command:
 
-1. Render Shell (preferred for manual runs)
-2. Render Job (preferred for repeatable scheduled/manual ops)
-3. Local secure operator shell with production DB credentials
-4. Dedicated one-off worker service (if Shell/Job is unavailable)
+1. GitHub Actions manual workflow (`CJ Operator Onboarding`) — **recommended**
+2. Render Shell (optional fallback, not required)
+3. Render Job (repeatable scheduled/manual ops)
+4. Local secure operator shell with production DB credentials
+5. Dedicated one-off worker service (if Shell/Job is unavailable)
 
 Never use the API web service Start Command for readiness/import/onboarding/publish.
 
@@ -73,3 +74,29 @@ Do not print secrets in readiness output. Never include:
 - Supabase service-role key
 - CJ access token/key
 - internal service token
+
+
+## GitHub Actions manual workflow (recommended)
+
+Render Shell is optional and not required for onboarding.
+
+Required GitHub Secrets:
+
+- `DATABASE_URL`
+- `SUPABASE_URL` (if your app context requires it)
+- `SUPABASE_SERVICE_ROLE_KEY` (if your app context requires it)
+- `CJ_ACCESS_TOKEN` or `CJ_API_KEY`
+
+How to run:
+
+1. Go to **Actions** → **CJ Operator Onboarding** → **Run workflow**.
+2. For readiness: set `mode=readiness`, keep defaults, run.
+3. For fashion onboarding: set `mode=onboard-category`, `category=fashion`, optional limit, run.
+4. For batch onboarding: set `mode=onboard-batch`, set `categories` CSV and limit, run.
+
+Safety notes:
+
+- Readiness mode only reports readiness; it does not import/approve/publish.
+- Onboarding modes require explicit confirmation env in workflow and run via compiled JS.
+- Do not paste secrets into chat, issues, or workflow logs.
+- Do not replace the API Start Command with the operator command.
