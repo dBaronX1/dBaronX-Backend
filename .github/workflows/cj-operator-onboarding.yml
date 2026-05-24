@@ -92,8 +92,32 @@ jobs:
         run: |
           set -o pipefail
           mkdir -p artifacts
+          db_present=false
+          [ -n "${DATABASE_URL}" ] && db_present=true
+          supabase_url_present=false
+          [ -n "${SUPABASE_URL}" ] && supabase_url_present=true
+          supabase_service_role_present=false
+          [ -n "${SUPABASE_SERVICE_ROLE_KEY}" ] && supabase_service_role_present=true
+          cj_access_token_present=false
+          [ -n "${CJ_ACCESS_TOKEN}" ] && cj_access_token_present=true
+          cj_api_key_present=false
+          [ -n "${CJ_API_KEY}" ] && cj_api_key_present=true
+          cj_credential_present=false
+          if [ "$cj_access_token_present" = "true" ] || [ "$cj_api_key_present" = "true" ]; then
+            cj_credential_present=true
+          fi
+
+          missing_secrets_json=$(DATABASE_URL_PRESENT="$db_present" SUPABASE_URL_PRESENT="$supabase_url_present" SUPABASE_SERVICE_ROLE_KEY_PRESENT="$supabase_service_role_present" CJ_CREDENTIAL_PRESENT="$cj_credential_present" node -e "const m=[];if(process.env.DATABASE_URL_PRESENT!=='true')m.push('DATABASE_URL');if(process.env.SUPABASE_URL_PRESENT!=='true')m.push('SUPABASE_URL');if(process.env.SUPABASE_SERVICE_ROLE_KEY_PRESENT!=='true')m.push('SUPABASE_SERVICE_ROLE_KEY');if(process.env.CJ_CREDENTIAL_PRESENT!=='true')m.push('CJ_ACCESS_TOKEN_or_CJ_API_KEY');process.stdout.write(JSON.stringify(m));")
+
+          if [ "$missing_secrets_json" != "[]" ]; then
+            MISSING="$missing_secrets_json" DATABASE_URL_PRESENT="$db_present" SUPABASE_URL_PRESENT="$supabase_url_present" SUPABASE_SERVICE_ROLE_KEY_PRESENT="$supabase_service_role_present" CJ_ACCESS_TOKEN_PRESENT="$cj_access_token_present" CJ_API_KEY_PRESENT="$cj_api_key_present" CJ_CREDENTIAL_PRESENT="$cj_credential_present" node -e "const fs=require('node:fs');const missing=JSON.parse(process.env.MISSING);const mode=process.env.CJ_OPERATOR_MODE||'readiness';const readinessExitZero=String(process.env.CJ_OPERATOR_READINESS_EXIT_ZERO||'').toLowerCase()==='true';const payload={success:false,mode,blockers:['github_secret_missing'],missingSecrets:missing,secretPresence:{DATABASE_URL:process.env.DATABASE_URL_PRESENT==='true',SUPABASE_URL:process.env.SUPABASE_URL_PRESENT==='true',SUPABASE_SERVICE_ROLE_KEY:process.env.SUPABASE_SERVICE_ROLE_KEY_PRESENT==='true',CJ_ACCESS_TOKEN:process.env.CJ_ACCESS_TOKEN_PRESENT==='true',CJ_API_KEY:process.env.CJ_API_KEY_PRESENT==='true',CJ_CREDENTIAL:process.env.CJ_CREDENTIAL_PRESENT==='true'},nextAction:'Add missing repository secrets in GitHub Actions secrets and rerun workflow.'};fs.writeFileSync('artifacts/cj-operator-output.json',JSON.stringify(payload,null,2)+'\n');if(mode==='readiness'&&readinessExitZero){process.exit(0)}process.exit(1);"
+          fi
+
           operator_exit_code=0
           node apps/api/dist/scripts/cj-operator-onboard-products.js | tee artifacts/cj-operator-output.json || operator_exit_code=$?
+          if [ ! -s artifacts/cj-operator-output.json ]; then
+            node -e "const fs=require('node:fs');const payload={success:false,mode:process.env.CJ_OPERATOR_MODE||'readiness',blockers:['operator_output_empty'],nextAction:'Inspect CJ operator logs and rerun workflow.'};fs.writeFileSync('artifacts/cj-operator-output.json',JSON.stringify(payload,null,2)+'\n');"
+          fi
           echo "operatorExitCode=${operator_exit_code}" >> "$GITHUB_OUTPUT"
           if [ "${CJ_OPERATOR_MODE}" = "readiness" ] && [ "${CJ_OPERATOR_READINESS_EXIT_ZERO}" = "true" ]; then
             exit 0
@@ -109,7 +133,7 @@ jobs:
             echo "--- First 40 lines of artifacts/cj-operator-output.json ---"
             sed -n '1,40p' artifacts/cj-operator-output.json
             echo "--- Safe summary fields ---"
-            node -e "const fs=require('node:fs');const p='artifacts/cj-operator-output.json';if(!fs.existsSync(p)){process.exit(0)};const r=JSON.parse(fs.readFileSync(p,'utf8'));const out={success:r.success,mode:r.mode,blockers:Array.isArray(r.blockers)?r.blockers:[],dbConnectionReady:r.dbDiagnostics?.dbConnectionReady,dbConnectionSource:r.dbDiagnostics?.dbConnectionSource,missingTables:r.dbDiagnostics?.missingTables,totals:r.totals};console.log(JSON.stringify(out,null,2));"
+            node -e "const fs=require('node:fs');const p='artifacts/cj-operator-output.json';if(!fs.existsSync(p)){process.exit(0)};let r;try{const raw=fs.readFileSync(p,'utf8').trim();if(!raw)throw new Error('empty_output');r=JSON.parse(raw);}catch(error){console.log(JSON.stringify({success:false,blockers:['summary_parse_failed'],summaryWarning:'Safe summary fallback used because artifact JSON was empty or invalid.'},null,2));process.exit(0);}const out={success:r.success,mode:r.mode,blockers:Array.isArray(r.blockers)?r.blockers:[],missingSecrets:Array.isArray(r.missingSecrets)?r.missingSecrets:[],secretPresence:r.secretPresence||undefined,dbConnectionReady:r.dbDiagnostics?.dbConnectionReady,dbConnectionSource:r.dbDiagnostics?.dbConnectionSource,missingTables:r.dbDiagnostics?.missingTables,totals:r.totals};console.log(JSON.stringify(out,null,2));"
           else
             echo "artifacts/cj-operator-output.json not found"
           fi
