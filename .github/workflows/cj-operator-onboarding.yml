@@ -70,6 +70,7 @@ jobs:
         if: ${{ inputs.mode == 'onboard-batch' && inputs.publishApproved == true }}
         run: echo 'publish-approved in onboard-batch requires explicit manual run confirmation in UI.'
       - name: Run CJ operator and capture JSON output
+        id: operator-run
         shell: bash
         env:
           DATABASE_URL: ${{ secrets.DATABASE_URL }}
@@ -91,7 +92,38 @@ jobs:
         run: |
           set -o pipefail
           mkdir -p artifacts
-          node apps/api/dist/scripts/cj-operator-onboard-products.js | tee artifacts/cj-operator-output.json
+          operator_exit_code=0
+          node apps/api/dist/scripts/cj-operator-onboard-products.js | tee artifacts/cj-operator-output.json || operator_exit_code=$?
+          echo "operatorExitCode=${operator_exit_code}" >> "$GITHUB_OUTPUT"
+          if [ "${CJ_OPERATOR_MODE}" = "readiness" ] && [ "${CJ_OPERATOR_READINESS_EXIT_ZERO}" = "true" ]; then
+            exit 0
+          fi
+          if [ "$operator_exit_code" -ne 0 ]; then
+            exit "$operator_exit_code"
+          fi
+      - name: Show safe operator JSON preview
+        if: always()
+        shell: bash
+        run: |
+          if [ -f artifacts/cj-operator-output.json ]; then
+            echo "--- First 40 lines of artifacts/cj-operator-output.json ---"
+            sed -n '1,40p' artifacts/cj-operator-output.json
+            echo "--- Safe summary fields ---"
+            node -e "const fs=require('node:fs');const p='artifacts/cj-operator-output.json';if(!fs.existsSync(p)){process.exit(0)};const r=JSON.parse(fs.readFileSync(p,'utf8'));const out={success:r.success,mode:r.mode,blockers:Array.isArray(r.blockers)?r.blockers:[],dbConnectionReady:r.dbDiagnostics?.dbConnectionReady,dbConnectionSource:r.dbDiagnostics?.dbConnectionSource,missingTables:r.dbDiagnostics?.missingTables,totals:r.totals};console.log(JSON.stringify(out,null,2));"
+          else
+            echo "artifacts/cj-operator-output.json not found"
+          fi
+      - name: Workflow summary
+        if: always()
+        shell: bash
+        run: |
+          {
+            echo "## CJ Operator Workflow Result"
+            echo "- mode: ${{ inputs.mode }}"
+            echo "- operatorExitCode: ${{ steps.operator-run.outputs.operatorExitCode || 'unknown' }}"
+            echo "- artifact: artifacts/cj-operator-output.json"
+            echo "- Download artifact for JSON details"
+          } >> "$GITHUB_STEP_SUMMARY"
       - if: always()
         uses: actions/upload-artifact@v4
         with:
