@@ -11,6 +11,13 @@ on:
           - onboard-category
           - onboard-batch
         default: readiness
+      categorySet:
+        description: Category set
+        type: choice
+        options:
+          - all
+          - custom
+        default: all
       category:
         description: Single category for onboard-category mode
         required: false
@@ -18,11 +25,19 @@ on:
       categories:
         description: CSV categories for onboard-batch mode
         required: false
-        default: fashion,home-living,tech,sports,agriculture
-      limitPerCategory:
-        description: Max products per category
+        default: electronics,fashion,home-living,beauty,sports,automotive,agriculture,tech,finance
+      targetPerCategory:
+        description: Target safe products per category
         required: false
-        default: '20'
+        default: '50'
+      limitPerCategory:
+        description: Max fetch/import attempts per category
+        required: false
+        default: '100'
+      labelRotationLimit:
+        description: Max sequential items per label before rotation
+        required: false
+        default: '3'
       autoApproveSafe:
         description: Auto approve safe items after import
         type: boolean
@@ -38,7 +53,6 @@ on:
         type: boolean
         required: false
         default: true
-
 jobs:
   run-cj-operator:
     runs-on: ubuntu-latest
@@ -46,27 +60,17 @@ jobs:
     permissions:
       contents: read
     steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-
-      - name: Setup Node 20
-        uses: actions/setup-node@v4
-        with:
-          node-version: '20'
-
-      - name: Setup pnpm
-        uses: pnpm/action-setup@v4
-        with:
-          version: 9
-
-      - name: Install dependencies
-        run: pnpm install --frozen-lockfile
-
-      - name: Build API
-        run: pnpm --filter dbaronx-api build
-
-      - name: Run CJ operator
-        shell: bash
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: '20' }
+      - uses: pnpm/action-setup@v4
+        with: { version: 9 }
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm --filter dbaronx-api build
+      - name: Require onboarding confirmation for onboard-batch
+        if: ${{ inputs.mode == 'onboard-batch' && inputs.publishApproved == true }}
+        run: echo 'publish-approved in onboard-batch requires explicit manual run confirmation in UI.'
+      - shell: bash
         env:
           DATABASE_URL: ${{ secrets.DATABASE_URL }}
           SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
@@ -74,9 +78,12 @@ jobs:
           CJ_ACCESS_TOKEN: ${{ secrets.CJ_ACCESS_TOKEN }}
           CJ_API_KEY: ${{ secrets.CJ_API_KEY }}
           CJ_OPERATOR_MODE: ${{ inputs.mode }}
+          CJ_OPERATOR_CATEGORY_SET: ${{ inputs.categorySet }}
           CJ_OPERATOR_CATEGORY: ${{ inputs.category }}
           CJ_OPERATOR_CATEGORIES: ${{ inputs.categories }}
+          CJ_OPERATOR_TARGET_PER_CATEGORY: ${{ inputs.targetPerCategory }}
           CJ_OPERATOR_LIMIT_PER_CATEGORY: ${{ inputs.limitPerCategory }}
+          CJ_OPERATOR_LABEL_ROTATION_LIMIT: ${{ inputs.labelRotationLimit }}
           CJ_OPERATOR_AUTO_APPROVE_SAFE: ${{ inputs.autoApproveSafe }}
           CJ_OPERATOR_PUBLISH_APPROVED: ${{ inputs.publishApproved }}
           CJ_OPERATOR_READINESS_EXIT_ZERO: ${{ inputs.readinessExitZero }}
@@ -84,9 +91,7 @@ jobs:
         run: |
           mkdir -p artifacts
           node apps/api/dist/scripts/cj-operator-onboard-products.js | tee artifacts/cj-operator-output.json
-
-      - name: Upload operator output
-        if: always()
+      - if: always()
         uses: actions/upload-artifact@v4
         with:
           name: cj-operator-output

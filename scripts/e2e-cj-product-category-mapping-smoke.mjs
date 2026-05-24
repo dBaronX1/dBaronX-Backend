@@ -1,5 +1,5 @@
 import fs from 'node:fs';
-const p='apps/api/src/modules/suppliers/cj-import/cj-product-categories.ts';
-const txt=fs.readFileSync(p,'utf8');
-for (const slug of ['all','electronics','fashion','home-living','beauty','sports','automotive','agriculture','tech','finance']) if(!txt.includes(slug)) throw new Error(`missing ${slug}`);
+const txt=fs.readFileSync('apps/api/src/modules/suppliers/cj-import/cj-product-categories.ts','utf8');
+for (const slug of ['electronics','fashion','home-living','beauty','sports','automotive','agriculture','tech','finance']) if(!txt.includes(slug)) throw new Error(`missing ${slug}`);
+if(!txt.includes('CJ_OPERATOR_ALL_CATEGORY_SET')) throw new Error('missing all category set constant');
 console.log('ok category mapping smoke');

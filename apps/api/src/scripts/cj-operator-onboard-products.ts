@@ -3,11 +3,11 @@ import { NestFactory } from '@nestjs/core';
 import { AppModule } from '../app.module';
 import { CjProductImportService } from '../modules/suppliers/cj-import/cj-product-import.service';
 import { CjProductPublishService } from '../modules/suppliers/cj-import/cj-product-publish.service';
-import { CJ_PRODUCT_CATEGORIES, CjCategorySlug } from '../modules/suppliers/cj-import/cj-product-categories';
+import { CJ_OPERATOR_ALL_CATEGORY_SET, CJ_PRODUCT_CATEGORIES, CjCategorySlug } from '../modules/suppliers/cj-import/cj-product-categories';
 import { SupabaseService } from '../shared/services/supabase.service';
 
 type Mode = 'readiness'|'preview'|'import'|'auto-approve-safe'|'publish-approved'|'onboard-category'|'onboard-batch';
-type CategoryResult = { category: string; previewed: number; imported: number; accepted: number; rejected: number; autoApproved: number; published: number; skipped: number; blockers: string[] };
+type CategoryResult = { category: string; target: number; previewed: number; imported: number; accepted: number; rejected: number; autoApproved: number; published: number; skipped: number; uniqueLabels: number; categoryLabelSummary: Record<string, number>; duplicateSkipped: number; restrictedSkipped: number; blockers: string[] };
 type DbDiagnostics = {
   databaseName: string | null;
   databaseUser: string | null;
@@ -26,15 +26,19 @@ type DbDiagnostics = {
 
 const HARD_MAX_PER_CATEGORY = 100;
 const DEFAULT_LIMIT_PER_CATEGORY = 20;
+const DEFAULT_TARGET_PER_CATEGORY = 50;
+const DEFAULT_LABEL_ROTATION_LIMIT = 3;
 const ONBOARD_MODES: Mode[] = ['onboard-category', 'onboard-batch'];
 
 function parseLimit(value: string | undefined, fallback: number) { const n = Number(value || fallback); return !Number.isFinite(n) || n < 1 ? fallback : Math.min(Math.floor(n), HARD_MAX_PER_CATEGORY); }
 function parseCategories(): CjCategorySlug[] {
+  const set = (process.env.CJ_OPERATOR_CATEGORY_SET || 'custom').trim();
+  if (set === 'all') return [...CJ_OPERATOR_ALL_CATEGORY_SET];
   const single = process.env.CJ_OPERATOR_CATEGORY?.trim();
   const multi = (process.env.CJ_OPERATOR_CATEGORIES || '').split(',').map((s) => s.trim()).filter(Boolean);
   const raw = [...(single ? [single] : []), ...multi];
-  const unique = Array.from(new Set(raw.length ? raw : ['fashion']));
-  return unique.filter((c): c is CjCategorySlug => c in CJ_PRODUCT_CATEGORIES);
+  const unique = Array.from(new Set(raw.length ? raw : [...CJ_OPERATOR_ALL_CATEGORY_SET]));
+  return unique.filter((c): c is CjCategorySlug => c in CJ_PRODUCT_CATEGORIES && c !== 'all');
 }
 
 
@@ -178,13 +182,15 @@ async function main() {
   const mode = (process.env.CJ_OPERATOR_MODE || 'readiness') as Mode;
   warnIfLikelyWrongStartCommand(mode);
   const categories = parseCategories();
-  const limit = parseLimit(process.env.CJ_OPERATOR_LIMIT_PER_CATEGORY || process.env.CJ_OPERATOR_LIMIT, DEFAULT_LIMIT_PER_CATEGORY);
+  const targetPerCategory = parseLimit(process.env.CJ_OPERATOR_TARGET_PER_CATEGORY, DEFAULT_TARGET_PER_CATEGORY);
+  const limit = parseLimit(process.env.CJ_OPERATOR_LIMIT_PER_CATEGORY || process.env.CJ_OPERATOR_LIMIT, Math.max(DEFAULT_LIMIT_PER_CATEGORY, targetPerCategory));
+  const labelRotationLimit = parseLimit(process.env.CJ_OPERATOR_LABEL_ROTATION_LIMIT, DEFAULT_LABEL_ROTATION_LIMIT);
   const confirmation = process.env.DBX_CONFIRM_CJ_OPERATOR_ONBOARDING === 'true';
   const blockers: string[] = [];
-  const results: CategoryResult[] = categories.map((category) => ({ category, previewed: 0, imported: 0, accepted: 0, rejected: 0, autoApproved: 0, published: 0, skipped: 0, blockers: [] }));
+  const results: CategoryResult[] = categories.map((category) => ({ category, target: targetPerCategory, previewed: 0, imported: 0, accepted: 0, rejected: 0, autoApproved: 0, published: 0, skipped: 0, uniqueLabels: 0, categoryLabelSummary: {}, duplicateSkipped: 0, restrictedSkipped: 0, blockers: [] }));
 
   if (!confirmation && mode !== 'readiness') {
-    console.log(JSON.stringify({ success: false, mode, categories, blockers: ['operator_confirmation_missing'], results, nextAction: 'Set DBX_CONFIRM_CJ_OPERATOR_ONBOARDING=true and retry.' }, null, 2));
+    console.log(JSON.stringify({ success: false, mode, categories, targetPerCategory, labelRotationLimit, blockers: ['operator_confirmation_missing'], results, nextAction: 'Set DBX_CONFIRM_CJ_OPERATOR_ONBOARDING=true and retry.' }, null, 2));
     process.exitCode = 1;
     return;
   }
@@ -216,13 +222,47 @@ async function main() {
       return;
     }
 
+
+    const deriveLabel = (category: string, text: string): string => {
+      const t = text.toLowerCase();
+      const map: Record<string, Array<[string, string[]]>> = {
+        electronics: [['phone-accessories',['phone','case']],['chargers',['charger']],['cables',['cable','usb']],['smart-gadgets',['smart']],['headphones',['headphone','earbud']]],
+        fashion: [['shirts',['shirt']],['casualwear',['casual']],['bags',['bag']],['shoes',['shoe']],['accessories',['accessory']]],
+        'home-living': [['kitchen',['kitchen']],['storage',['storage']],['decor',['decor']],['cleaning',['clean']],['bedding',['bedding']]],
+        beauty: [['grooming-tools',['groom']],['skincare-tools',['skin']],['hair-accessories',['hair']],['cosmetic-organizers',['cosmetic','organizer']]],
+        sports: [['fitness-gear',['fitness']],['outdoor-gear',['outdoor']],['yoga',['yoga']],['training-accessories',['training']]],
+        automotive: [['car-accessories',['car']],['organizers',['organizer']],['cleaning-tools',['clean']],['phone-mounts',['mount']]],
+        agriculture: [['gardening-tools',['garden']],['irrigation-accessories',['irrigation']],['grow-bags',['grow bag']],['farm-tools',['farm']]],
+        tech: [['laptop-accessories',['laptop']],['desk-tools',['desk']],['usb-gadgets',['usb']],['cable-management',['cable']]],
+        finance: [['wallets',['wallet']],['cash-organizers',['cash']],['receipt-books',['receipt']],['calculators',['calculator']],['office-tools',['office']]],
+      };
+      for (const [label, keys] of (map[category] || [])) if (keys.some((k) => t.includes(k))) return label;
+      return 'unknown';
+    };
+
     const autoApproveSafe = process.env.CJ_OPERATOR_AUTO_APPROVE_SAFE === 'true' || ONBOARD_MODES.includes(mode);
     const publishApproved = process.env.CJ_OPERATOR_PUBLISH_APPROVED === 'true' || ONBOARD_MODES.includes(mode);
 
     for (const result of results) {
       if (['preview', ...ONBOARD_MODES].includes(mode)) {
-        const preview = await importer.preview(result.category, limit);
-        result.previewed = preview.items?.length || 0;
+        const preview = await importer.preview(result.category, Math.max(limit, targetPerCategory));
+        const seen = new Set<string>();
+        const labelCounts: Record<string, number> = {};
+        for (const item of (preview.items || [])) {
+          const fp = `${item.supplier_product_id || ''}:${item.supplier_sku || ''}:${item.handle || ''}`;
+          if (seen.has(fp)) { result.duplicateSkipped += 1; continue; }
+          seen.add(fp);
+          const blockers = Array.isArray(item.blockers) ? item.blockers : [];
+          if (blockers.some((b: string) => String(b).includes('restricted') || String(b).includes('regulated_finance_risk'))) { result.restrictedSkipped += 1; continue; }
+          const label = deriveLabel(result.category, `${item.title || ''} ${item.description || ''} ${item.category || ''}`);
+          if (label === 'unknown' && (labelCounts.unknown || 0) >= labelRotationLimit) { result.skipped += 1; continue; }
+          if ((labelCounts[label] || 0) >= labelRotationLimit) continue;
+          labelCounts[label] = (labelCounts[label] || 0) + 1;
+          if (Object.values(labelCounts).reduce((a,b)=>a+b,0) >= targetPerCategory) break;
+        }
+        result.categoryLabelSummary = labelCounts;
+        result.uniqueLabels = Object.keys(labelCounts).length;
+        result.previewed = Object.values(labelCounts).reduce((a,b)=>a+b,0);
       }
       if (['import', ...ONBOARD_MODES].includes(mode)) {
         const imported = await importer.runImport(result.category, limit, 'cj_operator');
@@ -260,7 +300,8 @@ async function main() {
       }
     }
 
-    console.log(JSON.stringify({ success: results.every((r) => r.blockers.length === 0), mode, categories, blockers: blockerSet, legacyBlockers, dbDiagnostics: diagnostics, results, nextAction: 'Review summary and rerun as needed.' }, null, 2));
+    const totals = { categoriesProcessed: results.length, totalImported: results.reduce((a,r)=>a+r.imported,0), totalAccepted: results.reduce((a,r)=>a+r.accepted,0), totalPublished: results.reduce((a,r)=>a+r.published,0), totalRejected: results.reduce((a,r)=>a+r.rejected,0), totalSkipped: results.reduce((a,r)=>a+r.skipped + r.duplicateSkipped + r.restrictedSkipped,0) };
+    console.log(JSON.stringify({ success: results.every((r) => r.blockers.length === 0), mode, categories, targetPerCategory, labelRotationLimit, blockers: blockerSet, legacyBlockers, dbDiagnostics: diagnostics, results, totals, nextAction: 'Review summary and rerun as needed.' }, null, 2));
   } finally {
     await app.close();
   }
