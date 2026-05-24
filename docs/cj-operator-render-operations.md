@@ -80,11 +80,11 @@ Do not print secrets in readiness output. Never include:
 
 Render Shell is optional and not required for onboarding.
 
-Required GitHub Secrets:
+Required GitHub repository secrets for `CJ Operator Onboarding`:
 
 - `DATABASE_URL`
-- `SUPABASE_URL` (if your app context requires it)
-- `SUPABASE_SERVICE_ROLE_KEY` (if your app context requires it)
+- `SUPABASE_URL`
+- `SUPABASE_SERVICE_ROLE_KEY`
 - `CJ_ACCESS_TOKEN` or `CJ_API_KEY`
 
 How to run:

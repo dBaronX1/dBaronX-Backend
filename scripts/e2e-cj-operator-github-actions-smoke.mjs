@@ -5,5 +5,7 @@ for (const key of ['categorySet:','- all','- custom','targetPerCategory:','defau
 for (const key of ['echo $DATABASE_URL','echo $SUPABASE_SERVICE_ROLE_KEY','echo $CJ_ACCESS_TOKEN','echo $CJ_API_KEY','printenv']) if (yaml.includes(key)) throw new Error(`forbidden ${key}`);
 if (yaml.includes('with: { version: 9 }')) throw new Error('pnpm version mismatch: workflow pins version 9');
 for (const key of ['mkdir -p artifacts','tee artifacts/cj-operator-output.json','if-no-files-found: warn','if: always()','set -o pipefail','operator_exit_code=0','operatorExitCode=','GITHUB_OUTPUT','Show safe operator JSON preview','Workflow summary','Download artifact for JSON details','CJ_OPERATOR_READINESS_EXIT_ZERO']) if(!yaml.includes(key)) throw new Error(`missing ${key}`);
+for (const key of ['DATABASE_URL_PRESENT','SUPABASE_URL_PRESENT','SUPABASE_SERVICE_ROLE_KEY_PRESENT','CJ_ACCESS_TOKEN_PRESENT','CJ_API_KEY_PRESENT','CJ_CREDENTIAL_PRESENT','github_secret_missing','missingSecrets','secretPresence']) if(!yaml.includes(key)) throw new Error(`missing preflight check ${key}`);
+for (const key of ['operator_output_empty','summary_parse_failed']) if(!yaml.includes(key)) throw new Error(`missing empty output safety ${key}`);
 for (const key of ['printenv','env |','set |']) if (yaml.includes(key)) throw new Error(`forbidden env dump ${key}`);
 console.log('ok cj operator github actions smoke');
