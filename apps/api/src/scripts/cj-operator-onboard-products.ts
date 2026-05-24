@@ -37,6 +37,24 @@ function parseCategories(): CjCategorySlug[] {
   return unique.filter((c): c is CjCategorySlug => c in CJ_PRODUCT_CATEGORIES);
 }
 
+
+function parseSslMode(connectionString: string): string | null {
+  try {
+    const parsed = new URL(connectionString);
+    return parsed.searchParams.get('sslmode');
+  } catch {
+    return null;
+  }
+}
+
+function buildPgClientOptions(connectionString: string): { connectionString: string; ssl?: { rejectUnauthorized: boolean } } {
+  const sslMode = (parseSslMode(connectionString) || '').toLowerCase();
+  if (sslMode === 'require' || sslMode === 'verify-ca' || sslMode === 'verify-full') {
+    return { connectionString, ssl: { rejectUnauthorized: false } };
+  }
+  return { connectionString };
+}
+
 async function loadDbDiagnostics(supabase: SupabaseService): Promise<{ diagnostics: DbDiagnostics; blockers: string[] }> {
   void supabase;
   const diagnostics: DbDiagnostics = {
@@ -80,17 +98,22 @@ async function loadDbDiagnostics(supabase: SupabaseService): Promise<{ diagnosti
 
   const classifyDbError = (error: unknown): string => {
     const code = typeof error === 'object' && error !== null && 'code' in error ? String((error as { code?: unknown }).code || '') : '';
-    if (code.startsWith('28')) return 'auth_error';
-    if (code.startsWith('08')) return 'connection_error';
-    if (code === '3D000') return 'database_not_found';
+    const message = typeof error === 'object' && error !== null && 'message' in error ? String((error as { message?: unknown }).message || '').toLowerCase() : '';
+    if (code === 'ERR_INVALID_URL' || message.includes('invalid connection string')) return 'invalid_connection_string';
+    if (code === 'ENOTFOUND' || code === 'EAI_AGAIN') return 'dns_resolution_failed';
+    if (code === 'ETIMEDOUT' || code === '57014' || message.includes('timeout')) return 'connection_timeout';
+    if (code === 'ECONNREFUSED' || code === '08001') return 'connection_refused';
+    if (code === '08P01' || message.includes('ssl') || message.includes('tls')) return 'ssl_required_or_failed';
+    if (code.startsWith('28')) return 'auth_failed';
     if (code === '42501') return 'permission_denied';
     return 'unknown_error';
   };
 
   try {
+    new URL(connectionString);
     // eslint-disable-next-line @typescript-eslint/no-var-requires
     const { Client } = require('pg');
-    const client = new Client({ connectionString });
+    const client = new Client(buildPgClientOptions(connectionString));
     await client.connect();
     const probe = await client.query(`select
       current_database() as database_name,
@@ -130,7 +153,7 @@ async function loadDbDiagnostics(supabase: SupabaseService): Promise<{ diagnosti
     diagnostics.safeDbErrorClass = classifyDbError(error);
     blockers.push('db_connection_failed');
     blockers.push('db_diagnostic_unavailable');
-    if (diagnostics.safeDbErrorClass === 'permission_denied' || diagnostics.safeDbErrorClass === 'auth_error') {
+    if (diagnostics.safeDbErrorClass === 'permission_denied' || diagnostics.safeDbErrorClass === 'auth_failed') {
       blockers.push('db_permission_denied');
     }
     return { diagnostics, blockers };
