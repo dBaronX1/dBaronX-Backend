@@ -64,13 +64,13 @@ jobs:
       - uses: actions/setup-node@v4
         with: { node-version: '20' }
       - uses: pnpm/action-setup@v4
-        with: { version: 9 }
       - run: pnpm install --frozen-lockfile
       - run: pnpm --filter dbaronx-api build
       - name: Require onboarding confirmation for onboard-batch
         if: ${{ inputs.mode == 'onboard-batch' && inputs.publishApproved == true }}
         run: echo 'publish-approved in onboard-batch requires explicit manual run confirmation in UI.'
-      - shell: bash
+      - name: Run CJ operator and capture JSON output
+        shell: bash
         env:
           DATABASE_URL: ${{ secrets.DATABASE_URL }}
           SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
@@ -89,6 +89,7 @@ jobs:
           CJ_OPERATOR_READINESS_EXIT_ZERO: ${{ inputs.readinessExitZero }}
           DBX_CONFIRM_CJ_OPERATOR_ONBOARDING: ${{ (inputs.mode == 'onboard-category' || inputs.mode == 'onboard-batch') && 'true' || '' }}
         run: |
+          set -o pipefail
           mkdir -p artifacts
           node apps/api/dist/scripts/cj-operator-onboard-products.js | tee artifacts/cj-operator-output.json
       - if: always()
