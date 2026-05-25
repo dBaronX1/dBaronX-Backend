@@ -3,6 +3,10 @@ import { ConfigService } from "@nestjs/config";
 import { detectStripeSecretKeyMode, type StripeSecretKeyMode } from "./stripe-secret-key-mode";
 
 type PaymentReadinessSnapshot = {
+  paymentProvidersConfigured: boolean;
+  stripeReady: boolean;
+  paystackReady: boolean;
+  webhookReady: boolean;
   stripeConfigured: boolean;
   stripeSecretKeyMode: StripeSecretKeyMode;
   stripeWebhookConfigured: boolean;
@@ -27,6 +31,8 @@ export class PaymentReadinessService {
     const stripeConfigured = Boolean(stripeSecretKey);
     const stripeSecretKeyMode = detectStripeSecretKeyMode(stripeSecretKey);
     const stripeWebhookConfigured = this.present("STRIPE_WEBHOOK_SECRET");
+    const paystackReady = this.present("PAYSTACK_SECRET_KEY");
+    const paystackWebhookConfigured = this.present("PAYSTACK_WEBHOOK_SECRET");
     const liveCheckoutExplicitlyAllowed = this.value("ALLOW_LIVE_STRIPE_CHECKOUT").toLowerCase() === "true";
     const dbxPaymentAddressPresent = this.anyPresent([
       "NEXT_PUBLIC_DBX_SOLANA_PAYMENT_ADDRESS",
@@ -51,6 +57,7 @@ export class PaymentReadinessService {
       ...(stripeConfigured ? [] : ["stripe_secret_key_missing"]),
       ...(stripeSecretKeyMode === "live" && !liveCheckoutExplicitlyAllowed ? ["stripe_live_key_present_without_live_checkout_allowance"] : []),
       ...(stripeWebhookConfigured ? [] : ["stripe_webhook_secret_missing"]),
+      ...(paystackReady ? [] : ["paystack_secret_key_missing"]),
       ...(dbxPaymentAddressPresent ? [] : ["dbx_payment_address_missing"]),
       ...(solanaRpcConfigured ? [] : ["solana_rpc_not_configured"]),
       ...(dbxTokenMintPresent ? [] : ["dbx_token_mint_missing"]),
@@ -59,6 +66,10 @@ export class PaymentReadinessService {
     ];
 
     return {
+      paymentProvidersConfigured: stripeConfigured || paystackReady,
+      stripeReady: stripeConfigured,
+      paystackReady,
+      webhookReady: stripeWebhookConfigured || paystackWebhookConfigured,
       stripeConfigured,
       stripeSecretKeyMode,
       stripeWebhookConfigured,
