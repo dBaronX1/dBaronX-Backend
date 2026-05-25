@@ -8,7 +8,7 @@ async function post(body){
   let data={}; try{data=await r.json();}catch{}
   return {status:r.status,data};
 }
-function hasCheckout(d){ return Boolean(d?.checkoutUrl || d?.url || d?.data?.checkoutUrl) && Boolean(d?.sessionId || d?.data?.sessionId); }
+function hasCheckout(d){ return Boolean(d?.checkoutUrl || d?.url || d?.data?.checkoutUrl || d?.data?.url) && Boolean(d?.sessionId || d?.data?.sessionId); }
 
 const base={
   cartId:'contract-smoke-cart',
@@ -41,6 +41,15 @@ const neo = await post({
 });
 must(neo.status < 500, 'new payload server error');
 
+
+const canonicalSource = await post({
+  ...base,
+  successUrl: undefined,
+  cancelUrl: undefined,
+});
+if (canonicalSource.status === 200) {
+  must(hasCheckout(canonicalSource.data), 'canonical response missing checkout/session');
+}
 const mismatch = await post({...base, amount:3999});
 must(mismatch.data?.blockers?.includes('amount_mismatch'), 'amount_mismatch missing');
 

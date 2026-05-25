@@ -682,7 +682,7 @@ export class StripeCheckoutService {
       );
 
       if (!session.id || !session.url) {
-        blockers.push("stripe_session_missing_url_or_id");
+        blockers.push("stripe_session_url_missing");
         return {
           success: false,
           configured: true,
@@ -711,9 +711,11 @@ export class StripeCheckoutService {
         requestedCheckoutMode: checkoutMode,
         checkoutSessionPathReady: true,
         checkoutUrl: session.url,
+        url: session.url,
         sessionId: session.id,
         data: {
           checkoutUrl: session.url,
+          url: session.url,
           sessionId: session.id,
         },
         blockers,
@@ -1868,13 +1870,26 @@ export class StripeCheckoutService {
   }
 
   private getSiteBaseUrl(): string {
-    return String(
-      this.config.get<string>("SITE_URL") ||
-      this.config.get<string>("WEB_BASE_URL") ||
-      process.env.SITE_URL ||
-      process.env.WEB_BASE_URL ||
+    const candidates = [
+      this.config.get<string>("NEXT_PUBLIC_SITE_URL"),
+      this.config.get<string>("NEXT_PUBLIC_APP_URL"),
+      this.config.get<string>("APP_URL"),
+      this.config.get<string>("WEB_BASE_URL"),
+      this.config.get<string>("FRONTEND_URL"),
+      this.config.get<string>("SITE_URL"),
+      process.env.NEXT_PUBLIC_SITE_URL,
+      process.env.NEXT_PUBLIC_APP_URL,
+      process.env.APP_URL,
+      process.env.WEB_BASE_URL,
+      process.env.FRONTEND_URL,
+      process.env.SITE_URL,
       "https://dbaronx.com",
-    ).replace(/\/$/, "");
+    ]
+      .map((value) => String(value || "").trim())
+      .filter(Boolean);
+
+    const canonical = candidates.find((value) => value.includes("dbaronx.com"));
+    return (canonical || candidates[0] || "https://dbaronx.com").replace(/\/$/, "");
   }
 
   private cleanMetadata(
