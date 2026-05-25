@@ -17,6 +17,8 @@ import { LaunchReadinessPersistenceService } from "../../shared/services/launch-
 import { SupabaseService } from "../../shared/services/supabase.service";
 import { PaymentsAdminService } from "./payments-admin.service";
 import { PaymentReadinessController } from "./payment-readiness.controller";
+import { CheckoutSessionController } from "./checkout-session.controller";
+import { PaystackCheckoutService } from "./paystack-checkout.service";
 import { PaymentReadinessService } from "./payment-readiness.service";
 import { EconomicReadinessController } from "./economic-readiness.controller";
 import { StripeCheckoutController } from "./stripe-checkout.controller";
@@ -37,6 +39,7 @@ import { SupabaseEconomicEventRepository } from "../../shared/services/supabase-
     CheckoutSettlementController,
     StripeCheckoutController,
     PaymentReadinessController,
+    CheckoutSessionController,
     EconomicReadinessController,
     OrdersStatusController,
     PaymentsStatusController,
@@ -58,6 +61,7 @@ import { SupabaseEconomicEventRepository } from "../../shared/services/supabase-
     CheckoutSettlementService,
     StripeCheckoutService,
     PaymentReadinessService,
+    PaystackCheckoutService,
     EconomicEventService,
     SupabaseEconomicEventRepository,
     OrderFulfillmentService,
@@ -75,6 +79,7 @@ import { SupabaseEconomicEventRepository } from "../../shared/services/supabase-
     CheckoutSettlementService,
     StripeCheckoutService,
     PaymentReadinessService,
+    PaystackCheckoutService,
     EconomicEventService,
     SupabaseEconomicEventRepository,
     OrderFulfillmentService,
