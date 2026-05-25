@@ -198,6 +198,35 @@ type StripeWebhookEventRecord = {
   rawMetadataSafe?: Record<string, string | null>;
 };
 
+type NormalizedCheckoutInput = {
+  cartId: string;
+  amount: number;
+  unitPriceMinor: number;
+  quantity: number;
+  currency: string;
+  successUrl: string;
+  cancelUrl: string;
+  checkoutMode: "test" | "live";
+  customerEmail: string;
+  customerName: string;
+  customerPhone: string;
+  country: string;
+  city: string;
+  addressLine1: string;
+  addressLine2: string;
+  postalCode: string;
+  productId: string;
+  variantId: string;
+  handle: string;
+  productName: string;
+  imageUrl: string;
+  supplier: string;
+  supplierProductId: string;
+  supplierSku: string;
+  checkoutRef: string;
+  source: string;
+};
+
 interface StripeWebhookIdempotencyRecorder {
   readiness(): Promise<{ ready: boolean; blockers: string[] }>;
   record(
@@ -538,10 +567,14 @@ export class StripeCheckoutService {
   }
 
   async createSession(input: CreateStripeCheckoutSessionDto) {
+    const normalized = this.normalizeCheckoutInput(input);
+    if (normalized.ok === false) return normalized.response;
+
+    const payload = normalized.value;
     const secretKey = this.getStripeSecretKey();
     const blockers: string[] = [];
     const mode = this.getStripeSecretKeyMode(secretKey);
-    const checkoutMode = this.getRequestedCheckoutMode(input.checkoutMode);
+    const checkoutMode = this.getRequestedCheckoutMode(payload.checkoutMode);
     const liveSmokeOverrideAllowed = this.isLiveSmokeOverrideAllowed();
 
     if (!secretKey) {
@@ -612,27 +645,27 @@ export class StripeCheckoutService {
     }
 
     const stripe = this.createClient(secretKey);
-    const currency = (input.currency || "usd").toLowerCase();
-    const metadata = this.buildMetadata(input);
-    const productMetadata = this.buildProductMetadata(input);
+    const metadata = this.buildMetadata(payload);
+    const productMetadata = this.buildProductMetadata(payload);
 
     try {
       const session = await stripe.checkout.sessions.create(
         {
           mode: "payment",
-          success_url: input.successUrl,
-          cancel_url: input.cancelUrl,
-          customer_email: input.customerEmail,
+          success_url: payload.successUrl,
+          cancel_url: payload.cancelUrl,
+          customer_email: payload.customerEmail || undefined,
           line_items: [
             {
-              quantity: 1,
+              quantity: payload.quantity,
               price_data: {
-                currency,
-                unit_amount: input.amount,
+                currency: payload.currency,
+                unit_amount: payload.unitPriceMinor,
                 product_data: {
                   name:
-                    input.productName ||
-                    `dBaronX checkout cart ${input.cartId}`,
+                    payload.productName ||
+                    `dBaronX checkout cart ${payload.cartId}`,
+                  images: payload.imageUrl ? [payload.imageUrl] : undefined,
                   metadata: productMetadata,
                 },
               },
@@ -666,7 +699,7 @@ export class StripeCheckoutService {
       }
 
       this.logger.log(
-        `stripe_checkout_session_created mode=${mode} cart=${input.cartId} session=${session.id}`,
+        `stripe_checkout_session_created mode=${mode} cart=${payload.cartId} session=${session.id}`,
       );
 
       return {
@@ -679,6 +712,10 @@ export class StripeCheckoutService {
         checkoutSessionPathReady: true,
         checkoutUrl: session.url,
         sessionId: session.id,
+        data: {
+          checkoutUrl: session.url,
+          sessionId: session.id,
+        },
         blockers,
         metadata: {
           ...metadata,
@@ -688,7 +725,7 @@ export class StripeCheckoutService {
         },
       };
     } catch (error) {
-      const message = error instanceof Error ? error.message : String(error);
+      const message = error instanceof Error ? error.message : "unknown_error";
       this.logger.error(`stripe_checkout_session_create_failed ${message}`);
       return {
         success: false,
@@ -700,8 +737,16 @@ export class StripeCheckoutService {
         checkoutSessionPathReady: true,
         checkoutUrl: null,
         sessionId: null,
-        blockers: ["stripe_checkout_session_create_failed"],
-        message,
+        blocker: "stripe_session_failed",
+        blockers: ["stripe_session_failed"],
+        code: "checkout_payload_invalid",
+        details: {
+          missingFields: [],
+          amountMatches: true,
+          productReady: true,
+          shippingReady: true,
+        },
+        message: "Unable to create Stripe checkout session.",
       };
     }
   }
@@ -1729,64 +1774,107 @@ export class StripeCheckoutService {
       : session.payment_intent.id;
   }
 
-  private buildMetadata(
-    input: CreateStripeCheckoutSessionDto,
-  ): Record<string, string> {
-    const requestedSource = input.metadataSource || input.source;
+  private buildMetadata(input: NormalizedCheckoutInput): Record<string, string> {
     const metadataSource =
-      requestedSource === "dbaronx_first_sale" ? "dbaronx_first_sale" : "dbaronx";
+      input.source === "dbaronx_first_sale" ? "dbaronx_first_sale" : "dbaronx";
     return this.cleanMetadata({
       cartId: input.cartId,
-      userId: input.userId || "",
-      orderRef:
-        input.orderRef || input.checkoutRef || input.orderIntentId || "",
-      checkoutRef:
-        input.checkoutRef ||
-        input.orderRef ||
-        input.orderIntentId ||
-        input.cartId,
-      customerRef:
-        input.customerRef || input.customerEmail || input.userId || "",
+      orderRef: input.checkoutRef || input.cartId,
+      checkoutRef: input.checkoutRef || input.cartId,
+      customerRef: input.customerEmail || "",
       productId: input.productId || "",
       variantId: input.variantId || "",
-      supplierRefs: (input.supplierRefs || []).join(","),
-      orderIntentId: input.orderIntentId || "",
       source: metadataSource,
       supplier: input.supplier || "",
       supplierProductId: input.supplierProductId || "",
       supplierSku: input.supplierSku || "",
       handle: input.handle || "",
+      title: input.productName || "",
+      imageUrl: ("imageUrl" in input ? input.imageUrl : "") || "",
+      customerName: ("customerName" in input ? input.customerName : "") || "",
+      customerEmail: input.customerEmail || "",
+      customerPhone: ("customerPhone" in input ? input.customerPhone : "") || "",
+      country: ("country" in input ? input.country : "") || "",
+      city: ("city" in input ? input.city : "") || "",
+      addressLine1: ("addressLine1" in input ? input.addressLine1 : "") || "",
+      postalCode: ("postalCode" in input ? input.postalCode : "") || "",
       mode: input.checkoutMode || "test",
     });
   }
 
-  private buildProductMetadata(
-    input: CreateStripeCheckoutSessionDto,
-  ): Record<string, string> {
-    const requestedSource = input.metadataSource || input.source;
+  private buildProductMetadata(input: NormalizedCheckoutInput): Record<string, string> {
     const metadataSource =
-      requestedSource === "dbaronx_first_sale" ? "dbaronx_first_sale" : "dbaronx";
+      input.source === "dbaronx_first_sale" ? "dbaronx_first_sale" : "dbaronx";
     return this.cleanMetadata({
       cartId: input.cartId,
-      orderRef:
-        input.orderRef || input.checkoutRef || input.orderIntentId || "",
-      checkoutRef:
-        input.checkoutRef ||
-        input.orderRef ||
-        input.orderIntentId ||
-        input.cartId,
-      customerRef:
-        input.customerRef || input.customerEmail || input.userId || "",
+      orderRef: input.checkoutRef || input.cartId,
+      checkoutRef: input.checkoutRef || input.cartId,
+      customerRef: input.customerEmail || "",
       productId: input.productId || "",
       variantId: input.variantId || "",
-      orderIntentId: input.orderIntentId || "",
       source: metadataSource,
       supplier: input.supplier || "",
       supplierProductId: input.supplierProductId || "",
       supplierSku: input.supplierSku || "",
       handle: input.handle || "",
+      title: input.productName || "",
+      imageUrl: ("imageUrl" in input ? input.imageUrl : "") || "",
       mode: input.checkoutMode || "test",
     });
+  }
+
+  private normalizeCheckoutInput(input: CreateStripeCheckoutSessionDto): { ok: true; value: NormalizedCheckoutInput } | { ok: false; response: Record<string, unknown> } {
+    const quantity = input.quantity ?? 1;
+    const unitPriceMinor = input.unitPriceMinor ?? input.priceMinor ?? input.unit_price ?? input.amount;
+    const amount = input.amount ?? input.amountMinor ?? (typeof unitPriceMinor === "number" ? unitPriceMinor * quantity : undefined);
+    const productId = input.productId ?? input.product_id ?? "";
+    const variantId = input.variantId ?? input.variant_id ?? "";
+    const handle = input.handle ?? input.product_handle ?? "";
+    const productName = input.title ?? input.productName ?? input.product_name ?? "";
+    const customerEmail = input.customerEmail ?? input.email ?? "";
+    const customerName = input.fullName ?? input.customerName ?? input.name ?? "";
+    const customerPhone = input.phone ?? input.customerPhone ?? "";
+    const addressLine1 = input.addressLine1 ?? input.address1 ?? "";
+    const addressLine2 = input.addressLine2 ?? input.address2 ?? "";
+    const postalCode = input.postalCode ?? input.zip ?? input.postcode ?? "";
+    const supplierProductId = input.supplierProductId ?? input.supplier_product_id ?? "";
+    const supplierSku = input.supplierSku ?? input.supplier_sku ?? "";
+    const cartId = input.cartId ?? input.cart_id ?? input.checkoutRef ?? input.checkout_ref ?? `rocket_${Date.now()}`;
+    const checkoutRef = input.checkoutRef ?? input.checkout_ref ?? cartId;
+    const currency = (input.currency || "usd").toLowerCase();
+    const successUrl = input.successUrl || `${this.getSiteBaseUrl()}/checkout/success`;
+    const cancelUrl = input.cancelUrl || `${this.getSiteBaseUrl()}/checkout/cancel`;
+
+    const missingFields: string[] = [];
+    const blockers: string[] = [];
+    if (!customerEmail) { missingFields.push("customerEmail"); blockers.push("missing_customer_email"); }
+    const shippingReady = Boolean(input.country && input.city && addressLine1 && postalCode);
+    const productReady = Boolean(productId || variantId || handle);
+    if (!productReady) { missingFields.push("productIdentity"); blockers.push("missing_product"); }
+    if (!Number.isInteger(quantity) || quantity < 1) blockers.push("invalid_quantity");
+    if (!Number.isInteger(unitPriceMinor) || (unitPriceMinor || 0) <= 0) blockers.push("invalid_amount");
+    if (!Number.isInteger(amount) || (amount || 0) <= 0) blockers.push("invalid_amount");
+    const expectedAmount = (unitPriceMinor || 0) * quantity;
+    const amountMatches = amount === expectedAmount;
+    if (!amountMatches) blockers.push("amount_mismatch");
+    if (!shippingReady && (input.country || input.city || addressLine1 || postalCode)) {
+      blockers.push("missing_shipping");
+      missingFields.push("shipping");
+    }
+    if (blockers.length > 0) {
+      return { ok: false, response: { success: false, blocker: blockers[0], blockers, code: "checkout_payload_invalid", details: { missingFields, amountMatches, productReady, shippingReady } } };
+    }
+    return { ok: true, value: { cartId, amount: amount as number, unitPriceMinor: unitPriceMinor as number, quantity, currency, successUrl, cancelUrl, checkoutMode: input.checkoutMode ?? "test", customerEmail, customerName, customerPhone, country: input.country ?? "", city: input.city ?? "", addressLine1, addressLine2, postalCode, productId, variantId, handle, productName: productName || `dBaronX checkout cart ${cartId}`, imageUrl: input.imageUrl ?? input.image_url ?? "", supplier: input.supplier ?? "", supplierProductId, supplierSku, checkoutRef, source: input.source ?? "dbaronx" } };
+  }
+
+  private getSiteBaseUrl(): string {
+    return String(
+      this.config.get<string>("SITE_URL") ||
+      this.config.get<string>("WEB_BASE_URL") ||
+      process.env.SITE_URL ||
+      process.env.WEB_BASE_URL ||
+      "https://dbaronx.com",
+    ).replace(/\/$/, "");
   }
 
   private cleanMetadata(
