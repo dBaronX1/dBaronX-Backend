@@ -23,6 +23,24 @@ export class CheckoutSessionController {
     return { ...res, url: (res as any).checkoutUrl || null };
   }
 
+
+
+  @Public()
+  @Post("stripe/session")
+  @HttpCode(HttpStatus.OK)
+  async createStripe(@Body() body: CreateCheckoutSessionDto) {
+    const res = await this.stripe.createSession(body as any);
+    return { ...res, url: (res as any).checkoutUrl || null };
+  }
+
+  @Public()
+  @Post("paystack/session")
+  @HttpCode(HttpStatus.OK)
+  async createPaystack(@Body() body: CreateCheckoutSessionDto) {
+    const res = await this.paystack.createAuthorization(body);
+    return { success: res.success, provider: "paystack", checkoutUrl: res.authorizationUrl || null, authorizationUrl: res.authorizationUrl || null, authorization_url: res.authorization_url || null, url: res.url || null, blockers: res.blockers || [], message: res.message || null, reference: res.reference || null, data: res.data || null };
+  }
+
   @Public()
   @Get("paystack/verify")
   async verifyPaystack(@Query("reference") reference?: string) {
