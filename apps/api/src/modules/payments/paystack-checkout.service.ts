@@ -22,7 +22,7 @@ export class PaystackCheckoutService {
           email: input.customerEmail || "checkout@dbaronx.local",
           amount: input.amount,
           currency: (input.currency || "usd").toUpperCase(),
-          callback_url: input.successUrl,
+          callback_url: this.paystackCallbackUrl(input.successUrl),
           metadata: {
             cartId: input.cartId,
             checkoutRef: input.checkoutRef || input.orderRef || randomUUID(),
@@ -39,17 +39,53 @@ export class PaystackCheckoutService {
         }),
       });
       const data = (await res.json()) as any;
-      const authUrl = data?.data?.authorization_url || null;
+      const authUrl = this.pickHostedUrl(data);
       const reference = data?.data?.reference || null;
       if (!res.ok || !authUrl) {
         this.logger.warn(`paystack_initialize_failed status=${res.status}`);
         return { success: false, provider: "paystack", configured, blockers: ["paystack_checkout_session_create_failed"], authorizationUrl: null, reference, message: "Unable to initialize Paystack checkout." };
       }
-      return { success: true, provider: "paystack", configured, blockers: [], authorizationUrl: authUrl, authorization_url: authUrl, url: authUrl, reference };
+      return {
+        success: true, provider: "paystack", configured, blockers: [],
+        authorizationUrl: authUrl, authorization_url: authUrl, url: authUrl, reference,
+        data: { authorizationUrl: authUrl, authorization_url: authUrl, url: authUrl, reference },
+      };
     } catch (error) {
       this.logger.error(`paystack_initialize_exception ${(error as Error).message}`);
       return { success: false, provider: "paystack", configured, blockers: ["paystack_checkout_session_create_failed"], authorizationUrl: null, reference: null, message: "Unable to initialize Paystack checkout." };
     }
+  }
+
+  async verifyTransaction(reference?: string) {
+    const secret = this.value("PAYSTACK_SECRET_KEY");
+    if (!secret) return { success: false, verified: false, blocker: "paystack_secret_key_missing" };
+    if (!reference) return { success: false, verified: false, blocker: "paystack_reference_missing" };
+    try {
+      const res = await fetch(`${this.baseUrl()}/transaction/verify/${encodeURIComponent(reference)}`, {
+        method: "GET",
+        headers: { Authorization: `Bearer ${secret}` },
+      });
+      const data = (await res.json()) as any;
+      const status = String(data?.data?.status || "").toLowerCase();
+      return { success: res.ok, verified: res.ok && status === "success", reference, status: status || "unknown" };
+    } catch {
+      return { success: false, verified: false, blocker: "paystack_verify_failed" };
+    }
+  }
+
+  async handleWebhook(signature?: string, payload?: unknown) {
+    const expected = this.value("PAYSTACK_WEBHOOK_SECRET");
+    if (!expected) return { success: false, accepted: false, blocker: "paystack_webhook_secret_missing" };
+    if (!signature || signature !== expected) return { success: false, accepted: false, blocker: "paystack_webhook_signature_invalid" };
+    return { success: true, accepted: true, verified: true, event: (payload as any)?.event || "unknown" };
+  }
+
+  private paystackCallbackUrl(inputSuccessUrl?: string) {
+    const canonical = "https://dbaronx.com/payment/success?provider=paystack";
+    return this.value("PAYSTACK_CALLBACK_URL") || canonical || inputSuccessUrl || canonical;
+  }
+  private pickHostedUrl(data: any) {
+    return data?.data?.authorization_url || data?.data?.authorizationUrl || data?.authorization_url || data?.authorizationUrl || data?.url || null;
   }
 
   readiness() {
