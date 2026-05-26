@@ -26,7 +26,7 @@ export async function createStripeCheckoutSession(input: StripeCheckoutSessionIn
   }
 
   const webBase = process.env.NEXT_PUBLIC_WEB_BASE_URL || "https://dbaronx.com";
-  const response = await fetch(`${base.replace(/\/$/, "")}/api/v1/checkout/stripe/session`, {
+  const response = await fetch(`${base.replace(/\/$/, "")}/api/checkout/stripe/session`, {
     method: "POST",
     headers: { "content-type": "application/json" },
     body: JSON.stringify({

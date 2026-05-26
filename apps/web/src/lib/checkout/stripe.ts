@@ -27,7 +27,7 @@ export async function createStripeCheckoutSession(input: StripeCheckoutSessionIn
     };
   }
 
-  const response = await fetch(`${base}/api/v1/checkout/stripe/session`, {
+  const response = await fetch(`${base}/api/checkout/stripe/session`, {
     method: "POST",
     headers: { "content-type": "application/json", accept: "application/json" },
     cache: "no-store",

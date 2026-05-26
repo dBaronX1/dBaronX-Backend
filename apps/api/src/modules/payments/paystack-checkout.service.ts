@@ -12,7 +12,7 @@ export class PaystackCheckoutService {
     const secret = this.value("PAYSTACK_SECRET_KEY");
     const configured = Boolean(secret);
     if (!configured) {
-      return { success: false, provider: "paystack", configured, blockers: ["paystack_secret_key_missing"], authorizationUrl: null, reference: null, message: "Paystack is not configured." };
+      return { success: false, provider: "paystack", configured, blockers: ["paystack_not_configured"], authorizationUrl: null, reference: null, message: "Paystack is not configured." };
     }
     try {
       const res = await fetch(`${this.baseUrl()}/transaction/initialize`, {
@@ -41,9 +41,12 @@ export class PaystackCheckoutService {
       const data = (await res.json()) as any;
       const authUrl = this.pickHostedUrl(data);
       const reference = data?.data?.reference || null;
-      if (!res.ok || !authUrl) {
+      if (!res.ok) {
         this.logger.warn(`paystack_initialize_failed status=${res.status}`);
-        return { success: false, provider: "paystack", configured, blockers: ["paystack_checkout_session_create_failed"], authorizationUrl: null, reference, message: "Unable to initialize Paystack checkout." };
+        return { success: false, provider: "paystack", configured, blocker: "paystack_session_failed", blockers: ["paystack_session_failed"], authorizationUrl: null, reference, message: "Unable to initialize Paystack checkout." };
+      }
+      if (!authUrl) {
+        return { success: false, provider: "paystack", configured, blocker: "paystack_authorization_url_missing", blockers: ["paystack_authorization_url_missing"], authorizationUrl: null, reference, message: "Paystack response did not include a hosted authorization URL." };
       }
       return {
         success: true, provider: "paystack", configured, blockers: [],
@@ -52,13 +55,13 @@ export class PaystackCheckoutService {
       };
     } catch (error) {
       this.logger.error(`paystack_initialize_exception ${(error as Error).message}`);
-      return { success: false, provider: "paystack", configured, blockers: ["paystack_checkout_session_create_failed"], authorizationUrl: null, reference: null, message: "Unable to initialize Paystack checkout." };
+      return { success: false, provider: "paystack", configured, blocker: "paystack_session_failed", blockers: ["paystack_session_failed"], authorizationUrl: null, reference: null, message: "Unable to initialize Paystack checkout." };
     }
   }
 
   async verifyTransaction(reference?: string) {
     const secret = this.value("PAYSTACK_SECRET_KEY");
-    if (!secret) return { success: false, verified: false, blocker: "paystack_secret_key_missing" };
+    if (!secret) return { success: false, verified: false, blocker: "paystack_not_configured" };
     if (!reference) return { success: false, verified: false, blocker: "paystack_reference_missing" };
     try {
       const res = await fetch(`${this.baseUrl()}/transaction/verify/${encodeURIComponent(reference)}`, {
