@@ -1827,8 +1827,17 @@ export class StripeCheckoutService {
 
   private normalizeCheckoutInput(input: CreateStripeCheckoutSessionDto): { ok: true; value: NormalizedCheckoutInput } | { ok: false; response: Record<string, unknown> } {
     const quantity = input.quantity ?? 1;
-    const unitPriceMinor = input.unitPriceMinor ?? input.priceMinor ?? input.unit_price ?? input.amount;
-    const amount = input.amount ?? input.amountMinor ?? (typeof unitPriceMinor === "number" ? unitPriceMinor * quantity : undefined);
+    const unitPriceMinor =
+      input.unitPriceMinor ??
+      input.priceMinor ??
+      input.unit_price ??
+      (Number.isInteger(input.amount) && Number.isInteger(quantity) && quantity > 0
+        ? Math.floor((input.amount as number) / quantity)
+        : undefined);
+    const amount =
+      input.amount ??
+      input.amountMinor ??
+      (typeof unitPriceMinor === "number" ? unitPriceMinor * quantity : undefined);
     const productId = input.productId ?? input.product_id ?? "";
     const variantId = input.variantId ?? input.variant_id ?? "";
     const handle = input.handle ?? input.product_handle ?? "";
