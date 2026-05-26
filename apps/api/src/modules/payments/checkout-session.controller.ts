@@ -15,7 +15,8 @@ export class CheckoutSessionController {
   @Post("session")
   @HttpCode(HttpStatus.OK)
   async create(@Body() body: CreateCheckoutSessionDto) {
-    if (body.paymentProvider === "paystack") {
+    const provider = body.paymentProvider || body.provider || "stripe";
+    if (provider === "paystack") {
       const res = await this.paystack.createAuthorization(body);
       return { success: res.success, provider: "paystack", checkoutUrl: res.authorizationUrl || null, authorizationUrl: res.authorizationUrl || null, authorization_url: res.authorization_url || null, url: res.url || null, blockers: res.blockers || [], message: res.message || null, reference: res.reference || null, data: res.data || null };
     }

@@ -11,8 +11,23 @@ export class PaystackCheckoutService {
   async createAuthorization(input: CreateCheckoutSessionDto) {
     const secret = this.value("PAYSTACK_SECRET_KEY");
     const configured = Boolean(secret);
+    const quantity = input.quantity ?? 1;
+    const unitPriceMinor =
+      input.unitPriceMinor ??
+      input.priceMinor ??
+      input.unit_price ??
+      (Number.isInteger(input.amount) && Number.isInteger(quantity) && quantity > 0
+        ? Math.floor((input.amount as number) / quantity)
+        : undefined);
+    const amount =
+      input.amount ??
+      input.amountMinor ??
+      (typeof unitPriceMinor === "number" ? unitPriceMinor * quantity : undefined);
     if (!configured) {
       return { success: false, provider: "paystack", configured, blockers: ["paystack_not_configured"], authorizationUrl: null, reference: null, message: "Paystack is not configured." };
+    }
+    if (!Number.isInteger(quantity) || quantity < 1 || !Number.isInteger(unitPriceMinor) || (unitPriceMinor || 0) <= 0 || !Number.isInteger(amount) || (amount || 0) <= 0 || amount !== unitPriceMinor * quantity) {
+      return { success: false, provider: "paystack", configured, blocker: "checkout_payload_invalid", blockers: ["checkout_payload_invalid"], authorizationUrl: null, reference: null, message: "Unable to initialize Paystack checkout." };
     }
     try {
       const res = await fetch(`${this.baseUrl()}/transaction/initialize`, {
@@ -20,7 +35,7 @@ export class PaystackCheckoutService {
         headers: { Authorization: `Bearer ${secret}`, "Content-Type": "application/json" },
         body: JSON.stringify({
           email: input.customerEmail || "checkout@dbaronx.local",
-          amount: input.amount,
+          amount,
           currency: (input.currency || "usd").toUpperCase(),
           callback_url: this.paystackCallbackUrl(input.successUrl),
           metadata: {
@@ -88,7 +103,7 @@ export class PaystackCheckoutService {
     return this.value("PAYSTACK_CALLBACK_URL") || canonical || inputSuccessUrl || canonical;
   }
   private pickHostedUrl(data: any) {
-    return data?.data?.authorization_url || data?.data?.authorizationUrl || data?.authorization_url || data?.authorizationUrl || data?.url || null;
+    return data?.data?.authorization_url || data?.data?.authorizationUrl || data?.data?.url || data?.authorization_url || data?.authorizationUrl || data?.url || null;
   }
 
   readiness() {

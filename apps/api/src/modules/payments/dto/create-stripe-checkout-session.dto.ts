@@ -20,6 +20,11 @@ export class CreateStripeCheckoutSessionDto {
   @IsOptional()
   @IsString()
   @MaxLength(120)
+  cart_id?: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(120)
   userId?: string;
 
   @IsOptional()
@@ -36,6 +41,11 @@ export class CreateStripeCheckoutSessionDto {
   @IsString()
   @MaxLength(120)
   checkoutRef?: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(120)
+  checkout_ref?: string;
 
   @IsOptional()
   @IsString()
@@ -106,7 +116,17 @@ export class CreateStripeCheckoutSessionDto {
   @IsOptional()
   @IsString()
   @MaxLength(120)
+  supplier_product_id?: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(120)
   supplierSku?: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(120)
+  supplier_sku?: string;
 
   @IsOptional()
   @IsString()
@@ -258,23 +278,4 @@ export class CreateStripeCheckoutSessionDto {
   @Min(1)
   quantity?: number;
 
-  @IsOptional()
-  @IsString()
-  @MaxLength(120)
-  supplier_product_id?: string;
-
-  @IsOptional()
-  @IsString()
-  @MaxLength(120)
-  supplier_sku?: string;
-
-  @IsOptional()
-  @IsString()
-  @MaxLength(120)
-  checkout_ref?: string;
-
-  @IsOptional()
-  @IsString()
-  @MaxLength(120)
-  cart_id?: string;
 }
