@@ -7,7 +7,7 @@ import { CJ_OPERATOR_ALL_CATEGORY_SET, CJ_PRODUCT_CATEGORIES, CjCategorySlug } f
 import { SupabaseService } from '../shared/services/supabase.service';
 
 type Mode = 'readiness'|'preview'|'import'|'approve-safe'|'auto-approve-safe'|'publish-approved'|'full-safe';
-type CategoryResult = { category: string; requested: number; previewed: number; staged: number; valid: number; rejected: number; approved: number; published: number; skipped: number; blockers: string[]; labelsFound: string[]; duplicateCount: number; restrictedRejectedCount: number };
+type CategoryResult = { category: string; requested: number; fetched: number; previewed: number; staged: number; valid: number; rejected: number; approved: number; published: number; skipped: number; blockers: string[]; labelsFound: string[]; duplicateCount: number; restrictedRejectedCount: number; partialReason: string | null };
 const HARD_MAX_PER_CATEGORY = 200;
 const DEFAULT_LIMIT_PER_CATEGORY = 50;
 
@@ -33,9 +33,9 @@ async function main() {
     const readiness = await importer.readiness();
     const blockers = [...new Set(readiness.blockers || [])];
 
-    const result: { success:boolean; mode: string; dryRun:boolean; requestedLimitPerCategory:number; totalCategories:number; categoryResults:CategoryResult[]; totalPreviewed:number; totalStaged:number; totalApproved:number; totalPublished:number; totalRejected:number; totalSkipped:number; blockers:string[]; missingSecrets:string[]; dbDiagnostics:any; cjDiagnostics:any; nextAction:string } = {
+    const result: { success:boolean; mode: string; dryRun:boolean; requestedLimitPerCategory:number; totalCategories:number; categoryResults:CategoryResult[]; totalPreviewed:number; totalFetched:number; totalStaged:number; totalApproved:number; totalPublished:number; totalRejected:number; totalSkipped:number; blockers:string[]; missingSecrets:string[]; dbDiagnostics:any; cjDiagnostics:any; nextAction:string } = {
       success: false, mode, dryRun, requestedLimitPerCategory: requested, totalCategories: categories.length, categoryResults: [],
-      totalPreviewed:0,totalStaged:0,totalApproved:0,totalPublished:0,totalRejected:0,totalSkipped:0,blockers,missingSecrets:[],
+      totalPreviewed:0,totalFetched:0,totalStaged:0,totalApproved:0,totalPublished:0,totalRejected:0,totalSkipped:0,blockers,missingSecrets:[],
       dbDiagnostics: { migrationReady: readiness.checks?.migrationReady ?? false }, cjDiagnostics: { cjCredentialsConfigured: readiness.checks?.cjCredentialsConfigured ?? false }, nextAction:'Resolve blockers and retry.'
     };
 
@@ -48,11 +48,12 @@ async function main() {
     }
 
     for (const category of categories) {
-      const row: CategoryResult = { category, requested, previewed:0, staged:0, valid:0, rejected:0, approved:0, published:0, skipped:0, blockers:[], labelsFound:[], duplicateCount:0, restrictedRejectedCount:0 };
+      const row: CategoryResult = { category, requested, fetched:0, previewed:0, staged:0, valid:0, rejected:0, approved:0, published:0, skipped:0, blockers:[], labelsFound:[], duplicateCount:0, restrictedRejectedCount:0, partialReason: null };
       if (mode === 'preview' || mode === 'import' || mode === 'full-safe') {
         const preview = await importer.preview(category, requested);
         const labels = new Set<string>();
-        for (const item of preview.items || []) { row.previewed += 1; labels.add(String(item.category_slug || item.category || 'unknown')); }
+        for (const item of preview.items || []) { row.fetched += 1; row.previewed += 1; labels.add(String(item.category_slug || item.category || 'unknown')); }
+        row.partialReason = typeof (preview as any).partialReason === "string" ? (preview as any).partialReason : null;
         row.labelsFound = [...labels];
       }
       if (!dryRun && (mode === 'import' || mode === 'full-safe')) {
@@ -71,7 +72,7 @@ async function main() {
         row.published += p.published || 0;
       }
       result.categoryResults.push(row);
-      result.totalPreviewed += row.previewed; result.totalStaged += row.staged; result.totalApproved += row.approved; result.totalPublished += row.published; result.totalRejected += row.rejected; result.totalSkipped += row.skipped;
+      result.totalPreviewed += row.previewed; result.totalFetched += row.fetched; result.totalStaged += row.staged; result.totalApproved += row.approved; result.totalPublished += row.published; result.totalRejected += row.rejected; result.totalSkipped += row.skipped;
     }
 
     result.success = result.categoryResults.every((r) => r.blockers.length === 0);
@@ -81,6 +82,6 @@ async function main() {
 }
 
 main().catch((error) => {
-  console.log(JSON.stringify({ success:false, mode: process.env.CJ_OPERATOR_MODE || 'readiness', dryRun:isTrue(process.env.CJ_OPERATOR_DRY_RUN), requestedLimitPerCategory: parseLimit(process.env.CJ_OPERATOR_LIMIT_PER_CATEGORY, DEFAULT_LIMIT_PER_CATEGORY), totalCategories:0, categoryResults:[], totalPreviewed:0,totalStaged:0,totalApproved:0,totalPublished:0,totalRejected:0,totalSkipped:0, blockers:[String(error?.message || error)], missingSecrets:[], dbDiagnostics:{}, cjDiagnostics:{}, nextAction:'Fix runtime error and retry.' }, null, 2));
+  console.log(JSON.stringify({ success:false, mode: process.env.CJ_OPERATOR_MODE || 'readiness', dryRun:isTrue(process.env.CJ_OPERATOR_DRY_RUN), requestedLimitPerCategory: parseLimit(process.env.CJ_OPERATOR_LIMIT_PER_CATEGORY, DEFAULT_LIMIT_PER_CATEGORY), totalCategories:0, categoryResults:[], totalPreviewed:0,totalFetched:0,totalStaged:0,totalApproved:0,totalPublished:0,totalRejected:0,totalSkipped:0, blockers:[String(error?.message || error)], missingSecrets:[], dbDiagnostics:{}, cjDiagnostics:{}, nextAction:'Fix runtime error and retry.' }, null, 2));
   process.exit(1);
 });

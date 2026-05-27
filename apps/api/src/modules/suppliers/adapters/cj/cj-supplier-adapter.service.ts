@@ -208,6 +208,51 @@ export class CjSupplierAdapterService {
     }
   }
 
+
+
+  async fetchProducts(category: string, limit: number) {
+    const baseUrl = this.config.get<string>("CJ_API_BASE_URL")?.trim();
+    const accessToken = this.config.get<string>("CJ_ACCESS_TOKEN")?.trim();
+    if (!baseUrl || !accessToken) {
+      throw new BadRequestException("cj_credentials_missing");
+    }
+
+    const response = await axios.get(this.cjEndpoint(baseUrl, "/v1/product/list"), {
+      headers: { "CJ-Access-Token": accessToken },
+      params: { pageNum: 1, pageSize: Math.max(1, Math.min(limit, 100)), ...(category && category !== "all" ? { categoryName: category } : {}) },
+      timeout: this.liveProbeTimeoutMs,
+      validateStatus: () => true,
+    });
+
+    if (response.status < 200 || response.status >= 300 || this.isCjApiFailureCode(this.extractApiCode(response.data))) {
+      throw new BadRequestException(`cj_fetch_failed_${response.status}`);
+    }
+
+    const list = this.extractProductList(response.data);
+    return list.map((p: any, i: number) => ({
+      supplierProductId: String(p.pid ?? p.productId ?? p.id ?? `${category}-${i + 1}`),
+      supplierSku: String(p.vid ?? p.sku ?? p.variantId ?? `sku-${i + 1}`),
+      title: String(p.productNameEn ?? p.productName ?? p.name ?? "CJ Product"),
+      handle: String(p.productNameEn ?? p.productName ?? p.name ?? "cj-product").toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, ''),
+      description: String(p.description ?? p.productNameEn ?? p.productName ?? ""),
+      sourceUrl: String(p.url ?? p.productUrl ?? "https://cjdropshipping.com"),
+      imageUrl: String(Array.isArray(p.productImageSet) ? p.productImageSet[0] : p.productImage ?? ""),
+      category,
+      priceMinor: Math.round(Number(p.sellPrice ?? p.price ?? 0) * 100) || 0,
+      costMinor: Math.round(Number(p.costPrice ?? p.supplierPrice ?? p.sellPrice ?? 0) * 100) || 0,
+      stockQty: Number(p.stockNum ?? p.inventoryNum ?? 0) || 0,
+      shippingCountries: ["US"],
+      deliveryEstimate: "7-12 days",
+    }));
+  }
+
+
+  private extractProductList(payload: any): any[] {
+    const candidates = [payload?.data?.list, payload?.data?.result?.list, payload?.result?.list, payload?.list, payload?.data?.records];
+    for (const c of candidates) if (Array.isArray(c)) return c;
+    return [];
+  }
+
   private validateExplicitProductInput(input: CjProductImportReadinessDto): string[] {
     const blockers: string[] = [];
 

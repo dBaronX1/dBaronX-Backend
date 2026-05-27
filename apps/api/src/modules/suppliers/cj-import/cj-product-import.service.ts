@@ -16,7 +16,7 @@ export class CjProductImportService {
   async preview(category = "all", limit = 50) {
     const capped = this.limit(limit);
     await this.cjAdapter.preflightCredentials();
-    const sample = this.mockProducts(capped, category);
+    const sample = await this.cjAdapter.fetchProducts(category, capped);
     return { success: true, mode: "preview", category, limit: capped, items: sample.map((p) => this.normalize(p)) };
   }
 
@@ -24,7 +24,7 @@ export class CjProductImportService {
     const capped = this.limit(limit);
     const run = await this.supabase.schema("app_private").from("cj_product_import_runs").insert({ mode: "import_run", status: "running", requested_by: requestedBy || null, category_slug: category, import_limit: capped }).select("*").single();
     if (run.error || !run.data) throw new BadRequestException(run.error?.message || "import run create failed");
-    const items = this.mockProducts(capped, category).map((p) => this.normalize(p, run.data.id));
+    const items = (await this.cjAdapter.fetchProducts(category, capped)).map((p) => this.normalize(p, run.data.id));
     const { error } = await this.supabase.schema("app_private").from("cj_product_import_items").upsert(items, { onConflict: "supplier,supplier_product_id,supplier_sku" });
     if (error) throw new BadRequestException(error.message);
     const counts = this.count(items);
@@ -95,7 +95,4 @@ export class CjProductImportService {
 
   private count(items: any[]) { const rejected = items.filter((i) => i.validation_status === "validation_failed").length; return { accepted: items.length - rejected, rejected }; }
   private limit(n: number) { if (n > 100) return 100; if (n < 1) throw new BadRequestException("limit_must_be_positive"); return n; }
-  private mockProducts(limit: number, category: string) {
-    return Array.from({ length: Math.min(limit, 5) }).map((_, i) => ({ supplierProductId: `cj-${category}-${i + 1}`, supplierSku: `sku-${i + 1}`, title: `CJ ${category} product ${i + 1}`, handle: `cj-${category}-product-${i + 1}`, description: `Safe ${category} catalog item`, sourceUrl: "https://cjdropshipping.com/product/sample", imageUrl: "https://picsum.photos/seed/cj/800/800", category, priceMinor: 1999 + i * 100, costMinor: 999, stockQty: 10, shippingCountries: ["US"], deliveryEstimate: "7-12 days" }));
-  }
 }
