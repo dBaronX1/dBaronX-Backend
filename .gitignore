@@ -41,3 +41,15 @@ new.env
 *.env.local
 *.env.production
 *.env.development
+.env
+.env.*
+!.env.example
+.env
+.env.*
+!.env.example
+new.env
+
+new.env
+.env
+.env.*
+!.env.example

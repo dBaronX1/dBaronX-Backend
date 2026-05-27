@@ -6,59 +6,28 @@ on:
       mode:
         description: Operator mode
         type: choice
-        options:
-          - readiness
-          - onboard-category
-          - onboard-batch
+        options: [readiness, preview, import, approve-safe, publish-approved, full-safe]
         default: readiness
-      categorySet:
-        description: Category set
-        type: choice
-        options:
-          - all
-          - custom
-        default: all
       category:
-        description: Single category for onboard-category mode
-        required: false
-        default: fashion
-      categories:
-        description: CSV categories for onboard-batch mode
-        required: false
-        default: electronics,fashion,home-living,beauty,sports,automotive,agriculture,tech,finance
-      targetPerCategory:
-        description: Target safe products per category
+        description: Category slug
+        type: choice
+        options: [all, electronics, fashion, home-living, beauty, sports, automotive, agriculture, tech, finance]
+        default: all
+      limitPerCategory:
+        description: Requested products per category
         required: false
         default: '50'
-      limitPerCategory:
-        description: Max fetch/import attempts per category
-        required: false
-        default: '100'
-      labelRotationLimit:
-        description: Max sequential items per label before rotation
-        required: false
-        default: '3'
-      autoApproveSafe:
-        description: Auto approve safe items after import
+      dryRun:
+        description: Dry run only
         type: boolean
-        required: false
-        default: false
-      publishApproved:
-        description: Publish approved items after import
-        type: boolean
-        required: false
-        default: false
+        default: true
       readinessExitZero:
         description: Exit 0 in readiness mode when blockers exist
         type: boolean
-        required: false
         default: true
 jobs:
   run-cj-operator:
     runs-on: ubuntu-latest
-    timeout-minutes: 30
-    permissions:
-      contents: read
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -66,9 +35,6 @@ jobs:
       - uses: pnpm/action-setup@v4
       - run: pnpm install --frozen-lockfile
       - run: pnpm --filter dbaronx-api build
-      - name: Require onboarding confirmation for onboard-batch
-        if: ${{ inputs.mode == 'onboard-batch' && inputs.publishApproved == true }}
-        run: echo 'publish-approved in onboard-batch requires explicit manual run confirmation in UI.'
       - name: Run CJ operator and capture JSON output
         id: operator-run
         shell: bash
@@ -79,78 +45,34 @@ jobs:
           CJ_ACCESS_TOKEN: ${{ secrets.CJ_ACCESS_TOKEN }}
           CJ_API_KEY: ${{ secrets.CJ_API_KEY }}
           CJ_OPERATOR_MODE: ${{ inputs.mode }}
-          CJ_OPERATOR_CATEGORY_SET: ${{ inputs.categorySet }}
           CJ_OPERATOR_CATEGORY: ${{ inputs.category }}
-          CJ_OPERATOR_CATEGORIES: ${{ inputs.categories }}
-          CJ_OPERATOR_TARGET_PER_CATEGORY: ${{ inputs.targetPerCategory }}
           CJ_OPERATOR_LIMIT_PER_CATEGORY: ${{ inputs.limitPerCategory }}
-          CJ_OPERATOR_LABEL_ROTATION_LIMIT: ${{ inputs.labelRotationLimit }}
-          CJ_OPERATOR_AUTO_APPROVE_SAFE: ${{ inputs.autoApproveSafe }}
-          CJ_OPERATOR_PUBLISH_APPROVED: ${{ inputs.publishApproved }}
+          CJ_OPERATOR_DRY_RUN: ${{ inputs.dryRun }}
           CJ_OPERATOR_READINESS_EXIT_ZERO: ${{ inputs.readinessExitZero }}
-          DBX_CONFIRM_CJ_OPERATOR_ONBOARDING: ${{ (inputs.mode == 'onboard-category' || inputs.mode == 'onboard-batch') && 'true' || '' }}
+          DBX_CONFIRM_CJ_OPERATOR_ONBOARDING: true
         run: |
           set -o pipefail
           mkdir -p artifacts
-          db_present=false
-          [ -n "${DATABASE_URL}" ] && db_present=true
-          supabase_url_present=false
-          [ -n "${SUPABASE_URL}" ] && supabase_url_present=true
-          supabase_service_role_present=false
-          [ -n "${SUPABASE_SERVICE_ROLE_KEY}" ] && supabase_service_role_present=true
-          cj_access_token_present=false
-          [ -n "${CJ_ACCESS_TOKEN}" ] && cj_access_token_present=true
-          cj_api_key_present=false
-          [ -n "${CJ_API_KEY}" ] && cj_api_key_present=true
-          cj_credential_present=false
-          if [ "$cj_access_token_present" = "true" ] || [ "$cj_api_key_present" = "true" ]; then
-            cj_credential_present=true
-          fi
-
+          db_present=false; [ -n "${DATABASE_URL}" ] && db_present=true
+          supabase_url_present=false; [ -n "${SUPABASE_URL}" ] && supabase_url_present=true
+          supabase_service_role_present=false; [ -n "${SUPABASE_SERVICE_ROLE_KEY}" ] && supabase_service_role_present=true
+          cj_access_token_present=false; [ -n "${CJ_ACCESS_TOKEN}" ] && cj_access_token_present=true
+          cj_api_key_present=false; [ -n "${CJ_API_KEY}" ] && cj_api_key_present=true
+          cj_credential_present=false; if [ "$cj_access_token_present" = "true" ] || [ "$cj_api_key_present" = "true" ]; then cj_credential_present=true; fi
           missing_secrets_json=$(DATABASE_URL_PRESENT="$db_present" SUPABASE_URL_PRESENT="$supabase_url_present" SUPABASE_SERVICE_ROLE_KEY_PRESENT="$supabase_service_role_present" CJ_CREDENTIAL_PRESENT="$cj_credential_present" node -e "const m=[];if(process.env.DATABASE_URL_PRESENT!=='true')m.push('DATABASE_URL');if(process.env.SUPABASE_URL_PRESENT!=='true')m.push('SUPABASE_URL');if(process.env.SUPABASE_SERVICE_ROLE_KEY_PRESENT!=='true')m.push('SUPABASE_SERVICE_ROLE_KEY');if(process.env.CJ_CREDENTIAL_PRESENT!=='true')m.push('CJ_ACCESS_TOKEN_or_CJ_API_KEY');process.stdout.write(JSON.stringify(m));")
-
           if [ "$missing_secrets_json" != "[]" ]; then
-            MISSING="$missing_secrets_json" DATABASE_URL_PRESENT="$db_present" SUPABASE_URL_PRESENT="$supabase_url_present" SUPABASE_SERVICE_ROLE_KEY_PRESENT="$supabase_service_role_present" CJ_ACCESS_TOKEN_PRESENT="$cj_access_token_present" CJ_API_KEY_PRESENT="$cj_api_key_present" CJ_CREDENTIAL_PRESENT="$cj_credential_present" node -e "const fs=require('node:fs');const missing=JSON.parse(process.env.MISSING);const mode=process.env.CJ_OPERATOR_MODE||'readiness';const readinessExitZero=String(process.env.CJ_OPERATOR_READINESS_EXIT_ZERO||'').toLowerCase()==='true';const payload={success:false,mode,blockers:['github_secret_missing'],missingSecrets:missing,secretPresence:{DATABASE_URL:process.env.DATABASE_URL_PRESENT==='true',SUPABASE_URL:process.env.SUPABASE_URL_PRESENT==='true',SUPABASE_SERVICE_ROLE_KEY:process.env.SUPABASE_SERVICE_ROLE_KEY_PRESENT==='true',CJ_ACCESS_TOKEN:process.env.CJ_ACCESS_TOKEN_PRESENT==='true',CJ_API_KEY:process.env.CJ_API_KEY_PRESENT==='true',CJ_CREDENTIAL:process.env.CJ_CREDENTIAL_PRESENT==='true'},nextAction:'Add missing repository secrets in GitHub Actions secrets and rerun workflow.'};fs.writeFileSync('artifacts/cj-operator-output.json',JSON.stringify(payload,null,2)+'\n');if(mode==='readiness'&&readinessExitZero){process.exit(0)}process.exit(1);"
+            MISSING="$missing_secrets_json" node -e "const fs=require('node:fs');const missing=JSON.parse(process.env.MISSING);const payload={success:false,mode:process.env.CJ_OPERATOR_MODE,dryRun:String(process.env.CJ_OPERATOR_DRY_RUN)==='true',requestedLimitPerCategory:Number(process.env.CJ_OPERATOR_LIMIT_PER_CATEGORY||50),totalCategories:0,categoryResults:[],totalPreviewed:0,totalStaged:0,totalApproved:0,totalPublished:0,totalRejected:0,totalSkipped:0,blockers:['github_secret_missing'],missingSecrets:missing,dbDiagnostics:{},cjDiagnostics:{},nextAction:'Add missing secrets and rerun.'};fs.writeFileSync('artifacts/cj-operator-output.json',JSON.stringify(payload,null,2)+'\n');"
+            if [ "${{ inputs.mode }}" = "readiness" ] && [ "${{ inputs.readinessExitZero }}" = "true" ]; then exit 0; else exit 1; fi
           fi
-
           operator_exit_code=0
-          node apps/api/dist/scripts/cj-operator-onboard-products.js | tee artifacts/cj-operator-output.json || operator_exit_code=$?
+          node apps/api/dist/scripts/cj-operator-onboard-products.js > artifacts/cj-operator-output.json || operator_exit_code=$?
           if [ ! -s artifacts/cj-operator-output.json ]; then
-            node -e "const fs=require('node:fs');const payload={success:false,mode:process.env.CJ_OPERATOR_MODE||'readiness',blockers:['operator_output_empty'],nextAction:'Inspect CJ operator logs and rerun workflow.'};fs.writeFileSync('artifacts/cj-operator-output.json',JSON.stringify(payload,null,2)+'\n');"
+            node -e "const fs=require('node:fs');const payload={success:false,mode:process.env.CJ_OPERATOR_MODE,dryRun:String(process.env.CJ_OPERATOR_DRY_RUN)==='true',requestedLimitPerCategory:Number(process.env.CJ_OPERATOR_LIMIT_PER_CATEGORY||50),totalCategories:0,categoryResults:[],totalPreviewed:0,totalStaged:0,totalApproved:0,totalPublished:0,totalRejected:0,totalSkipped:0,blockers:['operator_output_empty'],missingSecrets:[],dbDiagnostics:{},cjDiagnostics:{},nextAction:'Inspect logs and rerun.'};fs.writeFileSync('artifacts/cj-operator-output.json',JSON.stringify(payload,null,2)+'\n');"
           fi
           echo "operatorExitCode=${operator_exit_code}" >> "$GITHUB_OUTPUT"
-          if [ "${CJ_OPERATOR_MODE}" = "readiness" ] && [ "${CJ_OPERATOR_READINESS_EXIT_ZERO}" = "true" ]; then
-            exit 0
-          fi
-          if [ "$operator_exit_code" -ne 0 ]; then
-            exit "$operator_exit_code"
-          fi
-      - name: Show safe operator JSON preview
-        if: always()
-        shell: bash
-        run: |
-          if [ -f artifacts/cj-operator-output.json ]; then
-            echo "--- First 40 lines of artifacts/cj-operator-output.json ---"
-            sed -n '1,40p' artifacts/cj-operator-output.json
-            echo "--- Safe summary fields ---"
-            node -e "const fs=require('node:fs');const p='artifacts/cj-operator-output.json';if(!fs.existsSync(p)){process.exit(0)};let r;try{const raw=fs.readFileSync(p,'utf8').trim();if(!raw)throw new Error('empty_output');r=JSON.parse(raw);}catch(error){console.log(JSON.stringify({success:false,blockers:['summary_parse_failed'],summaryWarning:'Safe summary fallback used because artifact JSON was empty or invalid.'},null,2));process.exit(0);}const out={success:r.success,mode:r.mode,blockers:Array.isArray(r.blockers)?r.blockers:[],missingSecrets:Array.isArray(r.missingSecrets)?r.missingSecrets:[],secretPresence:r.secretPresence||undefined,dbConnectionReady:r.dbDiagnostics?.dbConnectionReady,dbConnectionSource:r.dbDiagnostics?.dbConnectionSource,missingTables:r.dbDiagnostics?.missingTables,totals:r.totals};console.log(JSON.stringify(out,null,2));"
-          else
-            echo "artifacts/cj-operator-output.json not found"
-          fi
-      - name: Workflow summary
-        if: always()
-        shell: bash
-        run: |
-          {
-            echo "## CJ Operator Workflow Result"
-            echo "- mode: ${{ inputs.mode }}"
-            echo "- operatorExitCode: ${{ steps.operator-run.outputs.operatorExitCode || 'unknown' }}"
-            echo "- artifact: artifacts/cj-operator-output.json"
-            echo "- Download artifact for JSON details"
-          } >> "$GITHUB_STEP_SUMMARY"
       - if: always()
         uses: actions/upload-artifact@v4
         with:
           name: cj-operator-output
           path: artifacts/cj-operator-output.json
-          if-no-files-found: warn
+          if-no-files-found: error
