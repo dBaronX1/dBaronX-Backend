@@ -65,14 +65,24 @@ jobs:
             if [ "${{ inputs.mode }}" = "readiness" ] && [ "${{ inputs.readinessExitZero }}" = "true" ]; then exit 0; else exit 1; fi
           fi
           operator_exit_code=0
-          node apps/api/dist/scripts/cj-operator-onboard-products.js > artifacts/cj-operator-output.json || operator_exit_code=$?
+          CJ_OPERATOR_OUTPUT_PATH=artifacts/cj-operator-output.json node apps/api/dist/scripts/cj-operator-onboard-products.js > artifacts/cj-operator-stdout.log 2> artifacts/cj-operator-stderr.log || operator_exit_code=$?
           if [ ! -s artifacts/cj-operator-output.json ]; then
             node -e "const fs=require('node:fs');const payload={success:false,mode:process.env.CJ_OPERATOR_MODE,dryRun:String(process.env.CJ_OPERATOR_DRY_RUN)==='true',requestedLimitPerCategory:Number(process.env.CJ_OPERATOR_LIMIT_PER_CATEGORY||50),totalCategories:0,categoryResults:[],totalPreviewed:0,totalFetched:0,totalStaged:0,totalApproved:0,totalPublished:0,totalRejected:0,totalSkipped:0,blockers:['operator_output_empty'],missingSecrets:[],dbDiagnostics:{},cjDiagnostics:{},nextAction:'Inspect logs and rerun.'};fs.writeFileSync('artifacts/cj-operator-output.json',JSON.stringify(payload,null,2)+'\n');"
           fi
           echo "operatorExitCode=${operator_exit_code}" >> "$GITHUB_OUTPUT"
+      - name: Validate operator output contract
+        if: always()
+        run: |
+          test -s artifacts/cj-operator-output.json
+          node -e "const fs=require('node:fs');const mode=String(process.env.CJ_OPERATOR_MODE||'');const p=JSON.parse(fs.readFileSync('artifacts/cj-operator-output.json','utf8'));const strict=new Set(['preview','import','approve-safe','publish-approved','full-safe']);if(strict.has(mode)&&p.success!==true){process.exit(1);}"
+        env:
+          CJ_OPERATOR_MODE: ${{ inputs.mode }}
       - if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: cj-operator-output
-          path: artifacts/cj-operator-output.json
+          name: cj-operator-artifacts
+          path: |
+            artifacts/cj-operator-output.json
+            artifacts/cj-operator-stdout.log
+            artifacts/cj-operator-stderr.log
           if-no-files-found: error
