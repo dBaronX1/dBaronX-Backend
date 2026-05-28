@@ -176,14 +176,24 @@ export class CjProductImportService {
     }
 
     const cred = await this.cjAdapter.preflightCredentials();
-    checks.cjCredentialsConfigured = cred.cjTokenPresent;
+    checks.cjCredentialsConfigured = cred.cjCredentialConfigured;
     if (!checks.cjCredentialsConfigured) blockers.push("cj_credentials_missing");
+
+    const cjDiagnostics = {
+      cjAccessTokenPresent: cred.cjAccessTokenPresent,
+      cjApiKeyPresent: cred.cjApiKeyPresent,
+      cjCredentialConfigured: cred.cjCredentialConfigured,
+      acceptedCredentialEnvNames: cred.acceptedCredentialEnvNames,
+      adapterCredentialSource: cred.adapterCredentialSource,
+      cjApiBaseUrlConfigured: cred.cjApiBaseUrlConfigured,
+    };
 
     return {
       success: blockers.length === 0,
       blockers,
       checks,
       dbDiagnostics,
+      cjDiagnostics,
       nextAction: blockers.length ? "Resolve listed blockers and redeploy." : "Ready for CJ import.",
     };
   }
