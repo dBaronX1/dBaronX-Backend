@@ -10,7 +10,13 @@ from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
-from app.api_router import FAILED_ROUTE_MOUNTS, MOUNTED_ROUTES, api_router
+from app.api_router import (
+    FAILED_ROUTE_MOUNTS,
+    MOUNTED_ROUTES,
+    ROUTE_MOUNT_DIAGNOSTICS,
+    SKIPPED_ROUTE_MOUNTS,
+    api_router,
+)
 
 logger = logging.getLogger("dbaronx.fastapi.app_factory")
 
@@ -112,13 +118,16 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     app.state.boot_ok = len(required_failures) == 0
     app.state.mounted_routes = MOUNTED_ROUTES
     app.state.failed_route_mounts = FAILED_ROUTE_MOUNTS
+    app.state.skipped_route_mounts = SKIPPED_ROUTE_MOUNTS
+    app.state.route_mount_diagnostics = ROUTE_MOUNT_DIAGNOSTICS
 
     logger.info(
-        "FastAPI boot complete service=%s env=%s mounted_routes=%s failed_mounts=%s",
+        "FastAPI boot complete service=%s env=%s mounted_routes=%s failed_mounts=%s skipped_mounts=%s",
         app.state.service_name,
         app.state.app_env,
         len(MOUNTED_ROUTES),
         len(FAILED_ROUTE_MOUNTS),
+        len(SKIPPED_ROUTE_MOUNTS),
     )
 
     yield
@@ -232,6 +241,8 @@ def create_app() -> FastAPI:
                 "version": os.getenv("APP_VERSION", "1.0.0"),
                 "mounted_routes": len(MOUNTED_ROUTES),
                 "failed_route_mounts": FAILED_ROUTE_MOUNTS,
+                "skipped_route_mounts": SKIPPED_ROUTE_MOUNTS,
+                "route_mount_diagnostics": ROUTE_MOUNT_DIAGNOSTICS,
             },
             "meta": {},
         }
