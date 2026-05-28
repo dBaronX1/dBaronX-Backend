@@ -27,7 +27,7 @@ const run = spawnSync('node', [distScript], {
 });
 if (!existsSync(outputPath)) throw new Error('compiled operator did not write output file');
 const payload = JSON.parse(readFileSync(outputPath, 'utf8'));
-for (const k of ['success','mode','dryRun','requestedLimitPerCategory','totalCategories','categoryResults','blockers','medusaSyncBlockers','missingSecrets','dbDiagnostics','cjDiagnostics','medusaDiagnostics','errorName','errorMessage','errorStackPreview','nextAction']) {
+for (const k of ['success','mode','dryRun','requestedLimitPerCategory','totalCategories','categoryResults','blockers','medusaSyncBlockers','missingSecrets','dbDiagnostics','cjDiagnostics','medusaDiagnostics','bootstrapDiagnostics','errorName','errorMessage','errorStackPreview','nextAction']) {
   if (!(k in payload)) throw new Error(`missing key: ${k}`);
 }
 if ((payload.blockers || []).includes('operator_output_empty')) throw new Error('blocker operator_output_empty should not occur');
