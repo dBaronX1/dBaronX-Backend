@@ -3,6 +3,7 @@ import { CjSupplierAdapterService } from "../adapters/cj/cj-supplier-adapter.ser
 import { SupabaseService } from "../../../shared/services/supabase.service";
 import { CjProductCategoryMapperService } from "./cj-product-category-mapper.service";
 import { CjProductValidationService } from "./cj-product-validation.service";
+import { execFileSync } from "node:child_process";
 
 @Injectable()
 export class CjProductImportService {
@@ -35,6 +36,30 @@ export class CjProductImportService {
   async listRuns() { return this.supabase.schema("app_private").from("cj_product_import_runs").select("*").order("created_at", { ascending: false }).limit(20); }
   async listItems() { return this.supabase.schema("app_private").from("cj_product_import_items").select("*").order("created_at", { ascending: false }).limit(100); }
   async readiness() {
+    const databaseUrl = String(process.env.DATABASE_URL || '').trim();
+    const supabaseUrl = String(process.env.SUPABASE_URL || '').trim();
+    const supabaseServiceRoleKey = String(process.env.SUPABASE_SERVICE_ROLE_KEY || '').trim();
+    const requiredTables = {
+      'app_private.cj_product_import_runs': false,
+      'app_private.cj_product_import_items': false,
+      'app_public.storefront_products': false,
+      'app_private.fulfillment_tasks': false,
+    };
+    const dbDiagnostics: Record<string, any> = {
+      databaseConnected: false,
+      databaseName: null,
+      currentUser: null,
+      currentSchema: null,
+      appPrivateSchemaPresent: false,
+      appPublicSchemaPresent: false,
+      requiredTables,
+      migrationReady: false,
+      checkerSource: 'database_url_postgres_to_regclass',
+      databaseUrlPresent: Boolean(databaseUrl),
+      supabaseUrlPresent: Boolean(supabaseUrl),
+      supabaseServiceRolePresent: Boolean(supabaseServiceRoleKey),
+      likelySupabaseRestSchemaVisibilityIssue: false,
+    };
     const checks = {
       internalAuth: "passed",
       migrationReady: false,
@@ -48,24 +73,65 @@ export class CjProductImportService {
     };
     const blockers: string[] = [];
 
-    const runs = await this.supabase.schema("app_private").from("cj_product_import_runs").select("id").limit(1);
-    checks.importRunsTableReady = !runs.error;
-    const items = await this.supabase.schema("app_private").from("cj_product_import_items").select("id").limit(1);
-    checks.importItemsTableReady = !items.error;
-    const storefront = await this.supabase.schema("app_public").from("storefront_products").select("id").limit(1);
-    checks.storefrontPublishTargetReady = !storefront.error;
-    const fulfillment = await this.supabase.schema("app_private").from("fulfillment_tasks").select("id").limit(1);
-    checks.fulfillmentTasksTableReady = !fulfillment.error;
+    if (!databaseUrl) {
+      blockers.push('database_url_missing');
+    } else {
+      try {
+        const sql = `select row_to_json(t) from (
+          select
+            current_database() as database_name,
+            current_user as current_user,
+            current_schema() as current_schema,
+            exists(select 1 from pg_namespace where nspname = 'app_private') as app_private_schema_present,
+            exists(select 1 from pg_namespace where nspname = 'app_public') as app_public_schema_present,
+            to_regclass('app_private.cj_product_import_runs') is not null as cj_product_import_runs_present,
+            to_regclass('app_private.cj_product_import_items') is not null as cj_product_import_items_present,
+            to_regclass('app_public.storefront_products') is not null as storefront_products_present,
+            to_regclass('app_private.fulfillment_tasks') is not null as fulfillment_tasks_present
+        ) t;`;
+        const stdout = execFileSync('psql', [databaseUrl, '-t', '-A', '-c', sql], { encoding: 'utf8' }).trim();
+        const row = stdout ? JSON.parse(stdout) : {};
+        requiredTables['app_private.cj_product_import_runs'] = Boolean(row.cj_product_import_runs_present);
+        requiredTables['app_private.cj_product_import_items'] = Boolean(row.cj_product_import_items_present);
+        requiredTables['app_public.storefront_products'] = Boolean(row.storefront_products_present);
+        requiredTables['app_private.fulfillment_tasks'] = Boolean(row.fulfillment_tasks_present);
+        dbDiagnostics.databaseConnected = true;
+        dbDiagnostics.databaseName = row.database_name || null;
+        dbDiagnostics.currentUser = row.current_user || null;
+        dbDiagnostics.currentSchema = row.current_schema || null;
+        dbDiagnostics.appPrivateSchemaPresent = Boolean(row.app_private_schema_present);
+        dbDiagnostics.appPublicSchemaPresent = Boolean(row.app_public_schema_present);
+      } catch (error) {
+        blockers.push('database_connection_failed');
+        dbDiagnostics.databaseConnected = false;
+        dbDiagnostics.errorName = error instanceof Error ? error.name : 'Error';
+        dbDiagnostics.errorMessage = error instanceof Error ? String(error.message || '').slice(0, 200) : String(error).slice(0, 200);
+      }
+    }
+
+    checks.importRunsTableReady = requiredTables['app_private.cj_product_import_runs'];
+    checks.importItemsTableReady = requiredTables['app_private.cj_product_import_items'];
+    checks.storefrontPublishTargetReady = requiredTables['app_public.storefront_products'];
+    checks.fulfillmentTasksTableReady = requiredTables['app_private.fulfillment_tasks'];
 
     checks.migrationReady = checks.importRunsTableReady
       && checks.importItemsTableReady
       && checks.storefrontPublishTargetReady
       && checks.fulfillmentTasksTableReady;
+    dbDiagnostics.migrationReady = checks.migrationReady;
 
     if (!checks.importRunsTableReady) blockers.push("cj_import_runs_table_missing");
     if (!checks.importItemsTableReady) blockers.push("cj_import_items_table_missing");
     if (!checks.storefrontPublishTargetReady) blockers.push("storefront_products_table_missing");
     if (!checks.fulfillmentTasksTableReady) blockers.push("fulfillment_tasks_table_missing");
+    if (
+      dbDiagnostics.databaseConnected
+      && checks.migrationReady
+      && supabaseUrl
+      && supabaseServiceRoleKey
+    ) {
+      dbDiagnostics.likelySupabaseRestSchemaVisibilityIssue = true;
+    }
 
     const cred = await this.cjAdapter.preflightCredentials();
     checks.cjCredentialsConfigured = cred.cjTokenPresent;
@@ -75,6 +141,7 @@ export class CjProductImportService {
       success: blockers.length === 0,
       blockers,
       checks,
+      dbDiagnostics,
       nextAction: blockers.length ? "Resolve listed blockers and redeploy." : "Ready for CJ import.",
     };
   }
