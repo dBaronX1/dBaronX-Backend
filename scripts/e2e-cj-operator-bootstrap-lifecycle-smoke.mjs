@@ -36,7 +36,7 @@ if (!stdout.includes('operatorFinalOutputWritten=true')) throw new Error('missin
 const blockerSet = new Set(Array.isArray(payload.blockers) ? payload.blockers : []);
 if (blockerSet.has('operator_bootstrap_incomplete')) throw new Error('operator_bootstrap_incomplete should not be final blocker for controlled run');
 
-const allowedPreNest = blockerSet.has('github_secret_missing') || blockerSet.has('cj_credentials_missing') || blockerSet.has('operator_bootstrap_failed');
+const allowedPreNest = blockerSet.has('github_secret_missing') || blockerSet.has('cj_credentials_missing') || blockerSet.has('operator_bootstrap_failed') || blockerSet.has('operator_bootstrap_timeout');
 const sawBootstrapComplete = stdout.includes('operatorBootstrapComplete=true');
 const sawRunStart = stdout.includes('operatorRunStarting=true');
 if (!sawBootstrapComplete && !allowedPreNest) {
@@ -46,7 +46,7 @@ if (sawBootstrapComplete && !sawRunStart) {
   throw new Error('missing run-start marker after bootstrap-complete');
 }
 
-for (const k of ['success','mode','dryRun','requestedLimitPerCategory','totalCategories','categoryResults','blockers','medusaSyncBlockers','missingSecrets','dbDiagnostics','cjDiagnostics','medusaDiagnostics','errorName','errorMessage','errorStackPreview','nextAction']) {
+for (const k of ['success','mode','dryRun','requestedLimitPerCategory','totalCategories','categoryResults','blockers','medusaSyncBlockers','missingSecrets','dbDiagnostics','cjDiagnostics','medusaDiagnostics','bootstrapDiagnostics','errorName','errorMessage','errorStackPreview','nextAction']) {
   if (!(k in payload)) throw new Error(`missing hardened field: ${k}`);
 }
 for (const marker of ['CJ_ACCESS_TOKEN=', 'CJ_API_KEY=', 'SUPABASE_SERVICE_ROLE_KEY=']) {
@@ -54,3 +54,5 @@ for (const marker of ['CJ_ACCESS_TOKEN=', 'CJ_API_KEY=', 'SUPABASE_SERVICE_ROLE_
 }
 
 console.log(JSON.stringify({ success: true, smoke: 'cj-operator-bootstrap-lifecycle', exitCode: run.status }));
+
+if (payload.errorName === 'OperatorExitedBeforeFinalOutput') throw new Error('unexpected vague exit failure for controlled lifecycle');
