@@ -6,7 +6,7 @@ for (const key of [
   'CJ_OPERATOR_CATEGORY',
   'CJ_OPERATOR_LIMIT_PER_CATEGORY',
   'github_secret_missing',
-  'operator_not_invoked',
+  'operator_dist_missing',
   'operator_exception',
   'totalMedusaSynced',
   'medusaDiagnostics',
