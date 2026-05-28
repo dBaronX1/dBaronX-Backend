@@ -17,6 +17,13 @@ export interface CjCredentialPreflightResult {
   cjCredentialConfigured: boolean;
   acceptedCredentialEnvNames: string[];
   adapterCredentialSource: "CJ_ACCESS_TOKEN" | "CJ_API_KEY" | null;
+  runtimeCredentialSource: "CJ_ACCESS_TOKEN" | null;
+  requiredRuntimeCredential: "CJ_ACCESS_TOKEN";
+  cjAuthMode: "cj_access_token_header" | "missing_access_token";
+  cjEndpointPath: string;
+  cjApiVersion: "api2.0";
+  cjAuthHeaderNamePresent: true;
+  cjRequestMethod: "GET";
   cjBaseUrlPresent: boolean;
   cjApiBaseUrlConfigured: boolean;
   cjLiveProbeAttempted: boolean;
@@ -77,8 +84,10 @@ export class CjSupplierAdapterService {
   }
 
   async readiness(): Promise<CjCredentialPreflightResult> {
-    const credential = this.resolveCredential();
-    const cjAccessTokenPresent = Boolean(this.getConfigValue("CJ_ACCESS_TOKEN"));
+    const credential = this.resolveRuntimeCredential();
+    const cjAccessTokenPresent = Boolean(
+      this.getConfigValue("CJ_ACCESS_TOKEN"),
+    );
     const cjApiKeyPresent = Boolean(this.getConfigValue("CJ_API_KEY"));
     const cjCredentialConfigured = Boolean(credential.value);
     const cjBaseUrlPresent = Boolean(this.resolveBaseUrl());
@@ -110,8 +119,17 @@ export class CjSupplierAdapterService {
       cjAccessTokenPresent,
       cjApiKeyPresent,
       cjCredentialConfigured,
-      acceptedCredentialEnvNames: ["CJ_ACCESS_TOKEN", "CJ_API_KEY"],
+      acceptedCredentialEnvNames: ["CJ_ACCESS_TOKEN"],
       adapterCredentialSource: credential.source,
+      runtimeCredentialSource: credential.source,
+      requiredRuntimeCredential: "CJ_ACCESS_TOKEN",
+      cjAuthMode: credential.value
+        ? "cj_access_token_header"
+        : "missing_access_token",
+      cjEndpointPath: this.productListEndpointPath(),
+      cjApiVersion: "api2.0",
+      cjAuthHeaderNamePresent: true,
+      cjRequestMethod: "GET",
       cjBaseUrlPresent,
       cjApiBaseUrlConfigured: Boolean(this.getConfigValue("CJ_API_BASE_URL")),
       ...liveProbe,
@@ -121,13 +139,17 @@ export class CjSupplierAdapterService {
     };
   }
 
-  async prepareImportReadiness(input: CjProductImportReadinessDto): Promise<CjProductImportReadinessResult> {
+  async prepareImportReadiness(
+    input: CjProductImportReadinessDto,
+  ): Promise<CjProductImportReadinessResult> {
     const blockers = this.validateExplicitProductInput(input);
     const credentialPreflight = await this.readiness();
     blockers.push(...credentialPreflight.blockers);
 
     const normalizedSupplierMetadata = this.normalizeProductInput(input);
-    blockers.push(...this.validateMinimumProductFields(normalizedSupplierMetadata));
+    blockers.push(
+      ...this.validateMinimumProductFields(normalizedSupplierMetadata),
+    );
 
     const uniqueBlockers = [...new Set(blockers)];
 
@@ -164,13 +186,15 @@ export class CjSupplierAdapterService {
     return this.readiness();
   }
 
-  async prepareProductImport(input: CjProductImportReadinessDto): Promise<CjProductImportReadinessResult> {
+  async prepareProductImport(
+    input: CjProductImportReadinessDto,
+  ): Promise<CjProductImportReadinessResult> {
     return this.prepareImportReadiness(input);
   }
 
   async liveProbe(): Promise<CjLiveProbeResult> {
     const baseUrl = this.resolveBaseUrl();
-    const credential = this.resolveCredential();
+    const credential = this.resolveRuntimeCredential();
 
     if (!credential.value) {
       return {
@@ -180,116 +204,178 @@ export class CjSupplierAdapterService {
     }
 
     try {
-      const response = await axios.get(this.cjEndpoint(baseUrl, "/v1/product/list"), {
-        headers: {
-          "CJ-Access-Token": credential.value,
+      const response = await axios.get(
+        this.cjEndpoint(baseUrl, this.productListEndpointPath()),
+        {
+          headers: {
+            "CJ-Access-Token": credential.value,
+          },
+          params: {
+            pageNum: 1,
+            pageSize: 1,
+          },
+          timeout: this.liveProbeTimeoutMs,
+          validateStatus: () => true,
         },
-        params: {
-          pageNum: 1,
-          pageSize: 1,
-        },
-        timeout: this.liveProbeTimeoutMs,
-        validateStatus: () => true,
-      });
+      );
 
       const apiCode = this.extractApiCode(response.data);
       const apiMessage = this.extractApiMessage(response.data);
-      const cjLiveProbeOk = response.status >= 200
-        && response.status < 300
-        && !this.isCjApiFailureCode(apiCode);
+      const cjLiveProbeOk =
+        response.status >= 200 &&
+        response.status < 300 &&
+        !this.isCjApiFailureCode(apiCode);
 
       return {
         cjLiveProbeAttempted: true,
         cjLiveProbeOk,
         cjLiveProbeStatusCode: response.status,
-        ...(cjLiveProbeOk ? {} : { cjLiveProbeErrorCode: apiCode || String(response.status) }),
-        ...(cjLiveProbeOk ? {} : { cjLiveProbeErrorMessageSanitized: this.sanitizeProbeMessage(apiMessage || response.statusText) }),
+        ...(cjLiveProbeOk
+          ? {}
+          : { cjLiveProbeErrorCode: apiCode || String(response.status) }),
+        ...(cjLiveProbeOk
+          ? {}
+          : {
+              cjLiveProbeErrorMessageSanitized: this.sanitizeProbeMessage(
+                apiMessage || response.statusText,
+              ),
+            }),
       };
     } catch (error) {
       const axiosError = error as AxiosError;
       return {
         cjLiveProbeAttempted: true,
         cjLiveProbeOk: false,
-        ...(axiosError.response?.status ? { cjLiveProbeStatusCode: axiosError.response.status } : {}),
+        ...(axiosError.response?.status
+          ? { cjLiveProbeStatusCode: axiosError.response.status }
+          : {}),
         cjLiveProbeErrorCode: axiosError.code || "cj_live_probe_network_error",
         cjLiveProbeErrorMessageSanitized: this.sanitizeProbeMessage(
-          axiosError.code === "ECONNABORTED" ? "CJ live probe timed out" : "CJ live probe unreachable",
+          axiosError.code === "ECONNABORTED"
+            ? "CJ live probe timed out"
+            : "CJ live probe unreachable",
         ),
       };
     }
   }
 
-
-
   async fetchProducts(category: string, limit: number) {
     const baseUrl = this.resolveBaseUrl();
-    const credential = this.resolveCredential();
+    const credential = this.resolveRuntimeCredential();
     if (!credential.value) {
       throw new BadRequestException("cj_credentials_missing");
     }
 
-    const response = await axios.get(this.cjEndpoint(baseUrl, "/v1/product/list"), {
-      headers: { "CJ-Access-Token": credential.value },
-      params: { pageNum: 1, pageSize: Math.max(1, Math.min(limit, 100)), ...(category && category !== "all" ? { categoryName: category } : {}) },
-      timeout: this.liveProbeTimeoutMs,
-      validateStatus: () => true,
-    });
+    const response = await axios.get(
+      this.cjEndpoint(baseUrl, this.productListEndpointPath()),
+      {
+        headers: { "CJ-Access-Token": credential.value },
+        params: {
+          pageNum: 1,
+          pageSize: Math.max(1, Math.min(limit, 100)),
+          ...(category && category !== "all" ? { categoryName: category } : {}),
+        },
+        timeout: this.liveProbeTimeoutMs,
+        validateStatus: () => true,
+      },
+    );
 
-    if (response.status < 200 || response.status >= 300 || this.isCjApiFailureCode(this.extractApiCode(response.data))) {
+    if (response.status === 401) {
+      throw new BadRequestException("cj_auth_failed_401");
+    }
+
+    if (
+      response.status < 200 ||
+      response.status >= 300 ||
+      this.isCjApiFailureCode(this.extractApiCode(response.data))
+    ) {
       throw new BadRequestException(`cj_fetch_failed_${response.status}`);
     }
 
     const list = this.extractProductList(response.data);
     return list.map((p: any, i: number) => ({
-      supplierProductId: String(p.pid ?? p.productId ?? p.id ?? `${category}-${i + 1}`),
+      supplierProductId: String(
+        p.pid ?? p.productId ?? p.id ?? `${category}-${i + 1}`,
+      ),
       supplierSku: String(p.vid ?? p.sku ?? p.variantId ?? `sku-${i + 1}`),
       title: String(p.productNameEn ?? p.productName ?? p.name ?? "CJ Product"),
-      handle: String(p.productNameEn ?? p.productName ?? p.name ?? "cj-product").toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, ''),
-      description: String(p.description ?? p.productNameEn ?? p.productName ?? ""),
+      handle: String(p.productNameEn ?? p.productName ?? p.name ?? "cj-product")
+        .toLowerCase()
+        .replace(/[^a-z0-9]+/g, "-")
+        .replace(/^-+|-+$/g, ""),
+      description: String(
+        p.description ?? p.productNameEn ?? p.productName ?? "",
+      ),
       sourceUrl: String(p.url ?? p.productUrl ?? "https://cjdropshipping.com"),
-      imageUrl: String(Array.isArray(p.productImageSet) ? p.productImageSet[0] : p.productImage ?? ""),
+      imageUrl: String(
+        Array.isArray(p.productImageSet)
+          ? p.productImageSet[0]
+          : (p.productImage ?? ""),
+      ),
       category,
       priceMinor: Math.round(Number(p.sellPrice ?? p.price ?? 0) * 100) || 0,
-      costMinor: Math.round(Number(p.costPrice ?? p.supplierPrice ?? p.sellPrice ?? 0) * 100) || 0,
+      costMinor:
+        Math.round(
+          Number(p.costPrice ?? p.supplierPrice ?? p.sellPrice ?? 0) * 100,
+        ) || 0,
       stockQty: Number(p.stockNum ?? p.inventoryNum ?? 0) || 0,
       shippingCountries: ["US"],
       deliveryEstimate: "7-12 days",
     }));
   }
 
-
   private getConfigValue(key: string): string {
     return (this.config.get<string>(key) || process.env[key] || "").trim();
   }
 
-  private resolveCredential(): { source: "CJ_ACCESS_TOKEN" | "CJ_API_KEY" | null; value: string } {
+  private resolveRuntimeCredential(): {
+    source: "CJ_ACCESS_TOKEN" | null;
+    value: string;
+  } {
     const accessToken = this.getConfigValue("CJ_ACCESS_TOKEN");
     if (accessToken) return { source: "CJ_ACCESS_TOKEN", value: accessToken };
-
-    const apiKey = this.getConfigValue("CJ_API_KEY");
-    if (apiKey) return { source: "CJ_API_KEY", value: apiKey };
 
     return { source: null, value: "" };
   }
 
   private resolveBaseUrl(): string {
-    return this.getConfigValue("CJ_API_BASE_URL") || "https://developers.cjdropshipping.com/api2.0";
+    return (
+      this.getConfigValue("CJ_API_BASE_URL") ||
+      "https://developers.cjdropshipping.com/api2.0"
+    );
+  }
+
+  private productListEndpointPath(): string {
+    return "/v1/product/list";
   }
 
   private extractProductList(payload: any): any[] {
-    const candidates = [payload?.data?.list, payload?.data?.result?.list, payload?.result?.list, payload?.list, payload?.data?.records];
+    const candidates = [
+      payload?.data?.list,
+      payload?.data?.result?.list,
+      payload?.result?.list,
+      payload?.list,
+      payload?.data?.records,
+    ];
     for (const c of candidates) if (Array.isArray(c)) return c;
     return [];
   }
 
-  private validateExplicitProductInput(input: CjProductImportReadinessDto): string[] {
+  private validateExplicitProductInput(
+    input: CjProductImportReadinessDto,
+  ): string[] {
     const blockers: string[] = [];
 
     if (!input || typeof input !== "object") {
-      throw new BadRequestException("CJ import readiness requires an explicit product payload");
+      throw new BadRequestException(
+        "CJ import readiness requires an explicit product payload",
+      );
     }
 
-    const supplierProductId = this.firstTrimmed(input.supplierProductId, input.productId);
+    const supplierProductId = this.firstTrimmed(
+      input.supplierProductId,
+      input.productId,
+    );
     const supplierSku = this.firstTrimmed(input.supplierSku, input.sku);
 
     if (!supplierProductId && !supplierSku) {
@@ -308,26 +394,38 @@ export class CjSupplierAdapterService {
       blockers.push("cj_currency_required");
     }
 
-    if (!Array.isArray(input.shippingCountries) || input.shippingCountries.length === 0) {
+    if (
+      !Array.isArray(input.shippingCountries) ||
+      input.shippingCountries.length === 0
+    ) {
       blockers.push("cj_shipping_countries_required");
     }
 
     return blockers;
   }
 
-  private normalizeProductInput(input: CjProductImportReadinessDto): CjNormalizedSupplierMetadata | undefined {
+  private normalizeProductInput(
+    input: CjProductImportReadinessDto,
+  ): CjNormalizedSupplierMetadata | undefined {
     if (!input || typeof input !== "object") {
       return undefined;
     }
 
-    const supplierProductId = this.firstTrimmed(input.supplierProductId, input.productId);
+    const supplierProductId = this.firstTrimmed(
+      input.supplierProductId,
+      input.productId,
+    );
     const supplierSku = this.firstTrimmed(input.supplierSku, input.sku);
     const currency = input.currency?.trim().toUpperCase();
     const images = Array.isArray(input.images)
-      ? input.images.map((image) => image?.trim()).filter((image): image is string => Boolean(image))
+      ? input.images
+          .map((image) => image?.trim())
+          .filter((image): image is string => Boolean(image))
       : [];
     const shippingCountries = Array.isArray(input.shippingCountries)
-      ? input.shippingCountries.map((country) => country?.trim().toUpperCase()).filter(Boolean)
+      ? input.shippingCountries
+          .map((country) => country?.trim().toUpperCase())
+          .filter(Boolean)
       : [];
 
     return {
@@ -338,14 +436,18 @@ export class CjSupplierAdapterService {
       costPrice: Number.isFinite(input.costPrice) ? input.costPrice : 0,
       currency: currency || "",
       shippingCountries,
-      ...(input.deliveryEstimate?.trim() ? { deliveryEstimate: input.deliveryEstimate.trim() } : {}),
+      ...(input.deliveryEstimate?.trim()
+        ? { deliveryEstimate: input.deliveryEstimate.trim() }
+        : {}),
       images,
       ...(input.sourceUrl?.trim() ? { sourceUrl: input.sourceUrl.trim() } : {}),
       rawAvailable: input.rawAvailable === true,
     };
   }
 
-  private validateMinimumProductFields(input?: CjNormalizedSupplierMetadata): string[] {
+  private validateMinimumProductFields(
+    input?: CjNormalizedSupplierMetadata,
+  ): string[] {
     if (!input) {
       return ["cj_product_payload_required"];
     }
@@ -360,7 +462,11 @@ export class CjSupplierAdapterService {
       blockers.push("cj_title_required");
     }
 
-    if (!Number.isFinite(input.costPrice) || input.costPrice <= 0 || !input.currency) {
+    if (
+      !Number.isFinite(input.costPrice) ||
+      input.costPrice <= 0 ||
+      !input.currency
+    ) {
       blockers.push("cj_supplier_economics_incomplete");
     }
 
@@ -374,26 +480,38 @@ export class CjSupplierAdapterService {
   private mapLiveProbeBlocker(liveProbe: CjLiveProbeResult): string {
     const statusCode = liveProbe.cjLiveProbeStatusCode;
     const errorCode = liveProbe.cjLiveProbeErrorCode?.toLowerCase() || "";
-    const errorMessage = liveProbe.cjLiveProbeErrorMessageSanitized?.toLowerCase() || "";
+    const errorMessage =
+      liveProbe.cjLiveProbeErrorMessageSanitized?.toLowerCase() || "";
 
-    if (statusCode === 429 || errorCode.includes("rate") || errorMessage.includes("rate")) {
+    if (
+      statusCode === 429 ||
+      errorCode.includes("rate") ||
+      errorMessage.includes("rate")
+    ) {
       return "cj_rate_limited";
     }
 
     if (
-      statusCode === 401
-      || statusCode === 403
-      || (typeof statusCode === "number" && statusCode >= 200 && statusCode < 300)
-      || errorCode.includes("token")
-      || errorMessage.includes("token")
-      || errorMessage.includes("auth")
-      || errorMessage.includes("invalid")
-      || errorMessage.includes("expired")
+      statusCode === 401 ||
+      statusCode === 403 ||
+      (typeof statusCode === "number" &&
+        statusCode >= 200 &&
+        statusCode < 300) ||
+      errorCode.includes("token") ||
+      errorMessage.includes("token") ||
+      errorMessage.includes("auth") ||
+      errorMessage.includes("invalid") ||
+      errorMessage.includes("expired")
     ) {
       return "cj_token_invalid_or_expired";
     }
 
-    if (!statusCode || errorCode.includes("timeout") || errorCode.includes("abort") || errorCode.includes("network")) {
+    if (
+      !statusCode ||
+      errorCode.includes("timeout") ||
+      errorCode.includes("abort") ||
+      errorCode.includes("network")
+    ) {
       return "cj_live_probe_unreachable";
     }
 
@@ -430,30 +548,46 @@ export class CjSupplierAdapterService {
 
   private sanitizeProbeMessage(message?: string): string {
     const accessToken = this.config.get<string>("CJ_ACCESS_TOKEN")?.trim();
-    let sanitized = (message || "CJ live probe failed").replace(/[\r\n\t]+/g, " ").trim();
+    let sanitized = (message || "CJ live probe failed")
+      .replace(/[\r\n\t]+/g, " ")
+      .trim();
 
     if (accessToken) {
       sanitized = sanitized.split(accessToken).join("[redacted]");
     }
 
-    sanitized = sanitized.replace(/CJ-Access-Token\s*[:=]\s*[^\s,}]+/gi, "CJ-Access-Token=[redacted]");
-    sanitized = sanitized.replace(/access[_-]?token\s*[:=]\s*[^\s,}]+/gi, "access_token:[redacted]");
+    sanitized = sanitized.replace(
+      /CJ-Access-Token\s*[:=]\s*[^\s,}]+/gi,
+      "CJ-Access-Token=[redacted]",
+    );
+    sanitized = sanitized.replace(
+      /access[_-]?token\s*[:=]\s*[^\s,}]+/gi,
+      "access_token:[redacted]",
+    );
 
     return sanitized.slice(0, 240) || "CJ live probe failed";
   }
 
   private resolveLiveProbeTimeoutMs(): number {
-    const rawTimeout = this.config.get<string>("CJ_LIVE_PROBE_TIMEOUT_MS")?.trim();
+    const rawTimeout = this.config
+      .get<string>("CJ_LIVE_PROBE_TIMEOUT_MS")
+      ?.trim();
     const parsedTimeout = rawTimeout ? Number.parseInt(rawTimeout, 10) : 5000;
 
-    return Number.isSafeInteger(parsedTimeout) && parsedTimeout > 0 ? parsedTimeout : 5000;
+    return Number.isSafeInteger(parsedTimeout) && parsedTimeout > 0
+      ? parsedTimeout
+      : 5000;
   }
 
   private cjEndpoint(baseUrl: string, path: string): string {
     return `${baseUrl.replace(/\/+$/, "")}/${path.replace(/^\/+/, "")}`;
   }
 
-  private firstTrimmed(...values: Array<string | undefined>): string | undefined {
-    return values.map((value) => value?.trim()).find((value): value is string => Boolean(value));
+  private firstTrimmed(
+    ...values: Array<string | undefined>
+  ): string | undefined {
+    return values
+      .map((value) => value?.trim())
+      .find((value): value is string => Boolean(value));
   }
 }
