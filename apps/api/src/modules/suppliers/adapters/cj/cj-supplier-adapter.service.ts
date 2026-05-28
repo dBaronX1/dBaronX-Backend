@@ -12,7 +12,13 @@ export interface CjCredentialPreflightResult {
   blockers: string[];
   cjConfigured: boolean;
   cjTokenPresent: boolean;
+  cjAccessTokenPresent: boolean;
+  cjApiKeyPresent: boolean;
+  cjCredentialConfigured: boolean;
+  acceptedCredentialEnvNames: string[];
+  adapterCredentialSource: "CJ_ACCESS_TOKEN" | "CJ_API_KEY" | null;
   cjBaseUrlPresent: boolean;
+  cjApiBaseUrlConfigured: boolean;
   cjLiveProbeAttempted: boolean;
   cjLiveProbeOk: boolean;
   cjLiveProbeStatusCode?: number;
@@ -71,19 +77,18 @@ export class CjSupplierAdapterService {
   }
 
   async readiness(): Promise<CjCredentialPreflightResult> {
-    const cjTokenPresent = this.hasConfig("CJ_ACCESS_TOKEN");
-    const cjBaseUrlPresent = this.hasConfig("CJ_API_BASE_URL");
+    const credential = this.resolveCredential();
+    const cjAccessTokenPresent = Boolean(this.getConfigValue("CJ_ACCESS_TOKEN"));
+    const cjApiKeyPresent = Boolean(this.getConfigValue("CJ_API_KEY"));
+    const cjCredentialConfigured = Boolean(credential.value);
+    const cjBaseUrlPresent = Boolean(this.resolveBaseUrl());
     const blockers: string[] = [];
 
-    if (!cjTokenPresent) {
-      blockers.push("cj_access_token_missing");
+    if (!cjCredentialConfigured) {
+      blockers.push("cj_credentials_missing");
     }
 
-    if (!cjBaseUrlPresent) {
-      blockers.push("cj_base_url_missing");
-    }
-
-    const liveProbe = cjTokenPresent && cjBaseUrlPresent
+    const liveProbe = cjCredentialConfigured
       ? await this.liveProbe()
       : {
           cjLiveProbeAttempted: false,
@@ -95,14 +100,20 @@ export class CjSupplierAdapterService {
     }
 
     const uniqueBlockers = [...new Set(blockers)];
-    const cjConfigured = cjTokenPresent && cjBaseUrlPresent && liveProbe.cjLiveProbeOk;
+    const cjConfigured = cjCredentialConfigured && liveProbe.cjLiveProbeOk;
 
     return {
       success: uniqueBlockers.length === 0,
       blockers: uniqueBlockers,
       cjConfigured,
-      cjTokenPresent,
+      cjTokenPresent: cjCredentialConfigured,
+      cjAccessTokenPresent,
+      cjApiKeyPresent,
+      cjCredentialConfigured,
+      acceptedCredentialEnvNames: ["CJ_ACCESS_TOKEN", "CJ_API_KEY"],
+      adapterCredentialSource: credential.source,
       cjBaseUrlPresent,
+      cjApiBaseUrlConfigured: Boolean(this.getConfigValue("CJ_API_BASE_URL")),
       ...liveProbe,
       liveProbeAttempted: liveProbe.cjLiveProbeAttempted,
       liveProbeVerified: liveProbe.cjLiveProbeOk,
@@ -158,10 +169,10 @@ export class CjSupplierAdapterService {
   }
 
   async liveProbe(): Promise<CjLiveProbeResult> {
-    const baseUrl = this.config.get<string>("CJ_API_BASE_URL")?.trim();
-    const accessToken = this.config.get<string>("CJ_ACCESS_TOKEN")?.trim();
+    const baseUrl = this.resolveBaseUrl();
+    const credential = this.resolveCredential();
 
-    if (!baseUrl || !accessToken) {
+    if (!credential.value) {
       return {
         cjLiveProbeAttempted: false,
         cjLiveProbeOk: false,
@@ -171,7 +182,7 @@ export class CjSupplierAdapterService {
     try {
       const response = await axios.get(this.cjEndpoint(baseUrl, "/v1/product/list"), {
         headers: {
-          "CJ-Access-Token": accessToken,
+          "CJ-Access-Token": credential.value,
         },
         params: {
           pageNum: 1,
@@ -211,14 +222,14 @@ export class CjSupplierAdapterService {
 
 
   async fetchProducts(category: string, limit: number) {
-    const baseUrl = this.config.get<string>("CJ_API_BASE_URL")?.trim();
-    const accessToken = this.config.get<string>("CJ_ACCESS_TOKEN")?.trim();
-    if (!baseUrl || !accessToken) {
+    const baseUrl = this.resolveBaseUrl();
+    const credential = this.resolveCredential();
+    if (!credential.value) {
       throw new BadRequestException("cj_credentials_missing");
     }
 
     const response = await axios.get(this.cjEndpoint(baseUrl, "/v1/product/list"), {
-      headers: { "CJ-Access-Token": accessToken },
+      headers: { "CJ-Access-Token": credential.value },
       params: { pageNum: 1, pageSize: Math.max(1, Math.min(limit, 100)), ...(category && category !== "all" ? { categoryName: category } : {}) },
       timeout: this.liveProbeTimeoutMs,
       validateStatus: () => true,
@@ -246,6 +257,24 @@ export class CjSupplierAdapterService {
     }));
   }
 
+
+  private getConfigValue(key: string): string {
+    return (this.config.get<string>(key) || process.env[key] || "").trim();
+  }
+
+  private resolveCredential(): { source: "CJ_ACCESS_TOKEN" | "CJ_API_KEY" | null; value: string } {
+    const accessToken = this.getConfigValue("CJ_ACCESS_TOKEN");
+    if (accessToken) return { source: "CJ_ACCESS_TOKEN", value: accessToken };
+
+    const apiKey = this.getConfigValue("CJ_API_KEY");
+    if (apiKey) return { source: "CJ_API_KEY", value: apiKey };
+
+    return { source: null, value: "" };
+  }
+
+  private resolveBaseUrl(): string {
+    return this.getConfigValue("CJ_API_BASE_URL") || "https://developers.cjdropshipping.com/api2.0";
+  }
 
   private extractProductList(payload: any): any[] {
     const candidates = [payload?.data?.list, payload?.data?.result?.list, payload?.result?.list, payload?.list, payload?.data?.records];
@@ -426,9 +455,5 @@ export class CjSupplierAdapterService {
 
   private firstTrimmed(...values: Array<string | undefined>): string | undefined {
     return values.map((value) => value?.trim()).find((value): value is string => Boolean(value));
-  }
-
-  private hasConfig(key: string): boolean {
-    return Boolean(this.config.get<string>(key)?.trim());
   }
 }

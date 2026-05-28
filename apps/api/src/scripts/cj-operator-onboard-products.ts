@@ -25,13 +25,51 @@ function parseLimit(value: string | undefined, fallback: number) { const n = Num
 function parseTimeoutMs(value: string | undefined): number { const parsed = Number(value || DEFAULT_BOOTSTRAP_TIMEOUT_MS); return !Number.isFinite(parsed) || parsed < 1 ? DEFAULT_BOOTSTRAP_TIMEOUT_MS : Math.floor(parsed); }
 function isTrue(value: string | undefined): boolean { return String(value || '').toLowerCase() === 'true'; }
 function parseCategories(): CjCategorySlug[] { const c = (process.env.CJ_OPERATOR_CATEGORY || 'all').trim(); return c === 'all' ? [...CJ_OPERATOR_ALL_CATEGORY_SET] : c in CJ_PRODUCT_CATEGORIES && c !== 'all' ? [c as CjCategorySlug] : [...CJ_OPERATOR_ALL_CATEGORY_SET]; }
+const SECRET_ENV_NAMES = [
+  'DATABASE_URL',
+  'SUPABASE_SERVICE_ROLE_KEY',
+  'MEDUSA_ADMIN_API_KEY',
+  'CJ_ACCESS_TOKEN',
+  'CJ_API_KEY',
+];
+
 function sanitizeSecretText(value: unknown): string {
-  return String(value || '')
+  let sanitized = String(value || '')
     .replace(/postgres(?:ql)?:\/\/[^\s"'<>]+/ig, '[redacted-database-url]')
     .replace(/(DATABASE_URL\s*=\s*)\S+/ig, '$1[redacted]')
     .replace(/(token|key|secret|password)=\S+/ig, '$1=[redacted]');
+
+  for (const key of SECRET_ENV_NAMES) {
+    const secret = String(process.env[key] || '').trim();
+    if (secret) sanitized = sanitized.split(secret).join(`[redacted-${key.toLowerCase()}]`);
+  }
+
+  return sanitized;
 }
 function sanitizeStack(error: unknown): string[] { const stack = (error instanceof Error ? error.stack : String(error || '')).split('\n').slice(0, 8).map((l) => sanitizeSecretText(l)); return stack; }
+function envPresent(key: string): boolean { return Boolean(String(process.env[key] || '').trim()); }
+function precheckCredentialPresent(): boolean { return envPresent('CJ_ACCESS_TOKEN') || envPresent('CJ_API_KEY'); }
+function safeCjDiagnostics(source: Record<string, any> = {}) {
+  const adapterConfigured = Boolean(source.cjCredentialConfigured ?? source.cjCredentialsConfigured ?? source.cjTokenPresent);
+  const workflowPrecheck = precheckCredentialPresent();
+  return {
+    cjAccessTokenPresent: Boolean(source.cjAccessTokenPresent ?? envPresent('CJ_ACCESS_TOKEN')),
+    cjApiKeyPresent: Boolean(source.cjApiKeyPresent ?? envPresent('CJ_API_KEY')),
+    cjCredentialConfigured: adapterConfigured,
+    acceptedCredentialEnvNames: ['CJ_ACCESS_TOKEN', 'CJ_API_KEY'],
+    adapterCredentialSource: (source.adapterCredentialSource === 'CJ_ACCESS_TOKEN' || source.adapterCredentialSource === 'CJ_API_KEY') ? source.adapterCredentialSource : null,
+    cjApiBaseUrlConfigured: Boolean(source.cjApiBaseUrlConfigured ?? envPresent('CJ_API_BASE_URL')),
+    workflowCredentialPrecheckPresent: workflowPrecheck,
+    adapterCredentialPrecheckMismatch: workflowPrecheck && !adapterConfigured,
+  };
+}
+function credentialMissingSecrets(cjDiagnostics: Record<string, any>): string[] { return cjDiagnostics.cjCredentialConfigured ? [] : ['CJ_ACCESS_TOKEN_or_CJ_API_KEY']; }
+function normalizeCredentialBlockers(blockers: string[], cjDiagnostics: Record<string, any>): string[] {
+  const next = blockers.filter((blocker) => blocker !== 'cj_access_token_missing' && blocker !== 'cj_api_key_missing');
+  if (!cjDiagnostics.cjCredentialConfigured) next.push(cjDiagnostics.adapterCredentialPrecheckMismatch ? 'cj_credential_config_mismatch' : 'cj_credentials_missing');
+  return [...new Set(next)];
+}
+function isCjCredentialsMissingError(error: unknown): boolean { return sanitizeSecretText(error instanceof Error ? error.message : String(error)).includes('cj_credentials_missing'); }
 
 function basePayload(overrides: Record<string, unknown> = {}) {
   return {
@@ -122,8 +160,10 @@ async function main() {
     console.log('operatorRunStarting=true');
 
     const importer = app.get(CjProductImportService, { strict: false }); const publisher = app.get(CjProductPublishService, { strict: false }); const supabase = app.get(SupabaseService, { strict: false });
-    const readiness = await importer.readiness(); const blockers = [...new Set(readiness.blockers || [])];
-    const result: any = basePayload({ mode, dryRun, requestedLimitPerCategory: requested, totalCategories: categories.length, blockers, dbDiagnostics: readiness.dbDiagnostics || { migrationReady: readiness.checks?.migrationReady ?? false }, cjDiagnostics: { cjCredentialsConfigured: readiness.checks?.cjCredentialsConfigured ?? false }, bootstrapDiagnostics, nextAction:'Resolve blockers and retry.' });
+    const readiness = await importer.readiness();
+    const cjDiagnostics = safeCjDiagnostics(readiness.cjDiagnostics || { cjCredentialConfigured: readiness.checks?.cjCredentialsConfigured ?? false });
+    const blockers = normalizeCredentialBlockers([...(readiness.blockers || [])], cjDiagnostics);
+    const result: any = basePayload({ mode, dryRun, requestedLimitPerCategory: requested, totalCategories: categories.length, blockers, missingSecrets: credentialMissingSecrets(cjDiagnostics), dbDiagnostics: readiness.dbDiagnostics || { migrationReady: readiness.checks?.migrationReady ?? false }, cjDiagnostics, bootstrapDiagnostics, nextAction:'Resolve blockers and retry.' });
     if (mode === 'readiness' || blockers.length > 0) { result.success = blockers.length === 0; result.nextAction = blockers.length ? 'Resolve readiness blockers then run preview/import.' : 'Run preview or full-safe.'; console.log('operatorRunComplete=true'); writeOperatorOutput(result); process.exitCode = result.success || isTrue(process.env.CJ_OPERATOR_READINESS_EXIT_ZERO) ? 0 : 1; return; }
     for (const category of categories) {
       const row: CategoryResult = { category, requested, fetched:0, previewed:0, staged:0, valid:0, rejected:0, approved:0, published:0, skipped:0, blockers:[], labelsFound:[], duplicateCount:0, restrictedRejectedCount:0, partialReason: null };
@@ -144,7 +184,17 @@ async function main() {
     bootstrapInProgress = false;
     bootstrapDiagnostics.bootstrapDurationMs = Date.now() - bootstrapStartedAt;
     const isTimeout = error instanceof Error && error.message.includes('timed out');
-    writeOperatorOutput(basePayload({ blockers: [isTimeout ? 'operator_bootstrap_timeout' : 'operator_bootstrap_failed'], errorName: isTimeout ? 'OperatorBootstrapTimeout' : (error instanceof Error ? error.name : 'Error'), errorMessage: isTimeout ? `CJ operator bootstrap exceeded timeout ${timeoutMs}ms.` : sanitizeSecretText(error instanceof Error ? error.message : String(error)), errorStackPreview: sanitizeStack(error), bootstrapDiagnostics, dbDiagnostics: {}, cjDiagnostics: {}, medusaDiagnostics: {}, nextAction: 'Inspect bootstrap/runtime logs and resolve configuration or provider errors.' }));
+    const cjDiagnostics = safeCjDiagnostics();
+    const runStarted = bootstrapDiagnostics.bootstrapComplete;
+    const credentialError = isCjCredentialsMissingError(error);
+    const credentialBlocker = cjDiagnostics.adapterCredentialPrecheckMismatch ? 'cj_credential_config_mismatch' : 'cj_credentials_missing';
+    const blockers = isTimeout
+      ? ['operator_bootstrap_timeout']
+      : runStarted
+        ? [credentialError ? credentialBlocker : 'operator_run_failed']
+        : ['operator_bootstrap_failed'];
+    if (runStarted && credentialError && !blockers.includes('operator_run_failed')) blockers.unshift('operator_run_failed');
+    writeOperatorOutput(basePayload({ blockers: [...new Set(blockers)], missingSecrets: credentialError || !cjDiagnostics.cjCredentialConfigured ? credentialMissingSecrets(cjDiagnostics) : [], errorName: isTimeout ? 'OperatorBootstrapTimeout' : (error instanceof Error ? error.name : 'Error'), errorMessage: isTimeout ? `CJ operator bootstrap exceeded timeout ${timeoutMs}ms.` : sanitizeSecretText(error instanceof Error ? error.message : String(error)), errorStackPreview: sanitizeStack(error), bootstrapDiagnostics, dbDiagnostics: {}, cjDiagnostics, medusaDiagnostics: {}, nextAction: runStarted ? 'Resolve runtime blockers and rerun.' : 'Inspect bootstrap logs and resolve configuration errors.' }));
     process.exitCode = 1;
   } finally {
     runInProgress = false;
