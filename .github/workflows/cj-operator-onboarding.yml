@@ -53,6 +53,17 @@ jobs:
         run: |
           set -o pipefail
           mkdir -p artifacts
+          output_path="artifacts/cj-operator-output.json"
+          dist_script="apps/api/dist/scripts/cj-operator-onboard-products.js"
+          dist_script_present=false; [ -f "$dist_script" ] && dist_script_present=true
+          echo "operatorStarted=true"
+          echo "outputPath=${output_path}"
+          echo "mode=${CJ_OPERATOR_MODE}"
+          echo "dryRun=${CJ_OPERATOR_DRY_RUN}"
+          echo "category=${CJ_OPERATOR_CATEGORY}"
+          echo "limitPerCategory=${CJ_OPERATOR_LIMIT_PER_CATEGORY}"
+          echo "cwd=$(pwd)"
+          echo "distScriptPresent=${dist_script_present}"
           db_present=false; [ -n "${DATABASE_URL}" ] && db_present=true
           supabase_url_present=false; [ -n "${SUPABASE_URL}" ] && supabase_url_present=true
           supabase_service_role_present=false; [ -n "${SUPABASE_SERVICE_ROLE_KEY}" ] && supabase_service_role_present=true
@@ -61,13 +72,18 @@ jobs:
           cj_credential_present=false; if [ "$cj_access_token_present" = "true" ] || [ "$cj_api_key_present" = "true" ]; then cj_credential_present=true; fi
           missing_secrets_json=$(DATABASE_URL_PRESENT="$db_present" SUPABASE_URL_PRESENT="$supabase_url_present" SUPABASE_SERVICE_ROLE_KEY_PRESENT="$supabase_service_role_present" CJ_CREDENTIAL_PRESENT="$cj_credential_present" node -e "const m=[];if(process.env.DATABASE_URL_PRESENT!=='true')m.push('DATABASE_URL');if(process.env.SUPABASE_URL_PRESENT!=='true')m.push('SUPABASE_URL');if(process.env.SUPABASE_SERVICE_ROLE_KEY_PRESENT!=='true')m.push('SUPABASE_SERVICE_ROLE_KEY');if(process.env.CJ_CREDENTIAL_PRESENT!=='true')m.push('CJ_ACCESS_TOKEN_or_CJ_API_KEY');process.stdout.write(JSON.stringify(m));")
           if [ "$missing_secrets_json" != "[]" ]; then
-            MISSING="$missing_secrets_json" node -e "const fs=require('node:fs');const missing=JSON.parse(process.env.MISSING);const payload={success:false,mode:process.env.CJ_OPERATOR_MODE,dryRun:String(process.env.CJ_OPERATOR_DRY_RUN)==='true',requestedLimitPerCategory:Number(process.env.CJ_OPERATOR_LIMIT_PER_CATEGORY||50),totalCategories:0,categoryResults:[],totalPreviewed:0,totalFetched:0,totalStaged:0,totalApproved:0,totalPublished:0,totalRejected:0,totalSkipped:0,blockers:['github_secret_missing'],missingSecrets:missing,dbDiagnostics:{},cjDiagnostics:{},nextAction:'Add missing secrets and rerun.'};fs.writeFileSync('artifacts/cj-operator-output.json',JSON.stringify(payload,null,2)+'\n');"
+            MISSING="$missing_secrets_json" OUTPUT_PATH="$output_path" node -e "const fs=require('node:fs');const missing=JSON.parse(process.env.MISSING);const payload={success:false,mode:process.env.CJ_OPERATOR_MODE,dryRun:String(process.env.CJ_OPERATOR_DRY_RUN)==='true',requestedLimitPerCategory:Number(process.env.CJ_OPERATOR_LIMIT_PER_CATEGORY||50),totalCategories:0,categoryResults:[],totalPreviewed:0,totalFetched:0,totalStaged:0,totalApproved:0,totalPublished:0,totalRejected:0,totalSkipped:0,totalMedusaSynced:0,blockers:['github_secret_missing'],medusaSyncBlockers:[],missingSecrets:missing,dbDiagnostics:{},cjDiagnostics:{},medusaDiagnostics:{},errorName:null,errorMessage:null,errorStackPreview:[],nextAction:'Add missing secrets and rerun.'};fs.writeFileSync(process.env.OUTPUT_PATH,JSON.stringify(payload,null,2)+'\n');"
             if [ "${{ inputs.mode }}" = "readiness" ] && [ "${{ inputs.readinessExitZero }}" = "true" ]; then exit 0; else exit 1; fi
           fi
           operator_exit_code=0
-          CJ_OPERATOR_OUTPUT_PATH=artifacts/cj-operator-output.json node apps/api/dist/scripts/cj-operator-onboard-products.js > artifacts/cj-operator-stdout.log 2> artifacts/cj-operator-stderr.log || operator_exit_code=$?
-          if [ ! -s artifacts/cj-operator-output.json ]; then
-            node -e "const fs=require('node:fs');const payload={success:false,mode:process.env.CJ_OPERATOR_MODE,dryRun:String(process.env.CJ_OPERATOR_DRY_RUN)==='true',requestedLimitPerCategory:Number(process.env.CJ_OPERATOR_LIMIT_PER_CATEGORY||50),totalCategories:0,categoryResults:[],totalPreviewed:0,totalFetched:0,totalStaged:0,totalApproved:0,totalPublished:0,totalRejected:0,totalSkipped:0,blockers:['operator_output_empty'],missingSecrets:[],dbDiagnostics:{},cjDiagnostics:{},nextAction:'Inspect logs and rerun.'};fs.writeFileSync('artifacts/cj-operator-output.json',JSON.stringify(payload,null,2)+'\n');"
+          if [ "$dist_script_present" != "true" ]; then
+            OUTPUT_PATH="$output_path" node -e "const fs=require('node:fs');const payload={success:false,mode:process.env.CJ_OPERATOR_MODE,dryRun:String(process.env.CJ_OPERATOR_DRY_RUN)==='true',requestedLimitPerCategory:Number(process.env.CJ_OPERATOR_LIMIT_PER_CATEGORY||50),totalCategories:0,categoryResults:[],totalPreviewed:0,totalFetched:0,totalStaged:0,totalApproved:0,totalPublished:0,totalRejected:0,totalSkipped:0,totalMedusaSynced:0,blockers:['operator_not_invoked'],medusaSyncBlockers:[],missingSecrets:[],dbDiagnostics:{},cjDiagnostics:{},medusaDiagnostics:{},errorName:'DistScriptMissing',errorMessage:'Compiled operator script not found at apps/api/dist/scripts/cj-operator-onboard-products.js',errorStackPreview:[],nextAction:'Build apps/api and rerun.'};fs.writeFileSync(process.env.OUTPUT_PATH,JSON.stringify(payload,null,2)+'\n');"
+            operator_exit_code=1
+          else
+            CJ_OPERATOR_OUTPUT_PATH="$output_path" node "$dist_script" > artifacts/cj-operator-stdout.log 2> artifacts/cj-operator-stderr.log || operator_exit_code=$?
+          fi
+          if [ ! -s "$output_path" ]; then
+            OUTPUT_PATH="$output_path" EXIT_CODE="$operator_exit_code" node -e "const fs=require('node:fs');const err=fs.existsSync('artifacts/cj-operator-stderr.log')?fs.readFileSync('artifacts/cj-operator-stderr.log','utf8').split('\n').filter(Boolean).slice(0,8):[];const stdout=fs.existsSync('artifacts/cj-operator-stdout.log')?fs.readFileSync('artifacts/cj-operator-stdout.log','utf8').split('\n').filter(Boolean).slice(0,8):[];const invoked=Number(process.env.EXIT_CODE||0)!==0||err.length>0||stdout.length>0;const payload={success:false,mode:process.env.CJ_OPERATOR_MODE,dryRun:String(process.env.CJ_OPERATOR_DRY_RUN)==='true',requestedLimitPerCategory:Number(process.env.CJ_OPERATOR_LIMIT_PER_CATEGORY||50),totalCategories:0,categoryResults:[],totalPreviewed:0,totalFetched:0,totalStaged:0,totalApproved:0,totalPublished:0,totalRejected:0,totalSkipped:0,totalMedusaSynced:0,blockers:[invoked?'operator_exception':'operator_not_invoked'],medusaSyncBlockers:[],missingSecrets:[],dbDiagnostics:{},cjDiagnostics:{},medusaDiagnostics:{},errorName:invoked?'OperatorOutputMissing':'OperatorNotInvoked',errorMessage:invoked?'Operator process exited without writing output JSON.':'Operator script was not invoked.',errorStackPreview:err.length?err:stdout,nextAction:'Inspect logs and rerun.'};fs.writeFileSync(process.env.OUTPUT_PATH,JSON.stringify(payload,null,2)+'\n');"
           fi
           echo "operatorExitCode=${operator_exit_code}" >> "$GITHUB_OUTPUT"
       - name: Validate operator output contract
