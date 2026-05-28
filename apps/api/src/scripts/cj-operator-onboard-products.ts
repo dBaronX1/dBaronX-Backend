@@ -25,7 +25,13 @@ function parseLimit(value: string | undefined, fallback: number) { const n = Num
 function parseTimeoutMs(value: string | undefined): number { const parsed = Number(value || DEFAULT_BOOTSTRAP_TIMEOUT_MS); return !Number.isFinite(parsed) || parsed < 1 ? DEFAULT_BOOTSTRAP_TIMEOUT_MS : Math.floor(parsed); }
 function isTrue(value: string | undefined): boolean { return String(value || '').toLowerCase() === 'true'; }
 function parseCategories(): CjCategorySlug[] { const c = (process.env.CJ_OPERATOR_CATEGORY || 'all').trim(); return c === 'all' ? [...CJ_OPERATOR_ALL_CATEGORY_SET] : c in CJ_PRODUCT_CATEGORIES && c !== 'all' ? [c as CjCategorySlug] : [...CJ_OPERATOR_ALL_CATEGORY_SET]; }
-function sanitizeStack(error: unknown): string[] { const stack = (error instanceof Error ? error.stack : String(error || '')).split('\n').slice(0, 8).map((l) => l.replace(/(token|key|secret|password)=\S+/ig, '$1=[redacted]')); return stack; }
+function sanitizeSecretText(value: unknown): string {
+  return String(value || '')
+    .replace(/postgres(?:ql)?:\/\/[^\s"'<>]+/ig, '[redacted-database-url]')
+    .replace(/(DATABASE_URL\s*=\s*)\S+/ig, '$1[redacted]')
+    .replace(/(token|key|secret|password)=\S+/ig, '$1=[redacted]');
+}
+function sanitizeStack(error: unknown): string[] { const stack = (error instanceof Error ? error.stack : String(error || '')).split('\n').slice(0, 8).map((l) => sanitizeSecretText(l)); return stack; }
 
 function basePayload(overrides: Record<string, unknown> = {}) {
   return {
@@ -73,12 +79,12 @@ function writeOperatorOutput(payload: Record<string, unknown>) {
     console.log(content);
     console.log('operatorFinalOutputWritten=true');
   } catch (error) {
-    const fallback = `${JSON.stringify({ success: false, blockers: ['operator_output_write_failed'], errorName: error instanceof Error ? error.name : 'Error', errorMessage: error instanceof Error ? error.message : String(error), outputPath }, null, 2)}\n`;
+    const fallback = `${JSON.stringify({ success: false, blockers: ['operator_output_write_failed'], errorName: error instanceof Error ? error.name : 'Error', errorMessage: sanitizeSecretText(error instanceof Error ? error.message : String(error)), outputPath: sanitizeSecretText(outputPath) }, null, 2)}\n`;
     try { process.stderr.write(fallback); } catch {}
   }
 }
 function writeOperatorException(error: unknown, blocker = 'operator_exception') {
-  writeOperatorOutput(basePayload({ blockers: [blocker], errorName: error instanceof Error ? error.name : 'Error', errorMessage: error instanceof Error ? error.message : String(error), errorStackPreview: sanitizeStack(error), nextAction: 'Fix runtime error and retry.' }));
+  writeOperatorOutput(basePayload({ blockers: [blocker], errorName: error instanceof Error ? error.name : 'Error', errorMessage: sanitizeSecretText(error instanceof Error ? error.message : String(error)), errorStackPreview: sanitizeStack(error), nextAction: 'Fix runtime error and retry.' }));
 }
 
 process.on('uncaughtException', (error) => { writeOperatorException(error); process.exitCode = 1; });
@@ -101,7 +107,7 @@ async function main() {
 
   runInProgress = true;
   bootstrapInProgress = true;
-  console.log(`operatorEntrypointReached=true outputPath=${outputPath} mode=${mode} dryRun=${dryRun} category=${process.env.CJ_OPERATOR_CATEGORY || 'all'} limitPerCategory=${requested}`);
+  console.log(`operatorEntrypointReached=true outputPath=${sanitizeSecretText(outputPath)} mode=${mode} dryRun=${dryRun} category=${process.env.CJ_OPERATOR_CATEGORY || 'all'} limitPerCategory=${requested}`);
   console.log('operatorBootstrapStarting=true');
 
   try {
@@ -138,7 +144,7 @@ async function main() {
     bootstrapInProgress = false;
     bootstrapDiagnostics.bootstrapDurationMs = Date.now() - bootstrapStartedAt;
     const isTimeout = error instanceof Error && error.message.includes('timed out');
-    writeOperatorOutput(basePayload({ blockers: [isTimeout ? 'operator_bootstrap_timeout' : 'operator_bootstrap_failed'], errorName: isTimeout ? 'OperatorBootstrapTimeout' : (error instanceof Error ? error.name : 'Error'), errorMessage: isTimeout ? `CJ operator bootstrap exceeded timeout ${timeoutMs}ms.` : (error instanceof Error ? error.message : String(error)), errorStackPreview: sanitizeStack(error), bootstrapDiagnostics, dbDiagnostics: {}, cjDiagnostics: {}, medusaDiagnostics: {}, nextAction: 'Inspect bootstrap/runtime logs and resolve configuration or provider errors.' }));
+    writeOperatorOutput(basePayload({ blockers: [isTimeout ? 'operator_bootstrap_timeout' : 'operator_bootstrap_failed'], errorName: isTimeout ? 'OperatorBootstrapTimeout' : (error instanceof Error ? error.name : 'Error'), errorMessage: isTimeout ? `CJ operator bootstrap exceeded timeout ${timeoutMs}ms.` : sanitizeSecretText(error instanceof Error ? error.message : String(error)), errorStackPreview: sanitizeStack(error), bootstrapDiagnostics, dbDiagnostics: {}, cjDiagnostics: {}, medusaDiagnostics: {}, nextAction: 'Inspect bootstrap/runtime logs and resolve configuration or provider errors.' }));
     process.exitCode = 1;
   } finally {
     runInProgress = false;

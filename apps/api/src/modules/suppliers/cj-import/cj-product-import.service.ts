@@ -3,7 +3,40 @@ import { CjSupplierAdapterService } from "../adapters/cj/cj-supplier-adapter.ser
 import { SupabaseService } from "../../../shared/services/supabase.service";
 import { CjProductCategoryMapperService } from "./cj-product-category-mapper.service";
 import { CjProductValidationService } from "./cj-product-validation.service";
-import { execFileSync } from "node:child_process";
+import { Client } from "pg";
+
+
+const DB_READINESS_CHECKER_SOURCE = 'database_url_pg_client_to_regclass';
+const DB_READINESS_RECOMMENDED_ACTION = 'Use Supabase pooler/IPv4-compatible DATABASE_URL in GitHub Actions and ensure rotated credentials are current.';
+const DB_CONNECTION_FAILED_MESSAGE = 'Database connection failed. Verify GitHub Actions DATABASE_URL uses the Supabase pooler/IPv4-compatible connection string and valid rotated credentials.';
+
+type DbConnectionFailureKind = 'network_unreachable' | 'authentication_failed' | 'timeout' | 'ssl_error' | 'unknown';
+
+function classifyDbConnectionFailure(error: unknown): DbConnectionFailureKind {
+  const code = typeof (error as { code?: unknown })?.code === 'string' ? String((error as { code: string }).code) : '';
+  const message = error instanceof Error ? String(error.message ?? '') : String(error || '');
+  const lower = message.toLowerCase();
+
+  if (code === 'ENETUNREACH' || lower.includes('network is unreachable')) return 'network_unreachable';
+  if (code === 'ETIMEDOUT' || lower.includes('timeout') || lower.includes('timed out')) return 'timeout';
+  if (code === '28P01' || lower.includes('password authentication failed') || lower.includes('authentication failed')) return 'authentication_failed';
+  if (code.startsWith('SSL') || lower.includes('ssl') || lower.includes('certificate')) return 'ssl_error';
+  return 'unknown';
+}
+
+function safeDbErrorCode(error: unknown): string | undefined {
+  const code = typeof (error as { code?: unknown })?.code === 'string' ? String((error as { code: string }).code) : '';
+  return /^[A-Za-z0-9_]+$/.test(code) ? code : undefined;
+}
+
+function sanitizeDbError(error: unknown) {
+  return {
+    errorName: error instanceof Error ? error.name : 'Error',
+    errorCode: safeDbErrorCode(error),
+    errorMessage: DB_CONNECTION_FAILED_MESSAGE,
+    connectionFailureKind: classifyDbConnectionFailure(error),
+  };
+}
 
 @Injectable()
 export class CjProductImportService {
@@ -47,17 +80,17 @@ export class CjProductImportService {
     };
     const dbDiagnostics: Record<string, any> = {
       databaseConnected: false,
-      databaseName: null,
-      currentUser: null,
-      currentSchema: null,
-      appPrivateSchemaPresent: false,
-      appPublicSchemaPresent: false,
-      requiredTables,
       migrationReady: false,
-      checkerSource: 'database_url_postgres_to_regclass',
+      checkerSource: DB_READINESS_CHECKER_SOURCE,
       databaseUrlPresent: Boolean(databaseUrl),
       supabaseUrlPresent: Boolean(supabaseUrl),
       supabaseServiceRolePresent: Boolean(supabaseServiceRoleKey),
+      requiredTables,
+      connectionFailureKind: null,
+      recommendedAction: DB_READINESS_RECOMMENDED_ACTION,
+      secretLeakDetected: false,
+      appPrivateSchemaPresent: false,
+      appPublicSchemaPresent: false,
       likelySupabaseRestSchemaVisibilityIssue: false,
     };
     const checks = {
@@ -76,36 +109,43 @@ export class CjProductImportService {
     if (!databaseUrl) {
       blockers.push('database_url_missing');
     } else {
+      const client = new Client({
+        connectionString: databaseUrl,
+        ssl: { rejectUnauthorized: false },
+        connectionTimeoutMillis: 15000,
+        query_timeout: 15000,
+        statement_timeout: 15000,
+      });
       try {
-        const sql = `select row_to_json(t) from (
-          select
-            current_database() as database_name,
-            current_user as current_user,
-            current_schema() as current_schema,
+        await client.connect();
+        const { rows } = await client.query({
+          text: `select
             exists(select 1 from pg_namespace where nspname = 'app_private') as app_private_schema_present,
             exists(select 1 from pg_namespace where nspname = 'app_public') as app_public_schema_present,
             to_regclass('app_private.cj_product_import_runs') is not null as cj_product_import_runs_present,
             to_regclass('app_private.cj_product_import_items') is not null as cj_product_import_items_present,
             to_regclass('app_public.storefront_products') is not null as storefront_products_present,
-            to_regclass('app_private.fulfillment_tasks') is not null as fulfillment_tasks_present
-        ) t;`;
-        const stdout = execFileSync('psql', [databaseUrl, '-t', '-A', '-c', sql], { encoding: 'utf8' }).trim();
-        const row = stdout ? JSON.parse(stdout) : {};
+            to_regclass('app_private.fulfillment_tasks') is not null as fulfillment_tasks_present`,
+        });
+        const row = rows[0] || {};
         requiredTables['app_private.cj_product_import_runs'] = Boolean(row.cj_product_import_runs_present);
         requiredTables['app_private.cj_product_import_items'] = Boolean(row.cj_product_import_items_present);
         requiredTables['app_public.storefront_products'] = Boolean(row.storefront_products_present);
         requiredTables['app_private.fulfillment_tasks'] = Boolean(row.fulfillment_tasks_present);
         dbDiagnostics.databaseConnected = true;
-        dbDiagnostics.databaseName = row.database_name || null;
-        dbDiagnostics.currentUser = row.current_user || null;
-        dbDiagnostics.currentSchema = row.current_schema || null;
+        dbDiagnostics.connectionFailureKind = null;
         dbDiagnostics.appPrivateSchemaPresent = Boolean(row.app_private_schema_present);
         dbDiagnostics.appPublicSchemaPresent = Boolean(row.app_public_schema_present);
       } catch (error) {
         blockers.push('database_connection_failed');
+        const sanitized = sanitizeDbError(error);
         dbDiagnostics.databaseConnected = false;
-        dbDiagnostics.errorName = error instanceof Error ? error.name : 'Error';
-        dbDiagnostics.errorMessage = error instanceof Error ? String(error.message || '').slice(0, 200) : String(error).slice(0, 200);
+        dbDiagnostics.errorName = sanitized.errorName;
+        if (sanitized.errorCode) dbDiagnostics.errorCode = sanitized.errorCode;
+        dbDiagnostics.errorMessage = sanitized.errorMessage;
+        dbDiagnostics.connectionFailureKind = sanitized.connectionFailureKind;
+      } finally {
+        await client.end().catch(() => undefined);
       }
     }
 
@@ -120,10 +160,12 @@ export class CjProductImportService {
       && checks.fulfillmentTasksTableReady;
     dbDiagnostics.migrationReady = checks.migrationReady;
 
-    if (!checks.importRunsTableReady) blockers.push("cj_import_runs_table_missing");
-    if (!checks.importItemsTableReady) blockers.push("cj_import_items_table_missing");
-    if (!checks.storefrontPublishTargetReady) blockers.push("storefront_products_table_missing");
-    if (!checks.fulfillmentTasksTableReady) blockers.push("fulfillment_tasks_table_missing");
+    if (dbDiagnostics.databaseConnected) {
+      if (!checks.importRunsTableReady) blockers.push("cj_import_runs_table_missing");
+      if (!checks.importItemsTableReady) blockers.push("cj_import_items_table_missing");
+      if (!checks.storefrontPublishTargetReady) blockers.push("storefront_products_table_missing");
+      if (!checks.fulfillmentTasksTableReady) blockers.push("fulfillment_tasks_table_missing");
+    }
     if (
       dbDiagnostics.databaseConnected
       && checks.migrationReady
