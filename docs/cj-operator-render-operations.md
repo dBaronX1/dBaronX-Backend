@@ -55,25 +55,33 @@ Readiness output must include, at minimum:
 
 - `success`
 - `blockers`
-- `legacyBlockers`
-- `dbDiagnostics.databaseName`
-- `dbDiagnostics.databaseUser`
-- `dbDiagnostics.dbConnectionReady`
-- `dbDiagnostics.dbDiagnosticAvailable`
-- `dbDiagnostics.dbConnectionSource`
+- `dbDiagnostics.databaseConnected`
+- `dbDiagnostics.migrationReady`
+- `dbDiagnostics.checkerSource` with value `database_url_pg_client_to_regclass`
+- `dbDiagnostics.databaseUrlPresent`
+- `dbDiagnostics.supabaseUrlPresent`
+- `dbDiagnostics.supabaseServiceRolePresent`
 - `dbDiagnostics.requiredTables`
-- `dbDiagnostics.missingTables`
-- `dbDiagnostics.safeDbErrorClass` (present when database connection/diagnostics fail)
+- `dbDiagnostics.connectionFailureKind` when connection fails
+- `dbDiagnostics.recommendedAction`
+- `dbDiagnostics.secretLeakDetected` with value `false`
+
+The direct database readiness check is the source of truth for migration state. It uses the Node Postgres client against `DATABASE_URL` and fully-qualified `to_regclass(...)` checks for `app_private.cj_product_import_runs`, `app_private.cj_product_import_items`, `app_public.storefront_products`, and `app_private.fulfillment_tasks`. It must not depend on Supabase REST schema exposure.
+
+For GitHub Actions, prefer the Supabase pooler / IPv4-compatible connection string for `DATABASE_URL` if the direct database host resolves to IPv6 or fails with network-unreachable errors. Keep rotated credentials current after any password rotation.
 
 Do not print secrets in readiness output. Never include:
 
-- `DATABASE_URL`
-- DB host
-- DB password
+- `DATABASE_URL` or any `postgres://` / `postgresql://` URL
+- DB username
+- DB host, including the Supabase project host
+- DB password or query parameters containing secrets
 - full environment dumps
 - Supabase service-role key
 - CJ access token/key
 - internal service token
+
+If a database URL, password, or service credential is pasted into logs, chat, issues, screenshots, or artifacts, treat it as leaked: rotate the database password/credential immediately, update GitHub Actions secrets, and rerun readiness with the pooler / IPv4-compatible URL.
 
 
 ## GitHub Actions manual workflow (recommended)
