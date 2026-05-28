@@ -15,7 +15,9 @@ const HARD_MAX_PER_CATEGORY = 200;
 const DEFAULT_LIMIT_PER_CATEGORY = 50;
 const outputPath = (process.env.CJ_OPERATOR_OUTPUT_PATH || 'artifacts/cj-operator-output.json').trim();
 mkdirSync(dirname(outputPath), { recursive: true });
-let outputWritten = false;
+
+let finalOutputWritten = false;
+let runInProgress = false;
 
 function parseLimit(value: string | undefined, fallback: number) { const n = Number(value || fallback); return !Number.isFinite(n) || n < 1 ? fallback : Math.min(Math.floor(n), HARD_MAX_PER_CATEGORY); }
 function isTrue(value: string | undefined): boolean { return String(value || '').toLowerCase() === 'true'; }
@@ -54,8 +56,9 @@ function writeOperatorOutput(payload: Record<string, unknown>) {
   try {
     const content = `${JSON.stringify(payload, null, 2)}\n`;
     writeFileSync(outputPath, content, 'utf8');
-    outputWritten = true;
+    finalOutputWritten = true;
     console.log(content);
+    console.log('operatorFinalOutputWritten=true');
   } catch (error) {
     const fallback = `${JSON.stringify({ success: false, blockers: ['operator_output_write_failed'], errorName: error instanceof Error ? error.name : 'Error', errorMessage: error instanceof Error ? error.message : String(error), outputPath }, null, 2)}\n`;
     try { process.stderr.write(fallback); } catch {}
@@ -71,17 +74,27 @@ function writeOperatorException(error: unknown, blocker = 'operator_exception') 
   }));
 }
 
-
-writeOperatorOutput(basePayload({ blockers: ['operator_bootstrap_incomplete'], errorName: 'OperatorBootstrapPending', errorMessage: 'Operator started before Nest bootstrap completed.', nextAction: 'Inspect operator logs and rerun.' }));
 process.on('uncaughtException', (error) => { writeOperatorException(error); process.exitCode = 1; });
 process.on('unhandledRejection', (reason) => { writeOperatorException(reason); process.exitCode = 1; });
 process.on('beforeExit', () => {
-  if (!outputWritten) {
+  if (!finalOutputWritten && !runInProgress) {
     writeOperatorOutput(basePayload({
-      blockers: ['operator_output_empty'],
-      errorName: 'OperatorOutputMissing',
-      errorMessage: 'Operator process reached beforeExit without writing output JSON.',
-      nextAction: 'Inspect bootstrap and operator logs then rerun.',
+      blockers: ['operator_bootstrap_incomplete'],
+      errorName: 'OperatorBootstrapPending',
+      errorMessage: 'Operator started before Nest bootstrap completed.',
+      nextAction: 'Inspect operator logs and rerun.',
+    }));
+  }
+});
+
+
+process.on('exit', () => {
+  if (!finalOutputWritten) {
+    writeOperatorOutput(basePayload({
+      blockers: ['operator_bootstrap_failed'],
+      errorName: 'OperatorExitedBeforeFinalOutput',
+      errorMessage: 'Operator process exited before final output was written.',
+      nextAction: 'Inspect bootstrap/runtime logs and rerun.',
     }));
   }
 });
@@ -91,14 +104,21 @@ async function main() {
   const dryRun = isTrue(process.env.CJ_OPERATOR_DRY_RUN);
   const requested = parseLimit(process.env.CJ_OPERATOR_LIMIT_PER_CATEGORY, DEFAULT_LIMIT_PER_CATEGORY);
   const categories = parseCategories();
-  console.log(`operatorEntrypointReached=true outputPath=${outputPath} mode=${mode} dryRun=${dryRun} category=${process.env.CJ_OPERATOR_CATEGORY || 'all'} limitPerCategory=${requested}`);
+  let app: Awaited<ReturnType<typeof NestFactory.createApplicationContext>> | null = null;
 
-  const app = await NestFactory.createApplicationContext(AppModule, { logger: false });
+  runInProgress = true;
+  console.log(`operatorEntrypointReached=true outputPath=${outputPath} mode=${mode} dryRun=${dryRun} category=${process.env.CJ_OPERATOR_CATEGORY || 'all'} limitPerCategory=${requested}`);
+  console.log('operatorBootstrapStarting=true');
+
   try {
+    app = await NestFactory.createApplicationContext(AppModule, { logger: false });
+    console.log('operatorBootstrapComplete=true');
+    console.log('operatorRunStarting=true');
+
     const importer = app.get(CjProductImportService, { strict: false }); const publisher = app.get(CjProductPublishService, { strict: false }); const supabase = app.get(SupabaseService, { strict: false });
     const readiness = await importer.readiness(); const blockers = [...new Set(readiness.blockers || [])];
     const result: any = basePayload({ mode, dryRun, requestedLimitPerCategory: requested, totalCategories: categories.length, blockers, dbDiagnostics: { migrationReady: readiness.checks?.migrationReady ?? false }, cjDiagnostics: { cjCredentialsConfigured: readiness.checks?.cjCredentialsConfigured ?? false }, nextAction:'Resolve blockers and retry.' });
-    if (mode === 'readiness' || blockers.length > 0) { result.success = blockers.length === 0; result.nextAction = blockers.length ? 'Resolve readiness blockers then run preview/import.' : 'Run preview or full-safe.'; writeOperatorOutput(result); process.exitCode = result.success || isTrue(process.env.CJ_OPERATOR_READINESS_EXIT_ZERO) ? 0 : 1; return; }
+    if (mode === 'readiness' || blockers.length > 0) { result.success = blockers.length === 0; result.nextAction = blockers.length ? 'Resolve readiness blockers then run preview/import.' : 'Run preview or full-safe.'; console.log('operatorRunComplete=true'); writeOperatorOutput(result); process.exitCode = result.success || isTrue(process.env.CJ_OPERATOR_READINESS_EXIT_ZERO) ? 0 : 1; return; }
     for (const category of categories) {
       const row: CategoryResult = { category, requested, fetched:0, previewed:0, staged:0, valid:0, rejected:0, approved:0, published:0, skipped:0, blockers:[], labelsFound:[], duplicateCount:0, restrictedRejectedCount:0, partialReason: null };
       if (mode === 'preview' || mode === 'import' || mode === 'full-safe') { const preview = await importer.preview(category, requested); const labels = new Set<string>(); for (const item of preview.items || []) { row.fetched += 1; row.previewed += 1; labels.add(String(item.category_slug || item.category || 'unknown')); } row.partialReason = typeof (preview as any).partialReason === 'string' ? (preview as any).partialReason : null; row.labelsFound = [...labels]; if (mode === 'preview' && row.fetched === 0) row.blockers.push('preview_no_products_fetched'); }
@@ -109,8 +129,26 @@ async function main() {
     }
     if ((mode === 'publish-approved' || mode === 'full-safe') && result.totalPublished > result.totalMedusaSynced) result.blockers.push('medusa_publish_proof_mismatch');
     result.success = result.blockers.length === 0 && result.categoryResults.every((r: any) => r.blockers.length === 0);
-    result.nextAction = result.success ? 'Review artifact and rerun publish-approved if needed.' : 'Inspect blockers.'; writeOperatorOutput(result); if (!result.success) process.exitCode = 1;
-  } finally { await app.close(); }
+    result.nextAction = result.success ? 'Review artifact and rerun publish-approved if needed.' : 'Inspect blockers.';
+    console.log('operatorRunComplete=true');
+    writeOperatorOutput(result);
+    if (!result.success) process.exitCode = 1;
+  } catch (error) {
+    writeOperatorOutput(basePayload({
+      blockers: ['operator_bootstrap_failed'],
+      errorName: error instanceof Error ? error.name : 'Error',
+      errorMessage: error instanceof Error ? error.message : String(error),
+      errorStackPreview: sanitizeStack(error),
+      dbDiagnostics: {},
+      cjDiagnostics: {},
+      medusaDiagnostics: {},
+      nextAction: 'Inspect bootstrap/runtime logs and resolve configuration or provider errors.',
+    }));
+    process.exitCode = 1;
+  } finally {
+    runInProgress = false;
+    if (app) await app.close();
+  }
 }
 
-main().catch((error) => { writeOperatorException(error); process.exit(1); });
+void main();
