@@ -14,9 +14,9 @@ on:
         options: [all, electronics, fashion, home-living, beauty, sports, automotive, agriculture, tech, finance]
         default: all
       limitPerCategory:
-        description: Requested products per category
+        description: Requested products per category. Safer first preview: category=fashion and limitPerCategory=5; category=all with 50 is heavy.
         required: false
-        default: '50'
+        default: '10'
       dryRun:
         description: Dry run only
         type: boolean
@@ -62,6 +62,8 @@ jobs:
           echo "dryRun=${CJ_OPERATOR_DRY_RUN}"
           echo "category=${CJ_OPERATOR_CATEGORY}"
           echo "limitPerCategory=${CJ_OPERATOR_LIMIT_PER_CATEGORY}"
+          echo "recommendedFirstPreview=category=fashion limitPerCategory=5"
+          echo "heavyPreviewWarning=category=all limitPerCategory=50 is supported but heavy; prefer 5-10 first"
           echo "cwd=$(pwd)"
           echo "distScriptPresent=${dist_script_present}"
           db_present=false; [ -n "${DATABASE_URL}" ] && db_present=true

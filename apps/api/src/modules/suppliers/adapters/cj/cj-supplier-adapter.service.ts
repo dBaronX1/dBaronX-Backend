@@ -1,6 +1,6 @@
 import { BadRequestException, Injectable } from "@nestjs/common";
 import { ConfigService } from "@nestjs/config";
-import axios, { AxiosError } from "axios";
+import axios, { AxiosError, AxiosResponse } from "axios";
 import {
   CjNormalizedSupplierMetadata,
   CjProductImportDto,
@@ -50,6 +50,36 @@ export interface CjProductImportReadinessResult {
   timestamp: string;
 }
 
+export interface CjRateLimitDiagnostics {
+  cjStatusCode: 429;
+  rateLimited: true;
+  retryAfterPresent: boolean;
+  retryAfterSeconds?: number;
+  recommendedAction: string;
+}
+
+export class CjRateLimitedException extends BadRequestException {
+  readonly cjStatusCode = 429;
+  readonly rateLimited = true;
+  readonly retryAfterPresent: boolean;
+  readonly retryAfterSeconds?: number;
+  readonly recommendedAction =
+    "Wait before rerun, reduce limitPerCategory, or run one category at a time.";
+
+  constructor(
+    diagnostics: Omit<
+      CjRateLimitDiagnostics,
+      "cjStatusCode" | "rateLimited" | "recommendedAction"
+    >,
+  ) {
+    super("cj_rate_limited");
+    this.retryAfterPresent = diagnostics.retryAfterPresent;
+    if (typeof diagnostics.retryAfterSeconds === "number") {
+      this.retryAfterSeconds = diagnostics.retryAfterSeconds;
+    }
+  }
+}
+
 interface CjLiveProbeResult {
   cjLiveProbeAttempted: boolean;
   cjLiveProbeOk: boolean;
@@ -61,9 +91,21 @@ interface CjLiveProbeResult {
 @Injectable()
 export class CjSupplierAdapterService {
   private readonly liveProbeTimeoutMs: number;
+  private readonly maxRetries: number;
+  private readonly retryBaseMs: number;
+  private readonly retryMaxMs: number;
 
   constructor(private readonly config: ConfigService) {
     this.liveProbeTimeoutMs = this.resolveLiveProbeTimeoutMs();
+    this.maxRetries = this.resolveRetryNumber("CJ_OPERATOR_MAX_RETRIES", 2);
+    this.retryBaseMs = this.resolveRetryNumber(
+      "CJ_OPERATOR_RETRY_BASE_MS",
+      2000,
+    );
+    this.retryMaxMs = this.resolveRetryNumber(
+      "CJ_OPERATOR_RETRY_MAX_MS",
+      15000,
+    );
   }
 
   mapImport(input: CjProductImportDto) {
@@ -266,22 +308,21 @@ export class CjSupplierAdapterService {
       throw new BadRequestException("cj_credentials_missing");
     }
 
-    const response = await axios.get(
-      this.cjEndpoint(baseUrl, this.productListEndpointPath()),
-      {
-        headers: { "CJ-Access-Token": credential.value },
-        params: {
-          pageNum: 1,
-          pageSize: Math.max(1, Math.min(limit, 100)),
-          ...(category && category !== "all" ? { categoryName: category } : {}),
-        },
-        timeout: this.liveProbeTimeoutMs,
-        validateStatus: () => true,
-      },
+    const response = await this.fetchProductsWithRetry(
+      baseUrl,
+      credential.value,
+      category,
+      limit,
     );
 
     if (response.status === 401) {
       throw new BadRequestException("cj_auth_failed_401");
+    }
+
+    if (response.status === 429) {
+      throw new CjRateLimitedException(
+        this.rateLimitDiagnostics(response.headers),
+      );
     }
 
     if (
@@ -322,6 +363,108 @@ export class CjSupplierAdapterService {
       shippingCountries: ["US"],
       deliveryEstimate: "7-12 days",
     }));
+  }
+
+  private async fetchProductsWithRetry(
+    baseUrl: string,
+    credential: string,
+    category: string,
+    limit: number,
+  ): Promise<AxiosResponse> {
+    let lastResponse: AxiosResponse | undefined;
+
+    for (let attempt = 0; attempt <= this.maxRetries; attempt += 1) {
+      const response = await axios.get(
+        this.cjEndpoint(baseUrl, this.productListEndpointPath()),
+        {
+          headers: { "CJ-Access-Token": credential },
+          params: {
+            pageNum: 1,
+            pageSize: Math.max(1, Math.min(limit, 100)),
+            ...(category && category !== "all"
+              ? { categoryName: category }
+              : {}),
+          },
+          timeout: this.liveProbeTimeoutMs,
+          validateStatus: () => true,
+        },
+      );
+      lastResponse = response;
+
+      if (
+        !this.isRetryableStatus(response.status) ||
+        attempt >= this.maxRetries
+      ) {
+        return response;
+      }
+
+      await this.sleep(this.retryDelayMs(attempt, response.headers));
+    }
+
+    return lastResponse!;
+  }
+
+  private isRetryableStatus(status: number): boolean {
+    return status === 429 || status === 408 || (status >= 500 && status <= 599);
+  }
+
+  private retryDelayMs(
+    attempt: number,
+    headers: Record<string, unknown> | undefined,
+  ): number {
+    const retryAfterSeconds = this.parseRetryAfterSeconds(headers);
+    if (typeof retryAfterSeconds === "number") {
+      return Math.min(retryAfterSeconds * 1000, this.retryMaxMs);
+    }
+
+    return Math.min(this.retryBaseMs * 2 ** attempt, this.retryMaxMs);
+  }
+
+  private rateLimitDiagnostics(
+    headers: Record<string, unknown> | undefined,
+  ): CjRateLimitDiagnostics {
+    const retryAfterSeconds = this.parseRetryAfterSeconds(headers);
+    return {
+      cjStatusCode: 429,
+      rateLimited: true,
+      retryAfterPresent: this.retryAfterHeaderPresent(headers),
+      ...(typeof retryAfterSeconds === "number" ? { retryAfterSeconds } : {}),
+      recommendedAction:
+        "Wait before rerun, reduce limitPerCategory, or run one category at a time.",
+    };
+  }
+
+  private parseRetryAfterSeconds(
+    headers: Record<string, unknown> | undefined,
+  ): number | undefined {
+    const raw = this.retryAfterHeader(headers);
+    if (!raw) return undefined;
+    const numeric = Number.parseInt(raw, 10);
+    if (Number.isSafeInteger(numeric) && numeric >= 0) return numeric;
+
+    const dateMs = Date.parse(raw);
+    if (!Number.isNaN(dateMs)) {
+      return Math.max(0, Math.ceil((dateMs - Date.now()) / 1000));
+    }
+
+    return undefined;
+  }
+
+  private retryAfterHeaderPresent(
+    headers: Record<string, unknown> | undefined,
+  ) {
+    return Boolean(this.retryAfterHeader(headers));
+  }
+
+  private retryAfterHeader(headers: Record<string, unknown> | undefined) {
+    const value = headers?.["retry-after"] ?? headers?.["Retry-After"];
+    return Array.isArray(value)
+      ? String(value[0] || "").trim()
+      : String(value || "").trim();
+  }
+
+  private sleep(ms: number) {
+    return new Promise((resolve) => setTimeout(resolve, Math.max(0, ms)));
   }
 
   private getConfigValue(key: string): string {
@@ -569,14 +712,16 @@ export class CjSupplierAdapterService {
   }
 
   private resolveLiveProbeTimeoutMs(): number {
-    const rawTimeout = this.config
-      .get<string>("CJ_LIVE_PROBE_TIMEOUT_MS")
-      ?.trim();
-    const parsedTimeout = rawTimeout ? Number.parseInt(rawTimeout, 10) : 5000;
+    return this.resolveRetryNumber("CJ_LIVE_PROBE_TIMEOUT_MS", 5000);
+  }
 
-    return Number.isSafeInteger(parsedTimeout) && parsedTimeout > 0
-      ? parsedTimeout
-      : 5000;
+  private resolveRetryNumber(key: string, fallback: number): number {
+    const rawValue = this.getConfigValue(key);
+    const parsedValue = rawValue ? Number.parseInt(rawValue, 10) : fallback;
+
+    return Number.isSafeInteger(parsedValue) && parsedValue >= 0
+      ? parsedValue
+      : fallback;
   }
 
   private cjEndpoint(baseUrl: string, path: string): string {
