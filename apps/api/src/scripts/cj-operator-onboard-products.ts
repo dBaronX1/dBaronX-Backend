@@ -23,6 +23,7 @@ type Mode =
 type CategoryResult = {
   category: string;
   requested: number;
+  status: "pending" | "fetched" | "rate_limited" | "skipped_due_to_rate_limit";
   fetched: number;
   previewed: number;
   staged: number;
@@ -32,6 +33,8 @@ type CategoryResult = {
   published: number;
   skipped: number;
   blockers: string[];
+  rateLimited: boolean;
+  skippedDueToRateLimit: boolean;
   labelsFound: string[];
   duplicateCount: number;
   restrictedRejectedCount: number;
@@ -41,6 +44,9 @@ type CategoryResult = {
 const HARD_MAX_PER_CATEGORY = 200;
 const DEFAULT_LIMIT_PER_CATEGORY = 50;
 const DEFAULT_BOOTSTRAP_TIMEOUT_MS = 30000;
+const DEFAULT_CATEGORY_DELAY_MS = 2000;
+const CJ_RATE_LIMIT_RECOMMENDED_ACTION =
+  "Wait before rerun, reduce limitPerCategory, or run one category at a time.";
 const outputPath = (
   process.env.CJ_OPERATOR_OUTPUT_PATH || "artifacts/cj-operator-output.json"
 ).trim();
@@ -61,6 +67,16 @@ function parseTimeoutMs(value: string | undefined): number {
   return !Number.isFinite(parsed) || parsed < 1
     ? DEFAULT_BOOTSTRAP_TIMEOUT_MS
     : Math.floor(parsed);
+}
+function parseNonNegativeMs(
+  value: string | undefined,
+  fallback: number,
+): number {
+  const parsed = Number(value ?? fallback);
+  return !Number.isFinite(parsed) || parsed < 0 ? fallback : Math.floor(parsed);
+}
+function sleep(ms: number) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
 }
 function isTrue(value: string | undefined): boolean {
   return String(value || "").toLowerCase() === "true";
@@ -163,8 +179,12 @@ function safeCjDiagnostics(source: Record<string, any> = {}) {
       workflowAccessTokenPresent && !adapterConfigured,
   };
 }
-function credentialMissingSecrets(cjDiagnostics: Record<string, any>): string[] {
-  return cjDiagnostics.cjAccessTokenPresent || cjDiagnostics.cjApiKeyPresent ? [] : ['CJ_ACCESS_TOKEN_or_CJ_API_KEY'];
+function credentialMissingSecrets(
+  cjDiagnostics: Record<string, any>,
+): string[] {
+  return cjDiagnostics.cjAccessTokenPresent || cjDiagnostics.cjApiKeyPresent
+    ? []
+    : ["CJ_ACCESS_TOKEN_or_CJ_API_KEY"];
 }
 function normalizeCredentialBlockers(
   blockers: string[],
@@ -187,6 +207,68 @@ function isCjAuthFailed401Error(error: unknown): boolean {
   return sanitizeSecretText(
     error instanceof Error ? error.message : String(error),
   ).includes("cj_auth_failed_401");
+}
+function isCjRateLimitedError(error: unknown): boolean {
+  const message = sanitizeSecretText(
+    error instanceof Error ? error.message : String(error),
+  );
+  return (
+    message.includes("cj_rate_limited") ||
+    message.includes("cj_fetch_failed_429")
+  );
+}
+function cjRateLimitDiagnostics(error: unknown) {
+  const source = error as {
+    cjStatusCode?: unknown;
+    rateLimited?: unknown;
+    retryAfterPresent?: unknown;
+    retryAfterSeconds?: unknown;
+    recommendedAction?: unknown;
+  };
+  const retryAfterSeconds = Number(source.retryAfterSeconds);
+  return {
+    cjStatusCode: 429,
+    rateLimited: true,
+    retryAfterPresent: Boolean(source.retryAfterPresent),
+    ...(Number.isSafeInteger(retryAfterSeconds) && retryAfterSeconds >= 0
+      ? { retryAfterSeconds }
+      : {}),
+    recommendedAction: CJ_RATE_LIMIT_RECOMMENDED_ACTION,
+  };
+}
+function applyCategoryTotals(result: Record<string, any>, row: CategoryResult) {
+  result.totalPreviewed += row.previewed;
+  result.totalFetched += row.fetched;
+  result.totalStaged += row.staged;
+  result.totalApproved += row.approved;
+  result.totalPublished += row.published;
+  result.totalRejected += row.rejected;
+  result.totalSkipped += row.skipped;
+}
+function makeCategoryResult(
+  category: string,
+  requested: number,
+): CategoryResult {
+  return {
+    category,
+    requested,
+    status: "pending",
+    fetched: 0,
+    previewed: 0,
+    staged: 0,
+    valid: 0,
+    rejected: 0,
+    approved: 0,
+    published: 0,
+    skipped: 0,
+    blockers: [],
+    rateLimited: false,
+    skippedDueToRateLimit: false,
+    labelsFound: [],
+    duplicateCount: 0,
+    restrictedRejectedCount: 0,
+    partialReason: null,
+  };
 }
 
 function basePayload(overrides: Record<string, unknown> = {}) {
@@ -213,6 +295,7 @@ function basePayload(overrides: Record<string, unknown> = {}) {
     missingSecrets: [],
     dbDiagnostics: {},
     cjDiagnostics: {},
+    cjRateLimitDiagnostics: {},
     medusaDiagnostics: {},
     bootstrapDiagnostics: {
       moduleName: "CjOperatorModule",
@@ -291,6 +374,10 @@ async function main() {
     DEFAULT_LIMIT_PER_CATEGORY,
   );
   const categories = parseCategories();
+  const categoryDelayMs = parseNonNegativeMs(
+    process.env.CJ_OPERATOR_CATEGORY_DELAY_MS,
+    DEFAULT_CATEGORY_DELAY_MS,
+  );
   const timeoutMs = parseTimeoutMs(
     process.env.CJ_OPERATOR_BOOTSTRAP_TIMEOUT_MS,
   );
@@ -361,6 +448,9 @@ async function main() {
         migrationReady: readiness.checks?.migrationReady ?? false,
       },
       cjDiagnostics,
+      categoryDelayMs,
+      categoryFetchMode:
+        categories.length > 1 ? "sequential_throttled" : "single_category",
       bootstrapDiagnostics,
       nextAction: "Resolve blockers and retry.",
     });
@@ -377,95 +467,122 @@ async function main() {
           : 1;
       return;
     }
-    for (const category of categories) {
-      const row: CategoryResult = {
-        category,
-        requested,
-        fetched: 0,
-        previewed: 0,
-        staged: 0,
-        valid: 0,
-        rejected: 0,
-        approved: 0,
-        published: 0,
-        skipped: 0,
-        blockers: [],
-        labelsFound: [],
-        duplicateCount: 0,
-        restrictedRejectedCount: 0,
-        partialReason: null,
-      };
-      if (mode === "preview" || mode === "import" || mode === "full-safe") {
-        const preview = await importer.preview(category, requested);
-        const labels = new Set<string>();
-        for (const item of preview.items || []) {
-          row.fetched += 1;
-          row.previewed += 1;
-          labels.add(String(item.category_slug || item.category || "unknown"));
+    let haltedByRateLimit = false;
+    for (
+      let categoryIndex = 0;
+      categoryIndex < categories.length;
+      categoryIndex += 1
+    ) {
+      const category = categories[categoryIndex];
+      if (haltedByRateLimit) {
+        const skippedRow = makeCategoryResult(category, requested);
+        skippedRow.status = "skipped_due_to_rate_limit";
+        skippedRow.skippedDueToRateLimit = true;
+        skippedRow.skipped = requested;
+        skippedRow.blockers.push("cj_rate_limited");
+        result.categoryResults.push(skippedRow);
+        applyCategoryTotals(result, skippedRow);
+        continue;
+      }
+
+      if (categoryIndex > 0 && categories.length > 1 && categoryDelayMs > 0) {
+        await sleep(categoryDelayMs);
+      }
+
+      const row = makeCategoryResult(category, requested);
+      try {
+        if (mode === "preview" || mode === "import" || mode === "full-safe") {
+          const preview = await importer.preview(category, requested);
+          const labels = new Set<string>();
+          for (const item of preview.items || []) {
+            row.fetched += 1;
+            row.previewed += 1;
+            labels.add(
+              String(item.category_slug || item.category || "unknown"),
+            );
+          }
+          row.status = "fetched";
+          row.partialReason =
+            typeof (preview as any).partialReason === "string"
+              ? (preview as any).partialReason
+              : null;
+          row.labelsFound = [...labels];
         }
-        row.partialReason =
-          typeof (preview as any).partialReason === "string"
-            ? (preview as any).partialReason
-            : null;
-        row.labelsFound = [...labels];
-      }
-      if (!dryRun && (mode === "import" || mode === "full-safe")) {
-        const imported = await importer.runImport(
-          category,
-          requested,
-          "cj_operator",
-        );
-        row.staged = imported.imported || 0;
-        row.valid = imported.accepted || 0;
-        row.rejected = imported.rejected || 0;
-      }
-      if (
-        !dryRun &&
-        (mode === "approve-safe" ||
-          mode === "auto-approve-safe" ||
-          mode === "full-safe")
-      ) {
-        const { data } = await supabase
-          .schema("app_private")
-          .from("cj_product_import_items")
-          .select("id,validation_status,approval_status,blockers,category_slug")
-          .eq("supplier", "cj")
-          .eq("category_slug", category)
-          .eq("approval_status", "pending_admin_approval")
-          .limit(requested);
-        for (const item of data || []) {
-          const ok =
-            item.validation_status === "validated" &&
-            (!Array.isArray(item.blockers) || item.blockers.length === 0);
-          if (ok) {
-            await publisher.approve(item.id);
-            row.approved += 1;
-          } else {
-            row.skipped += 1;
+        if (!dryRun && (mode === "import" || mode === "full-safe")) {
+          const imported = await importer.runImport(
+            category,
+            requested,
+            "cj_operator",
+          );
+          row.staged = imported.imported || 0;
+          row.valid = imported.accepted || 0;
+          row.rejected = imported.rejected || 0;
+        }
+        if (
+          !dryRun &&
+          (mode === "approve-safe" ||
+            mode === "auto-approve-safe" ||
+            mode === "full-safe")
+        ) {
+          const { data } = await supabase
+            .schema("app_private")
+            .from("cj_product_import_items")
+            .select(
+              "id,validation_status,approval_status,blockers,category_slug",
+            )
+            .eq("supplier", "cj")
+            .eq("category_slug", category)
+            .eq("approval_status", "pending_admin_approval")
+            .limit(requested);
+          for (const item of data || []) {
+            const ok =
+              item.validation_status === "validated" &&
+              (!Array.isArray(item.blockers) || item.blockers.length === 0);
+            if (ok) {
+              await publisher.approve(item.id);
+              row.approved += 1;
+            } else {
+              row.skipped += 1;
+            }
           }
         }
-      }
-      if (!dryRun && (mode === "publish-approved" || mode === "full-safe")) {
-        const p = await publisher.publishApproved();
-        row.published += p.published || 0;
-        result.totalMedusaSynced += p.medusaSynced || 0;
-        if (Array.isArray(p.blockers))
-          result.medusaSyncBlockers = [
-            ...new Set([...result.medusaSyncBlockers, ...p.blockers]),
-          ];
-        result.medusaDiagnostics =
-          p.medusaDiagnostics || result.medusaDiagnostics;
+        if (!dryRun && (mode === "publish-approved" || mode === "full-safe")) {
+          const p = await publisher.publishApproved();
+          row.published += p.published || 0;
+          result.totalMedusaSynced += p.medusaSynced || 0;
+          if (Array.isArray(p.blockers))
+            result.medusaSyncBlockers = [
+              ...new Set([...result.medusaSyncBlockers, ...p.blockers]),
+            ];
+          result.medusaDiagnostics =
+            p.medusaDiagnostics || result.medusaDiagnostics;
+        }
+      } catch (error) {
+        if (!isCjRateLimitedError(error)) throw error;
+        row.status = "rate_limited";
+        row.rateLimited = true;
+        row.partialReason = "cj_rate_limited";
+        row.blockers.push("cj_rate_limited");
+        result.blockers = [...new Set([...result.blockers, "cj_rate_limited"])];
+        result.cjRateLimitDiagnostics = cjRateLimitDiagnostics(error);
+        result.cjDiagnostics = {
+          ...result.cjDiagnostics,
+          ...result.cjRateLimitDiagnostics,
+        };
+        result.errorName = error instanceof Error ? error.name : "Error";
+        result.errorMessage = "cj_rate_limited";
+        result.nextAction = CJ_RATE_LIMIT_RECOMMENDED_ACTION;
+        haltedByRateLimit = true;
       }
       result.categoryResults.push(row);
-      result.totalPreviewed += row.previewed;
-      result.totalFetched += row.fetched;
-      result.totalStaged += row.staged;
-      result.totalApproved += row.approved;
-      result.totalPublished += row.published;
-      result.totalRejected += row.rejected;
-      result.totalSkipped += row.skipped;
+      applyCategoryTotals(result, row);
     }
-    if (mode === 'preview' && result.totalFetched === 0) result.blockers.push('preview_no_products_fetched');
+    if (
+      mode === "preview" &&
+      result.totalFetched === 0 &&
+      !result.blockers.includes("cj_rate_limited")
+    )
+      result.blockers.push("preview_no_products_fetched");
     if (
       (mode === "publish-approved" || mode === "full-safe") &&
       result.totalPublished > result.totalMedusaSynced
@@ -476,7 +593,9 @@ async function main() {
       result.categoryResults.every((r: any) => r.blockers.length === 0);
     result.nextAction = result.success
       ? "Review artifact and rerun publish-approved if needed."
-      : "Inspect blockers.";
+      : result.blockers.includes("cj_rate_limited")
+        ? CJ_RATE_LIMIT_RECOMMENDED_ACTION
+        : "Inspect blockers.";
     console.log("operatorRunComplete=true");
     writeOperatorOutput(result);
     if (!result.success) process.exitCode = 1;
@@ -489,6 +608,7 @@ async function main() {
     const runStarted = bootstrapDiagnostics.bootstrapComplete;
     const credentialError = isCjCredentialsMissingError(error);
     const authFailed401 = isCjAuthFailed401Error(error);
+    const rateLimited = isCjRateLimitedError(error);
     const blockers = isTimeout
       ? ["operator_bootstrap_timeout"]
       : runStarted
@@ -496,9 +616,15 @@ async function main() {
           ? [
               "operator_run_failed",
               "cj_auth_failed_401",
-              'invalid_or_expired_cj_credential',
+              "invalid_or_expired_cj_credential",
             ]
-          : [credentialError ? "cj_credentials_missing" : "operator_run_failed"]
+          : rateLimited
+            ? ["operator_run_failed", "cj_rate_limited"]
+            : [
+                credentialError
+                  ? "cj_credentials_missing"
+                  : "operator_run_failed",
+              ]
         : ["operator_bootstrap_failed"];
     if (
       runStarted &&
@@ -508,13 +634,17 @@ async function main() {
       blockers.unshift("operator_run_failed");
     const nextAction = authFailed401
       ? "Regenerate CJ_ACCESS_TOKEN in CJ dashboard/API authorization and update GitHub Actions secret. Do not paste token."
-      : runStarted
-        ? "Resolve runtime blockers and rerun."
-        : "Inspect bootstrap logs and resolve configuration errors.";
+      : rateLimited
+        ? CJ_RATE_LIMIT_RECOMMENDED_ACTION
+        : runStarted
+          ? "Resolve runtime blockers and rerun."
+          : "Inspect bootstrap logs and resolve configuration errors.";
     writeOperatorOutput(
       basePayload({
         blockers: [...new Set(blockers)],
-        missingSecrets: credentialMissingSecrets(cjDiagnostics),
+        missingSecrets: rateLimited
+          ? []
+          : credentialMissingSecrets(cjDiagnostics),
         errorName: isTimeout
           ? "OperatorBootstrapTimeout"
           : error instanceof Error
@@ -528,7 +658,12 @@ async function main() {
         errorStackPreview: sanitizeStack(error),
         bootstrapDiagnostics,
         dbDiagnostics: {},
-        cjDiagnostics,
+        cjDiagnostics: rateLimited
+          ? { ...cjDiagnostics, ...cjRateLimitDiagnostics(error) }
+          : cjDiagnostics,
+        cjRateLimitDiagnostics: rateLimited
+          ? cjRateLimitDiagnostics(error)
+          : {},
         medusaDiagnostics: {},
         nextAction,
       }),
