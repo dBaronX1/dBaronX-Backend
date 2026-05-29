@@ -65,6 +65,38 @@ const asArray = <T = Record<string, unknown>>(
 const idOf = (value: unknown): string | null =>
   isRecord(value) && typeof value.id === "string" ? value.id : null;
 
+
+function exactTargetMetadataPresent(product: Record<string, unknown> | null): boolean {
+  if (!product) return false;
+  const candidates = [
+    isRecord(product.metadata) ? product.metadata : null,
+    ...asArray<Record<string, unknown>>(product.variants).map((variant) =>
+      isRecord(variant.metadata) ? variant.metadata : null,
+    ),
+  ].filter((item): item is Record<string, unknown> => Boolean(item));
+  return candidates.some((metadata) =>
+    String(metadata.supplier || "").toLowerCase() === TARGET.supplier &&
+    String(metadata.supplierProductId || "") === TARGET.supplierProductId &&
+    String(metadata.supplierSku || "") === TARGET.supplierSku &&
+    (!metadata.sourceUrl || String(metadata.sourceUrl) === TARGET.sourceUrl)
+  );
+}
+
+function assertSafeToRepairExistingProduct(product: Record<string, unknown> | null): void {
+  if (!product || exactTargetMetadataPresent(product)) return;
+  console.error(JSON.stringify({
+    success: false,
+    blockers: ["product_handle_exists_with_different_or_unverified_supplier_metadata"],
+    productId: idOf(product),
+    handle: TARGET.handle,
+    requiredSupplier: TARGET.supplier,
+    requiredSupplierProductId: TARGET.supplierProductId,
+    requiredSupplierSku: TARGET.supplierSku,
+    nextManualStep: "Manually review the existing Medusa product. This seed will not relabel unrelated products or demo products unless exact CJ metadata proves identity.",
+  }, null, 2));
+  process.exit(1);
+}
+
 function pushUnique(values: string[], value: string | null | undefined) {
   if (value && !values.includes(value)) values.push(value);
 }
@@ -204,6 +236,7 @@ async function createOrRepairProduct(
   shippingProfileId: string,
 ) {
   let product = await findProductByHandle(query);
+  assertSafeToRepairExistingProduct(product);
   const input = productInput(salesChannelId, shippingProfileId);
   if (!product) {
     const created = await createProductsWorkflow(container).run({ input: { products: [input] } });
@@ -430,11 +463,29 @@ export async function reseedCjFirstProductCanonical({ container }: ExecArgs) {
   for (const blocker of store.blockers) pushUnique(blockers, blocker);
 
   const success = blockers.length === 0 && Boolean(product?.id && variant?.id && inventoryLevelReady && store.productVisibleByHandle && store.productVisibleInList && store.shippingOptionVisible);
+  const metadata = metadataFor(TARGET);
   console.log(JSON.stringify({
     success,
+    mode: TARGET.mode,
     blockers,
     productId: idOf(product),
     variantId: idOf(variant),
+    handle: TARGET.handle,
+    title: TARGET.title,
+    supplier: TARGET.supplier,
+    supplierProductId: TARGET.supplierProductId,
+    supplierSku: TARGET.supplierSku,
+    sourceUrlPresent: Boolean(TARGET.sourceUrl),
+    imageUrlPresent: Boolean(TARGET.imageUrl),
+    realSupplierProduct: metadata.realSupplierProduct,
+    demo: metadata.demo,
+    supplierVerificationStatus: metadata.supplierVerificationStatus,
+    stockQty: TARGET.stockQty,
+    priceAmount: TARGET.priceAmount,
+    supplierCostAmount: TARGET.supplierCostAmount,
+    supplierCostCurrency: metadata.supplierCostCurrency,
+    shippingCountries: TARGET.shippingCountries,
+    deliveryEstimate: TARGET.deliveryEstimate,
     canonicalSalesChannelId: context.canonicalSalesChannelId,
     regionId: context.regionId,
     stockLocationId: context.stockLocationId,

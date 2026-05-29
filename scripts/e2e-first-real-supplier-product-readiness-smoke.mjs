@@ -371,19 +371,17 @@ function isVerifiedSupplierProduct(product) {
   );
 }
 function selectExactCjProduct(items) {
-  return (
-    items.find((product) => cleanHandle(product) === EXPECTED_CJ_HANDLE) ||
-    items.find((product) => supplierProductIdOf(product) === EXPECTED_CJ_SUPPLIER_PRODUCT_ID) ||
-    items.find((product) => supplierSkuOf(product) === EXPECTED_CJ_SUPPLIER_SKU) ||
-    null
-  );
+  return items.find((product) => isExactCjProduct(product)) || null;
 }
 function isExactVerifiedCjProduct(product) {
+  return Boolean(isVerifiedSupplierProduct(product) && isExactCjProduct(product));
+}
+function isExactCjProduct(product) {
   return Boolean(
-    isVerifiedSupplierProduct(product) &&
-      (cleanHandle(product) === EXPECTED_CJ_HANDLE ||
-        supplierProductIdOf(product) === EXPECTED_CJ_SUPPLIER_PRODUCT_ID ||
-        supplierSkuOf(product) === EXPECTED_CJ_SUPPLIER_SKU),
+    product &&
+      cleanHandle(product) === EXPECTED_CJ_HANDLE &&
+      supplierProductIdOf(product) === EXPECTED_CJ_SUPPLIER_PRODUCT_ID &&
+      supplierSkuOf(product) === EXPECTED_CJ_SUPPLIER_SKU,
   );
 }
 function cleanHandle(product) {
