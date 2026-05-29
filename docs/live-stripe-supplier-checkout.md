@@ -33,7 +33,25 @@ Normal Render Medusa Start Command:
 pnpm --filter @dbaronx/medusa run start
 ```
 
-After launch-commerce is green, retrieve the full fresh-DB publishable key with `DBX_CONFIRM_PRINT_MEDUSA_PUBLISHABLE_KEY=true pnpm --filter @dbaronx/medusa run publishable-key:print`. Medusa Admin `/app` may be unavailable because the admin build is disabled, and `/` or `/app` returning `Cannot GET` is not a Store API blocker. Copy `publishableApiKeyToken` into `MEDUSA_PUBLISHABLE_KEY`, `NEXT_PUBLIC_MEDUSA_PUBLISHABLE_KEY`, and `PUBLIC_MEDUSA_PUBLISHABLE_KEY`; do not use the deleted DB key. Then run the one controlled CJ shirt seed through the `Medusa First Product Seed` GitHub Action, a Render one-off job, or Render shell command. Keep the normal command above in the Web Service and run the smokes with the new key before sending a customer to checkout.
+Medusa Store API routes require a current publishable API key in the `x-publishable-api-key` header. An old publishable key can stop working after a Medusa database replacement because the key and sales-channel links live in the Medusa database, not in the codebase.
+
+When Medusa Admin UI `/app` is unavailable, the safest path is to run the **Medusa Publishable Key** GitHub Actions workflow instead of relying on the Admin UI:
+
+1. Run **Medusa Publishable Key** with `mode=list` to check for an existing non-revoked publishable key linked to the current/default sales channel.
+2. If the list run reports no linked key, rerun **Medusa Publishable Key** with `mode=ensure` and `confirmCreate=true` to create `dBaronX Storefront Publishable Key` and link it to the sales channel used by products.
+3. Download `artifacts/medusa-publishable-key-output.json` from the workflow artifact. If a new key was created, the full token is available only in that artifact; store it immediately and never paste it publicly.
+4. Set the key where needed:
+   - GitHub Actions: `MEDUSA_PUBLISHABLE_KEY`
+   - Rocket/Web env: `NEXT_PUBLIC_MEDUSA_PUBLISHABLE_KEY`
+   - Local checks: `MEDUSA_PUBLISHABLE_KEY`
+
+After storing the key, test Store API access without exposing the value:
+
+```bash
+curl -H "x-publishable-api-key: <key>" https://dbaronx-medusa-xrwh.onrender.com/store/regions
+```
+
+The legacy manual fallback is `DBX_CONFIRM_PRINT_MEDUSA_PUBLISHABLE_KEY=true pnpm --filter @dbaronx/medusa run publishable-key:print`, but prefer the workflow because it does not require Medusa Admin UI `/app` and writes the one-time full token only to the private artifact. Medusa Admin `/app` may be unavailable because the admin build is disabled, and `/` or `/app` returning `Cannot GET` is not a Store API blocker. Do not use a deleted/old DB key. Then run the one controlled CJ shirt seed through the `Medusa First Product Seed` GitHub Action, a Render one-off job, or Render shell command. Keep the normal command above in the Web Service and run the smokes with the new key before sending a customer to checkout.
 
 ## Render environment checklist
 
