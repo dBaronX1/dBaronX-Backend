@@ -55,7 +55,10 @@ const handleResponse = await getJson(
 );
 
 const medusaFailureMode = classifyMedusaFailure(productsResponse, handleResponse);
-if (medusaFailureMode === 'medusa_schema_missing') addBlocker('medusa_schema_missing');
+if (medusaFailureMode === 'medusa_schema_missing') {
+  addBlocker('medusa_schema_missing');
+  addBlocker('medusa_database_not_ready');
+}
 if (medusaFailureMode === 'medusa_unreachable') addBlocker('medusa_unreachable');
 if (medusaFailureMode === 'medusa_publishable_key_invalid') addBlocker('medusa_publishable_key_invalid');
 if (medusaFailureMode === 'medusa_publishable_key_not_linked_to_sales_channel') addBlocker('medusa_publishable_key_not_linked_to_sales_channel');
@@ -253,7 +256,7 @@ const result = {
   publishableKeySalesChannelIds,
   productSalesChannelIds,
   stockLocationSalesChannelIds,
-  schemaReadinessInterpretation: medusaFailureMode === 'medusa_schema_missing' ? 'Run Medusa db:prepare before product readiness; this is not a product-missing failure.' : null,
+  schemaReadinessInterpretation: medusaFailureMode === 'medusa_schema_missing' ? 'Run Medusa db:prepare against MEDUSA_DATABASE_URL before product readiness; this is not a product-missing failure.' : null,
   launchCommerceStoreApiGreen,
   expectedSupplier: EXPECT_SUPPLIER || null,
   expectedSupplierReady,
@@ -685,7 +688,7 @@ function nextManualStep() {
   if (blockers.includes('launch_commerce_missing'))
     return 'Run pnpm --filter @dbaronx/medusa run launch-commerce:ensure after db:prepare before product readiness.';
   if (medusaFailureMode === 'medusa_schema_missing')
-    return 'Run pnpm --filter @dbaronx/medusa run db:prepare against the new Render Postgres database before checking product readiness.';
+    return 'Run the Medusa First Product Seed Action DB preflight against MEDUSA_DATABASE_URL and migrate the real Medusa database before checking product readiness; do not use the API Supabase DATABASE_URL.';
   if (medusaFailureMode === 'medusa_unreachable')
     return 'Start Medusa and verify it can reach the migrated database before checking product readiness.';
   if (draftProduct && !verifiedProduct)

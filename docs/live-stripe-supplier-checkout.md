@@ -13,13 +13,15 @@
 
 ## Fresh Medusa DB prerequisite
 
-If the exposed Render Postgres database was deleted/replaced, the old Medusa publishable key is invalid. Before opening any Stripe checkout, deploy Medusa with the normal command:
+If the exposed Render Postgres database was deleted/replaced, the old Medusa publishable key is invalid. The Medusa Render Web Service Start Command must remain server-only:
 
 ```bash
-pnpm --filter @dbaronx/medusa run db:prepare && pnpm --filter @dbaronx/medusa run launch-commerce:ensure && pnpm --filter @dbaronx/medusa run start
+pnpm --filter @dbaronx/medusa run start
 ```
 
-The first controlled CJ shirt seed is job-only. Run it with the `Medusa First Product Seed` GitHub Action, a Render one-off job, or Render shell command. Do **not** use any seed/import command as the Render Web Service Start Command; Render can time out with `No open ports detected` if startup does not bind the HTTP port quickly.
+Run Medusa migrations, launch commerce prerequisites, and the first controlled CJ shirt seed as explicit jobs only: the `Medusa First Product Seed` GitHub Action, a Render one-off job, or Render shell command. Do **not** use any seed/import/migration command as the Render Web Service Start Command; Render can time out with `No open ports detected` if startup does not bind the HTTP port quickly.
+
+The seed workflow requires `MEDUSA_DATABASE_URL` to be the real Medusa Postgres database URL. Do not point it at the API/NestJS Supabase `DATABASE_URL`, which owns CJ staging/import/audit/business tables. If the Action reports missing `tax_provider`, `payment_provider`, `fulfillment_provider`, or related Medusa tables, the job is using the wrong database or Medusa migrations have not been applied to the Medusa database.
 
 ```bash
 DBX_CONFIRM_CJ_FIRST_PRODUCT_SEED=true pnpm --filter @dbaronx/medusa run first-product:seed:cj-shirt
@@ -29,12 +31,6 @@ Normal Render Medusa Start Command:
 
 ```bash
 pnpm --filter @dbaronx/medusa run start
-```
-
-Production readiness start command, when using the stricter readiness preflight standard instead of the plain restore command:
-
-```bash
-pnpm --filter @dbaronx/medusa run shipping:ensure && pnpm --filter @dbaronx/medusa run commerce:ensure && pnpm --filter @dbaronx/medusa start
 ```
 
 After launch-commerce is green, retrieve the full fresh-DB publishable key with `DBX_CONFIRM_PRINT_MEDUSA_PUBLISHABLE_KEY=true pnpm --filter @dbaronx/medusa run publishable-key:print`. Medusa Admin `/app` may be unavailable because the admin build is disabled, and `/` or `/app` returning `Cannot GET` is not a Store API blocker. Copy `publishableApiKeyToken` into `MEDUSA_PUBLISHABLE_KEY`, `NEXT_PUBLIC_MEDUSA_PUBLISHABLE_KEY`, and `PUBLIC_MEDUSA_PUBLISHABLE_KEY`; do not use the deleted DB key. Then run the one controlled CJ shirt seed through the `Medusa First Product Seed` GitHub Action, a Render one-off job, or Render shell command. Keep the normal command above in the Web Service and run the smokes with the new key before sending a customer to checkout.
@@ -786,21 +782,17 @@ Before inviting the first real customer to pay real money:
 - [ ] Run Stripe test checkout first.
 - [ ] Move to live money only after signed Stripe webhook proof and durable order/payment records are verified.
 
-### One-command Render seed for selected CJ shirt
+### Job-only seed for selected CJ shirt
 
-Use this short command in the Render Medusa runtime after confirming the selected CJ product is still the intended first real product:
+Use the `Medusa First Product Seed` GitHub Action for the controlled first product seed. Required inputs for a real run are `confirmSeed=true`, `dryRun=false`, and `runMigrations=false` unless the operator explicitly wants the workflow to run Medusa migrations after the preflight reports missing Medusa tables. The Action sets both `DATABASE_URL` and `MEDUSA_DATABASE_URL` from the `MEDUSA_DATABASE_URL` secret and never prints the URL.
+
+A Render one-off job or shell may run the same command after `MEDUSA_DATABASE_URL` is confirmed to target the Medusa database:
 
 ```bash
 DBX_CONFIRM_CJ_FIRST_PRODUCT_SEED=true pnpm --filter @dbaronx/medusa run first-product:seed:cj-shirt
 ```
 
-Temporary Render Medusa start command for one deploy cycle that seeds the selected CJ product, verifies shipping and commerce prerequisites, then starts Medusa:
-
-```bash
-DBX_CONFIRM_CJ_FIRST_PRODUCT_SEED=true pnpm --filter @dbaronx/medusa run first-product:seed:cj-shirt && pnpm --filter @dbaronx/medusa run shipping:ensure && pnpm --filter @dbaronx/medusa run commerce:ensure && pnpm --filter @dbaronx/medusa run start
-```
-
-After the seed succeeds once and the readiness smoke passes, restore the normal Medusa start command so future deploys do not keep reseeding during startup:
+The Medusa Web Service Start Command stays:
 
 ```bash
 pnpm --filter @dbaronx/medusa run start
@@ -1093,16 +1085,10 @@ Render Web Services must bind an HTTP port quickly during deploy. Seed/import co
 pnpm --filter @dbaronx/medusa run start
 ```
 
-Production readiness start command, if using readiness preflights before normal Medusa start:
-
-```bash
-pnpm --filter @dbaronx/medusa run shipping:ensure && pnpm --filter @dbaronx/medusa run commerce:ensure && pnpm --filter @dbaronx/medusa start
-```
-
 Readiness command after restoring the normal start command and redeploying/restarting Medusa:
 
 ```bash
-EXPECT_SUPPLIER=cj MEDUSA_BASE_URL=https://dbaronx-medusa-xrwh.onrender.com WEB_BASE_URL=<current-web-storefront-url> pnpm first-product:readiness
+EXPECT_SUPPLIER=cj MEDUSA_BASE_URL=https://dbaronx-medusa-xrwh.onrender.com API_BASE_URL=https://dbaronx-api-unified-qo2j.onrender.com FASTAPI_BASE_URL=https://dbaronx-fastapi-5ci9.onrender.com BOT_BASE_URL=https://dbaronx-telegram-bot.onrender.com WEB_BASE_URL=<current-web-storefront-url> pnpm first-product:readiness
 ```
 
 The seed confirmation JSON must include `success`, `mode`, `productId`, `variantId`, `handle`, `title`, `supplier`, `supplierProductId`, `supplierSku`, `sourceUrlPresent`, `imageUrlPresent`, `realSupplierProduct`, `demo`, `supplierVerificationStatus`, `stockQty`, `priceAmount`, `supplierCostAmount`, `supplierCostCurrency`, `shippingCountries`, `deliveryEstimate`, and `nextManualStep`. Treat missing IDs, missing image/source booleans, `demo: true`, `realSupplierProduct: false`, or any non-`verified_for_checkout` publish result as a blocker for customer checkout.
@@ -1122,7 +1108,7 @@ If a database URL, CJ access token, Telegram token, Stripe secret, Supabase serv
 
 After the job-only first product seed and normal Medusa restart, verify the exact first product through the Store API and storefront before sending any buyer to checkout:
 
-1. Run `EXPECT_SUPPLIER=cj MEDUSA_BASE_URL=https://dbaronx-medusa-xrwh.onrender.com WEB_BASE_URL=<current-web-storefront-url> pnpm first-product:readiness`.
+1. Run `EXPECT_SUPPLIER=cj MEDUSA_BASE_URL=https://dbaronx-medusa-xrwh.onrender.com API_BASE_URL=https://dbaronx-api-unified-qo2j.onrender.com FASTAPI_BASE_URL=https://dbaronx-fastapi-5ci9.onrender.com BOT_BASE_URL=https://dbaronx-telegram-bot.onrender.com WEB_BASE_URL=<current-web-storefront-url> pnpm first-product:readiness`.
 2. Confirm the JSON includes `success: true`, `blockers: []`, `realSupplierProductPresent: true`, `verifiedSupplierProductPresent: true`, `supplier: "cj"`, `supplierProductIdPresent: true`, `supplierSkuPresent: true`, `supplierCostPresent: true`, `sourceUrlPresent: true`, `priceReady: true`, `stockReady: true`, `productUrlReady: true`, `checkoutPathReady: true`, `telegramDiscoveryReady: true`, and a concrete `nextManualStep`.
 3. Confirm the exact Store API product handle is `mens-cotton-linen-long-sleeve-casual-shirt`, supplier product ID is `2408300732091605000`, supplier SKU is `CJDS212420104DW`, supplier cost currency is `usd`, sale price is `1999` USD minor units, and the image is present.
 4. Confirm the product is **not** demo metadata, is `realSupplierProduct: true`, and has `supplierVerificationStatus: "verified_for_checkout"`.
@@ -1159,7 +1145,7 @@ Use Stripe test mode before live money:
 
 ## Deployment order before first live buyer
 
-1. Deploy Medusa with the selected CJ seed command only long enough to seed the product, then immediately restore `pnpm --filter @dbaronx/medusa run start` and redeploy/restart Medusa.
+1. Deploy Medusa with the server-only start command `pnpm --filter @dbaronx/medusa run start`; run the selected CJ seed only through the `Medusa First Product Seed` GitHub Action or a Render one-off job/shell.
 2. Deploy Web so `/products` and `/products/mens-cotton-linen-long-sleeve-casual-shirt` resolve to the Store API-backed storefront surfaces.
 3. Deploy NestJS/API with Stripe checkout session and signed webhook routes configured.
 4. Deploy Telegram bot after customer-discovery docs/commands match the storefront route.
@@ -1228,11 +1214,7 @@ The Medusa Render Web Service Start Command must only start the HTTP server so R
 pnpm --filter @dbaronx/medusa run start
 ```
 
-Optional preflight startup is allowed only when it does not delay port binding; otherwise run these checks as jobs:
-
-```bash
-pnpm --filter @dbaronx/medusa run shipping:ensure && pnpm --filter @dbaronx/medusa run commerce:ensure && pnpm --filter @dbaronx/medusa start
-```
+Run shipping/commerce readiness checks as explicit jobs after deployment, not in the Web Service Start Command.
 
 Seed/import scripts are job-only. The first known CJ product seed must run through the `Medusa First Product Seed` GitHub Action, a Render one-off job, or Render shell command, not the Web Service Start Command:
 

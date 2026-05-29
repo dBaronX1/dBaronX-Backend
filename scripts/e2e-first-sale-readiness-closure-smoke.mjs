@@ -33,7 +33,10 @@ if (!MEDUSA_PUBLISHABLE_KEY) addBlocker('medusa_publishable_key_missing');
 const productsUrl = `${MEDUSA_BASE_URL}/store/products?handle=${encodeURIComponent(EXPECTED.handle)}&limit=5`;
 attemptedEndpoints.push(productsUrl);
 const productsResponse = await getJson(productsUrl, 'medusaProductsByHandle', medusaHeaders());
-if (!productsResponse.ok) addBlocker('medusa_store_products_endpoint_unreachable');
+if (!productsResponse.ok) {
+  addBlocker('medusa_store_products_endpoint_unreachable');
+  if (medusaDatabaseNotReady(productsResponse)) addBlocker('medusa_database_not_ready');
+}
 const products = extractProducts(productsResponse.json);
 if (productsResponse.ok && products.length === 0) addBlocker('first_cj_product_not_seeded');
 const product = products.find(isExpectedProduct) || products[0] || null;
@@ -160,3 +163,8 @@ function redact(text) { let out = String(text || ''); for (const key of ['MEDUSA
 async function getJson(url, label, init = {}) { try { const response = await fetch(url, { cache: 'no-store', ...(init || {}) }); const text = await response.text(); responseSnippets[label] = redact(text); let json = null; try { json = text ? JSON.parse(text) : null; } catch {} return { ok: response.ok, status: response.status, json }; } catch (error) { responseSnippets[label] = error.name; return { ok: false, status: 0, json: null }; } }
 async function postJson(url, label, body) { return getJson(url, label, { ...medusaHeaders(), method: 'POST', body: JSON.stringify(body), headers: { ...(medusaHeaders().headers || {}), 'content-type': 'application/json' } }); }
 async function getText(url, label) { try { const response = await fetch(url, { cache: 'no-store' }); const text = await response.text(); responseSnippets[label] = redact(text); return { ok: response.ok, status: response.status, text }; } catch (error) { responseSnippets[label] = error.name; return { ok: false, status: 0, text: '' }; } }
+
+function medusaDatabaseNotReady(response) {
+  const text = `${response?.text || ''} ${JSON.stringify(response?.json || {})}`;
+  return /relation .* does not exist|missing .*table|tax_provider|payment_provider|fulfillment_provider|shipping_option|sales_channel|stock_location|database.*schema/i.test(text);
+}

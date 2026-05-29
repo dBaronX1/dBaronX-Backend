@@ -137,9 +137,19 @@ function cartFrom(data) {
 
 function firstProductWithVariant(products) {
   return (
-    array(products).find((product) => array(product?.variants).length > 0) ||
+    array(products).find((product) => product?.handle === EXPECTED_CJ_HANDLE && verifiedRealSupplierProduct(product) && array(product?.variants).length > 0) ||
     null
   );
+}
+
+function verifiedRealSupplierProduct(product) {
+  const metadata = product && typeof product.metadata === "object" && product.metadata ? product.metadata : {};
+  return metadata.realSupplierProduct === true && metadata.demo === false && metadata.supplierVerificationStatus === "verified_for_checkout";
+}
+
+function medusaDatabaseNotReady(probe) {
+  const text = `${probe?.text || ""} ${JSON.stringify(probe?.body || {})}`;
+  return /relation .* does not exist|missing .*table|tax_provider|payment_provider|fulfillment_provider|shipping_option|sales_channel|stock_location|database.*schema/i.test(text);
 }
 
 function salesChannelIdFrom(product) {
@@ -632,14 +642,18 @@ const productsProbe = await requestJson(
 );
 checks.medusaProductsHttp = productsProbe.status;
 guardMedusaPublishableKeyProbe(productsProbe);
-if (!productsProbe.ok)
+if (!productsProbe.ok) {
   addBlocker(`store_products_http_${productsProbe.status}`);
+  if (medusaDatabaseNotReady(productsProbe)) addBlocker("medusa_database_not_ready");
+}
+if (!handleProductsProbe.ok && medusaDatabaseNotReady(handleProductsProbe)) addBlocker("medusa_database_not_ready");
 const handleProduct = firstProductWithVariant(handleProductsProbe.data?.products);
 const listProduct = firstProductWithVariant(productsProbe.data?.products);
 const product = handleProduct || listProduct;
 out.productSalesChannelIds = salesChannelIdsFrom(product);
+if (handleProductsProbe.ok && array(handleProductsProbe.data?.products).length === 0) addBlocker("first_cj_product_not_seeded");
 if (handleProductsProbe.ok && !handleProduct) addBlocker("product_not_visible_by_exact_handle");
-if (productsProbe.ok && !listProduct) addBlocker("store_products_empty_check_sales_channel_consistency");
+if (productsProbe.ok && !listProduct) addBlocker("first_cj_product_not_seeded");
 out.productId = product?.id || null;
 out.variantId = product?.variants?.[0]?.id || null;
 if (!out.productId) addBlocker(product ? "product_id_missing" : "store_api_visible_product_missing_check_sales_channel_mismatch");
