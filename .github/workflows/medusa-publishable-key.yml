@@ -1,0 +1,107 @@
+name: Medusa Publishable Key
+
+on:
+  workflow_dispatch:
+    inputs:
+      mode:
+        description: "List existing linked keys, or ensure one exists."
+        required: true
+        default: ensure
+        type: choice
+        options:
+          - list
+          - ensure
+      confirmCreate:
+        description: "Set true to authorize creating a new publishable key when none is linked."
+        required: true
+        default: "false"
+        type: choice
+        options:
+          - "false"
+          - "true"
+
+permissions:
+  contents: read
+
+env:
+  NODE_VERSION: "20"
+  MEDUSA_BASE_URL: https://dbaronx-medusa-xrwh.onrender.com
+  DBX_MEDUSA_DB_CONTRACT_OUTPUT_PATH: artifacts/medusa-db-contract.json
+  MEDUSA_PUBLISHABLE_KEY_OUTPUT_PATH: artifacts/medusa-publishable-key-output.json
+  MEDUSA_PUBLISHABLE_KEY_MODE: ${{ inputs.mode }}
+  DBX_CONFIRM_CREATE_PUBLISHABLE_KEY: ${{ inputs.confirmCreate }}
+  DATABASE_URL: ${{ secrets.MEDUSA_DATABASE_URL }}
+  MEDUSA_DATABASE_URL: ${{ secrets.MEDUSA_DATABASE_URL }}
+  JWT_SECRET: ${{ secrets.JWT_SECRET }}
+  COOKIE_SECRET: ${{ secrets.COOKIE_SECRET }}
+
+jobs:
+  publishable-key:
+    name: List or ensure Medusa publishable key
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Require Medusa database secret and explicit creation confirmation
+        run: |
+          set -euo pipefail
+          mkdir -p artifacts
+          if [ -z "${MEDUSA_DATABASE_URL:-}" ]; then
+            echo "medusa_database_url_missing" >&2
+            printf '%s\n' '{"success":false,"blockers":["medusa_database_url_missing"],"nextManualStep":"Set the MEDUSA_DATABASE_URL GitHub secret to the real Medusa database URL; do not use the API DATABASE_URL."}' > artifacts/medusa-publishable-key-output.json
+            exit 1
+          fi
+          if [ "${{ inputs.mode }}" = "ensure" ] && [ "${{ inputs.confirmCreate }}" != "true" ]; then
+            echo "mode=ensure can list/link an existing key, but creating a missing key is blocked unless confirmCreate=true. The Medusa script enforces this gate after checking the database." >&2
+          fi
+          echo "Medusa database secret is present; DATABASE_URL value is intentionally not printed."
+
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Enable pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 10.0.0
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Build Medusa
+        run: pnpm --filter @dbaronx/medusa build
+
+      - name: Run Medusa DB contract preflight
+        run: node scripts/e2e-medusa-database-contract-smoke.mjs
+
+      - name: Run publishable key list/ensure script
+        run: pnpm --filter @dbaronx/medusa run publishable-key:ensure
+
+      - name: Validate publishable key output artifact
+        run: |
+          set -euo pipefail
+          test -s artifacts/medusa-publishable-key-output.json
+          node - <<'NODE'
+          const fs = require('node:fs');
+          const output = JSON.parse(fs.readFileSync('artifacts/medusa-publishable-key-output.json', 'utf8'));
+          const required = ['success', 'mode', 'created', 'existing', 'publishableKeyId', 'publishableKeyTitle', 'tokenPreview', 'fullTokenAvailable', 'salesChannelIds', 'salesChannelLinked', 'nextManualStep'];
+          const missing = required.filter((key) => !(key in output));
+          if (missing.length) throw new Error(`Missing output keys: ${missing.join(', ')}`);
+          if (output.success !== true) throw new Error(`Publishable key workflow failed: ${JSON.stringify(output.blockers || [])}`);
+          if (output.fullTokenAvailable) {
+            console.error('WARNING: The full publishable key is present only in the uploaded artifact. Store it immediately and never paste it publicly.');
+          }
+          console.log(JSON.stringify({ success: true, mode: output.mode, created: output.created, existing: output.existing, publishableKeyId: output.publishableKeyId, tokenPreview: output.tokenPreview, salesChannelIds: output.salesChannelIds }, null, 2));
+          NODE
+
+      - name: Upload Medusa publishable key artifact
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: medusa-publishable-key-output
+          path: artifacts/medusa-publishable-key-output.json
+          if-no-files-found: warn
