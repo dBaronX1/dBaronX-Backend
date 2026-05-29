@@ -119,13 +119,13 @@ Do not print, paste into docs, or commit real secret values for database, Stripe
 
 ## Seed the first CJ shirt
 
-Use this temporary Render Medusa start command for exactly one deploy/seed/start cycle:
+Do not use a temporary Render Medusa Web Service start command for seeding. Run the seed as the `Medusa First Product Seed` GitHub Action, a Render one-off job, or a Render shell command:
 
 ```bash
-DBX_CONFIRM_CJ_FIRST_PRODUCT_SEED=true pnpm --filter @dbaronx/medusa run db:prepare && pnpm --filter @dbaronx/medusa run launch-commerce:ensure && pnpm --filter @dbaronx/medusa run first-product:seed:cj-shirt && pnpm --filter @dbaronx/medusa start
+DBX_CONFIRM_CJ_FIRST_PRODUCT_SEED=true pnpm --filter @dbaronx/medusa run first-product:seed:cj-shirt
 ```
 
-After that seed succeeds once, restore the normal Render start command:
+Keep the normal Render start command server-only:
 
 ```bash
 pnpm --filter @dbaronx/medusa run db:prepare && pnpm --filter @dbaronx/medusa run launch-commerce:ensure && pnpm --filter @dbaronx/medusa start

@@ -7,16 +7,16 @@ on:
         description: Operator mode
         type: choice
         options: [readiness, preview, import, approve-safe, publish-approved, full-safe]
-        default: readiness
+        default: preview
       category:
         description: Category slug
         type: choice
         options: [all, electronics, fashion, home-living, beauty, sports, automotive, agriculture, tech, finance]
-        default: all
+        default: fashion
       limitPerCategory:
         description: Requested products per category. Safer first preview: category=fashion and limitPerCategory=5; category=all with 50 is heavy.
         required: false
-        default: '10'
+        default: '5'
       dryRun:
         description: Dry run only
         type: boolean

@@ -9,13 +9,20 @@ const EXPECTED_CJ_PRICE_USD_MINOR = 1999;
 const MEDUSA_BASE_URL = normalizeBaseUrl(
   process.env.MEDUSA_BASE_URL ||
     process.env.NEXT_PUBLIC_MEDUSA_BACKEND_URL ||
-    'http://localhost:9000',
+    'https://dbaronx-medusa-xrwh.onrender.com',
 );
 const WEB_BASE_URL = normalizeBaseUrl(
   process.env.WEB_BASE_URL ||
     process.env.NEXT_PUBLIC_WEB_BASE_URL ||
     'http://localhost:3000',
 );
+const API_BASE_URL = normalizeBaseUrl(process.env.API_BASE_URL || 'https://dbaronx-api-unified-qo2j.onrender.com');
+const FASTAPI_BASE_URL = normalizeBaseUrl(process.env.FASTAPI_BASE_URL || 'https://dbaronx-fastapi-5ci9.onrender.com');
+const BOT_BASE_URL = normalizeBaseUrl(process.env.BOT_BASE_URL || 'https://dbaronx-telegram-bot.onrender.com');
+const EXPECTED_MEDUSA_BASE_URL = 'https://dbaronx-medusa-xrwh.onrender.com';
+const EXPECTED_API_BASE_URL = 'https://dbaronx-api-unified-qo2j.onrender.com';
+const EXPECTED_FASTAPI_BASE_URL = 'https://dbaronx-fastapi-5ci9.onrender.com';
+const EXPECTED_BOT_BASE_URL = 'https://dbaronx-telegram-bot.onrender.com';
 const MEDUSA_PUBLISHABLE_KEY =
   process.env.MEDUSA_PUBLISHABLE_KEY ||
   process.env.NEXT_PUBLIC_MEDUSA_PUBLISHABLE_KEY ||
@@ -59,6 +66,8 @@ const products = uniqueProducts([
   ...extractProducts(productsResponse.json),
   ...extractProducts(handleResponse.json),
 ]);
+const productCount = extractProducts(productsResponse.json).length;
+if (productCount === 0 && productsResponse.ok) addBlocker('first_cj_product_not_seeded');
 const draftProduct =
   products.find((product) => isDraftSupplierProduct(product)) || null;
 const exactCjProduct = selectExactCjProduct(products);
@@ -232,6 +241,12 @@ const checkoutPathReady = Boolean(
 const result = {
   success: blockers.length === 0,
   blockers,
+  medusaBaseUrl: MEDUSA_BASE_URL,
+  apiBaseUrl: API_BASE_URL,
+  fastapiBaseUrl: FASTAPI_BASE_URL,
+  botBaseUrl: BOT_BASE_URL,
+  liveUrlsCorrect: MEDUSA_BASE_URL === EXPECTED_MEDUSA_BASE_URL && API_BASE_URL === EXPECTED_API_BASE_URL && FASTAPI_BASE_URL === EXPECTED_FASTAPI_BASE_URL && BOT_BASE_URL === EXPECTED_BOT_BASE_URL,
+  productCount,
   medusaFailureMode,
   canonicalSalesChannelId,
   cartSalesChannelId,
@@ -675,8 +690,8 @@ function nextManualStep() {
     return 'Start Medusa and verify it can reach the migrated database before checking product readiness.';
   if (draftProduct && !verifiedProduct)
     return `Verify the draft supplier product before live checkout: add image URL, confirm stock quantity, shipping countries, and delivery estimate, then rerun the seed in publish mode.`;
-  if (launchCommerceStoreApiGreen && blockers.includes('real_supplier_product_missing'))
-    return 'Launch-commerce Store API is green and the verified CJ shirt is missing. Run DBX_CONFIRM_CJ_FIRST_PRODUCT_SEED=true pnpm --filter @dbaronx/medusa run first-product:reseed:canonical next, then rerun this readiness smoke.';
+  if (launchCommerceStoreApiGreen && (blockers.includes('first_cj_product_not_seeded') || blockers.includes('real_supplier_product_missing')))
+    return 'Launch-commerce Store API is green and the verified CJ shirt is missing. Run DBX_CONFIRM_CJ_FIRST_PRODUCT_SEED=true pnpm --filter @dbaronx/medusa run first-product:seed:cj-shirt as a GitHub Action, Render one-off job, or Render shell command; do not put the seed in the Render Web Service start command. Then rerun this readiness smoke.';
   if (blockers.length)
     return `Resolve blockers before first real checkout: ${blockers.join(', ')}.`;
   return `Open ${productUrl}, add the item to cart, run Stripe test checkout, then proceed to live money only after signed webhook/order proof is verified.`;

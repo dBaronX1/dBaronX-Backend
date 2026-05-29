@@ -44,7 +44,7 @@ assert(operator.includes('applyCategoryTotals(result, row)'), 'partial category 
 assert(operator.includes('result.categoryResults.push(row)'), 'partial category result must be preserved');
 assert(operator.includes('result.totalFetched === 0') && operator.includes('!result.blockers.includes("cj_rate_limited")'), 'zero-fetched 429 should not be reported as preview_no_products_fetched');
 
-assert(workflow.includes("default: '10'"), 'manual default limit should be reduced to 10');
+assert(workflow.includes("default: '5'"), 'manual default limit should be the safe fashion preview size 5');
 assert(workflow.includes('category=fashion and limitPerCategory=5'), 'first preview guidance missing');
 assert(workflow.includes('category=all with 50 is heavy'), 'heavy all/50 guidance missing');
 

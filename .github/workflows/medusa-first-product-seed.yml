@@ -1,0 +1,150 @@
+name: Medusa First Product Seed
+
+on:
+  workflow_dispatch:
+    inputs:
+      confirmSeed:
+        description: "Type true to seed the verified first CJ product. Required."
+        required: true
+        default: "false"
+        type: choice
+        options:
+          - "false"
+          - "true"
+      mode:
+        description: "Execution mode. external-db uses the Render External Database URL secret when provided."
+        required: true
+        default: "external-db"
+        type: choice
+        options:
+          - "external-db"
+          - "default-db"
+      dryRun:
+        description: "Run command with DRY_RUN=true for diagnostics only; false is required to seed."
+        required: true
+        default: "false"
+        type: choice
+        options:
+          - "false"
+          - "true"
+
+permissions:
+  contents: read
+
+env:
+  NODE_VERSION: "20"
+  MEDUSA_BASE_URL: https://dbaronx-medusa-xrwh.onrender.com
+  API_BASE_URL: https://dbaronx-api-unified-qo2j.onrender.com
+  FASTAPI_BASE_URL: https://dbaronx-fastapi-5ci9.onrender.com
+  BOT_BASE_URL: https://dbaronx-telegram-bot.onrender.com
+  DBX_FIRST_PRODUCT_SEED_OUTPUT_PATH: artifacts/medusa-first-product-seed-output.json
+  MEDUSA_ADMIN_API_KEY: ${{ secrets.MEDUSA_ADMIN_API_KEY }}
+  MEDUSA_API_KEY: ${{ secrets.MEDUSA_API_KEY }}
+
+jobs:
+  seed:
+    name: Seed verified first CJ product
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      DEFAULT_DATABASE_URL: ${{ secrets.MEDUSA_DATABASE_URL || secrets.DATABASE_URL }}
+      EXTERNAL_DATABASE_URL: ${{ secrets.MEDUSA_EXTERNAL_DATABASE_URL || secrets.RENDER_EXTERNAL_DATABASE_URL }}
+    steps:
+      - name: Require explicit confirmation
+        run: |
+          if [ "${{ inputs.confirmSeed }}" != "true" ]; then
+            echo "confirmSeed must be true to run the first CJ product seed." >&2
+            exit 1
+          fi
+
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Enable pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 10.0.0
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: pnpm
+
+      - name: Select database URL without printing it
+        run: |
+          set -euo pipefail
+          mkdir -p artifacts
+          env_eq='='
+          if [ "${{ inputs.mode }}" = "external-db" ] && [ -n "${EXTERNAL_DATABASE_URL:-}" ]; then
+            {
+              printf '%s\n' "DATABASE_URL${env_eq}${EXTERNAL_DATABASE_URL}"
+              printf '%s\n' "MEDUSA_DATABASE_URL${env_eq}${EXTERNAL_DATABASE_URL}"
+            } >> "$GITHUB_ENV"
+          else
+            {
+              printf '%s\n' "DATABASE_URL${env_eq}${DEFAULT_DATABASE_URL:-}"
+              printf '%s\n' "MEDUSA_DATABASE_URL${env_eq}${DEFAULT_DATABASE_URL:-}"
+            } >> "$GITHUB_ENV"
+          fi
+          node - <<'NODE'
+          const selected = process.env.EXTERNAL_DATABASE_URL && '${{ inputs.mode }}' === 'external-db'
+            ? process.env.EXTERNAL_DATABASE_URL
+            : process.env.DEFAULT_DATABASE_URL || '';
+          let hostname = '';
+          try { hostname = selected ? new URL(selected).hostname : ''; } catch {}
+          const diagnostics = {
+            databaseUrlPresent: Boolean(selected),
+            usingExternalDbHint: Boolean(selected && !/\.internal$|-internal|internal/i.test(hostname)),
+            internalRenderHostLikely: Boolean(hostname && (/\.internal$|-internal|internal/i.test(hostname))),
+            selectedMode: '${{ inputs.mode }}',
+            dryRun: '${{ inputs.dryRun }}' === 'true',
+            note: 'Database URL value is intentionally not printed.',
+          };
+          console.log(JSON.stringify(diagnostics, null, 2));
+          if (!diagnostics.databaseUrlPresent) process.exit(1);
+          if (diagnostics.internalRenderHostLikely) process.exit(1);
+          NODE
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Build Medusa
+        run: pnpm --filter @dbaronx/medusa build
+
+      - name: Run first CJ product seed job
+        env:
+          DBX_CONFIRM_CJ_FIRST_PRODUCT_SEED: "true"
+          DRY_RUN: ${{ inputs.dryRun }}
+        run: pnpm --filter @dbaronx/medusa run first-product:seed:cj-shirt
+
+      - name: Assert seed success output
+        run: |
+          node - <<'NODE'
+          const fs = require('node:fs');
+          const path = 'artifacts/medusa-first-product-seed-output.json';
+          if (!fs.existsSync(path)) {
+            console.error(`${path} was not created by the seed script.`);
+            process.exit(1);
+          }
+          const output = JSON.parse(fs.readFileSync(path, 'utf8'));
+          const required = ['success', 'productId', 'variantId', 'handle', 'supplier', 'supplierProductId', 'supplierSku', 'priceReady', 'stockReady', 'salesChannelReady', 'imageReady', 'supplierMetadataReady', 'nextManualStep'];
+          const missing = required.filter((key) => !(key in output));
+          if (missing.length) {
+            console.error(`Seed output missing keys: ${missing.join(', ')}`);
+            process.exit(1);
+          }
+          if (output.success !== true) {
+            console.error(`Seed output success !== true; blockers=${JSON.stringify(output.blockers || [])}`);
+            process.exit(1);
+          }
+          console.log(JSON.stringify({ success: true, productId: output.productId, variantId: output.variantId, handle: output.handle }, null, 2));
+          NODE
+
+      - name: Upload seed output artifact
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: medusa-first-product-seed-output
+          path: artifacts/medusa-first-product-seed-output.json
+          if-no-files-found: error

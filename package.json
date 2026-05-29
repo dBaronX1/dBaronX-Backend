@@ -17,7 +17,7 @@
     "security:readiness": "node scripts/security-readiness-check.mjs",
     "first-product:seed": "pnpm --filter @dbaronx/medusa first-product:seed",
     "first-product:readiness": "node scripts/e2e-first-real-supplier-product-readiness-smoke.mjs",
-    "first-sale:readiness": "node scripts/e2e-first-real-sale-readiness-closure.mjs",
+    "first-sale:readiness": "node scripts/e2e-first-sale-readiness-closure-smoke.mjs",
     "first-product:seed:cj-shirt": "pnpm --filter @dbaronx/medusa first-product:seed:cj-shirt",
     "first-product:render-seed-command": "node scripts/print-cj-first-shirt-render-seed-command.mjs",
     "deploy:fly:telegram": "flyctl deploy --config apps/telegram-bot/fly.toml --app dbaronx-telegram-bot",

@@ -16,7 +16,7 @@ const commandPack = {
       startCommand:
         'pnpm --filter @dbaronx/medusa run db:prepare && pnpm --filter @dbaronx/medusa run launch-commerce:ensure && pnpm --filter @dbaronx/medusa start',
       purpose:
-        'Normal commerce-only Medusa startup for Render after the one-cycle seed is complete.',
+        'Normal commerce-only Medusa startup for Render. Seed/import jobs are job-only and must never be placed in the Web Service start command.',
     },
     'B. Medusa full publishable-key print command': {
       command:
@@ -38,7 +38,7 @@ const commandPack = {
     },
     'C. Medusa one-cycle CJ shirt seed command': {
       renderTemporaryStartCommand:
-        'DBX_CONFIRM_CJ_FIRST_PRODUCT_SEED=true pnpm --filter @dbaronx/medusa run db:prepare && pnpm --filter @dbaronx/medusa run launch-commerce:ensure && pnpm --filter @dbaronx/medusa run first-product:seed:cj-shirt && pnpm --filter @dbaronx/medusa start',
+        'DBX_CONFIRM_CJ_FIRST_PRODUCT_SEED=true pnpm --filter @dbaronx/medusa run first-product:seed:cj-shirt',
       localOneOffCommand:
         'DBX_CONFIRM_CJ_FIRST_PRODUCT_SEED=true pnpm --filter @dbaronx/medusa run first-product:seed:cj-shirt',
       controlledProduct: {
@@ -54,7 +54,7 @@ const commandPack = {
         deliveryEstimate: '7-15 business days',
       },
       safety:
-        'Use the temporary Render start command for exactly one deploy/seed/start cycle, then restore the normal command.',
+        'Run this as the Medusa First Product Seed GitHub Action, a Render one-off job, or Render shell command. Never use it as the Render Web Service start command.',
     },
     'D. Normal Medusa command to restore/keep': {
       command:

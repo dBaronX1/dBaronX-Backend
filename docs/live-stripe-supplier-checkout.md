@@ -19,19 +19,13 @@ If the exposed Render Postgres database was deleted/replaced, the old Medusa pub
 pnpm --filter @dbaronx/medusa run db:prepare && pnpm --filter @dbaronx/medusa run launch-commerce:ensure && pnpm --filter @dbaronx/medusa run start
 ```
 
-For the one controlled CJ shirt seed cycle only, the Render Web Service Start Command must still bind the web port quickly. Do **not** use this seed-first command as a Render Web Service start command because Render can time out with `No open ports detected` before Medusa starts listening:
+The first controlled CJ shirt seed is job-only. Run it with the `Medusa First Product Seed` GitHub Action, a Render one-off job, or Render shell command. Do **not** use any seed/import command as the Render Web Service Start Command; Render can time out with `No open ports detected` if startup does not bind the HTTP port quickly.
 
 ```bash
-DBX_CONFIRM_CJ_FIRST_PRODUCT_SEED=true pnpm --filter @dbaronx/medusa run first-product:seed:cj-shirt && pnpm --filter @dbaronx/medusa run start
+DBX_CONFIRM_CJ_FIRST_PRODUCT_SEED=true pnpm --filter @dbaronx/medusa run first-product:seed:cj-shirt
 ```
 
-Safer temporary Render Medusa Start Command for that one seed deploy:
-
-```bash
-sh -c 'pnpm --filter @dbaronx/medusa run start & app_pid=$!; sleep 30; DBX_CONFIRM_CJ_FIRST_PRODUCT_SEED=true pnpm --filter @dbaronx/medusa run first-product:seed:cj-shirt || true; wait $app_pid'
-```
-
-Normal Render Medusa Start Command to restore immediately after the seed deploy:
+Normal Render Medusa Start Command:
 
 ```bash
 pnpm --filter @dbaronx/medusa run start
@@ -43,7 +37,7 @@ Production readiness start command, when using the stricter readiness preflight 
 pnpm --filter @dbaronx/medusa run shipping:ensure && pnpm --filter @dbaronx/medusa run commerce:ensure && pnpm --filter @dbaronx/medusa start
 ```
 
-After launch-commerce is green, retrieve the full fresh-DB publishable key with `DBX_CONFIRM_PRINT_MEDUSA_PUBLISHABLE_KEY=true pnpm --filter @dbaronx/medusa run publishable-key:print`. Medusa Admin `/app` may be unavailable because the admin build is disabled, and `/` or `/app` returning `Cannot GET` is not a Store API blocker. Copy `publishableApiKeyToken` into `MEDUSA_PUBLISHABLE_KEY`, `NEXT_PUBLIC_MEDUSA_PUBLISHABLE_KEY`, and `PUBLIC_MEDUSA_PUBLISHABLE_KEY`; do not use the deleted DB key. Then run the one controlled CJ shirt seed cycle with the safer temporary command above. After that seed completes, restore the normal command above and run the smokes with the new key before sending a customer to checkout.
+After launch-commerce is green, retrieve the full fresh-DB publishable key with `DBX_CONFIRM_PRINT_MEDUSA_PUBLISHABLE_KEY=true pnpm --filter @dbaronx/medusa run publishable-key:print`. Medusa Admin `/app` may be unavailable because the admin build is disabled, and `/` or `/app` returning `Cannot GET` is not a Store API blocker. Copy `publishableApiKeyToken` into `MEDUSA_PUBLISHABLE_KEY`, `NEXT_PUBLIC_MEDUSA_PUBLISHABLE_KEY`, and `PUBLIC_MEDUSA_PUBLISHABLE_KEY`; do not use the deleted DB key. Then run the one controlled CJ shirt seed through the `Medusa First Product Seed` GitHub Action, a Render one-off job, or Render shell command. Keep the normal command above in the Web Service and run the smokes with the new key before sending a customer to checkout.
 
 ## Render environment checklist
 
@@ -1093,19 +1087,7 @@ Print the exact operator commands without secrets:
 pnpm first-product:render-seed-command
 ```
 
-Render Web Services must bind an HTTP port quickly during deploy. A seed-first command can complete correctly but still fail deployment because Medusa does not listen until after the seed exits; Render reports this as `No open ports detected`. This command can therefore time out and should not be used as the Web Service Start Command:
-
-```bash
-DBX_CONFIRM_CJ_FIRST_PRODUCT_SEED=true pnpm --filter @dbaronx/medusa run first-product:seed:cj-shirt && pnpm --filter @dbaronx/medusa run start
-```
-
-Safer temporary Render Medusa Start Command for the one-time seed deploy. It starts Medusa first, gives Render a listening process, runs the confirmed one-product seed after a short delay, tolerates a duplicate-seed/nonfatal seed failure without killing the web process, and then waits on Medusa:
-
-```bash
-sh -c 'pnpm --filter @dbaronx/medusa run start & app_pid=$!; sleep 30; DBX_CONFIRM_CJ_FIRST_PRODUCT_SEED=true pnpm --filter @dbaronx/medusa run first-product:seed:cj-shirt || true; wait $app_pid'
-```
-
-Normal Render Medusa Start Command to restore immediately after the seed deploy succeeds:
+Render Web Services must bind an HTTP port quickly during deploy. Seed/import commands must therefore remain job-only and must not be embedded in the Web Service Start Command. Run the first-shirt seed through `Medusa First Product Seed`, Render one-off job, or Render shell, then keep this normal server-only command:
 
 ```bash
 pnpm --filter @dbaronx/medusa run start
@@ -1138,7 +1120,7 @@ If a database URL, CJ access token, Telegram token, Stripe secret, Supabase serv
 
 ## Post-seed CJ product verification checklist
 
-After the one-command Render seed and normal Medusa restart, verify the exact first product through the Store API and storefront before sending any buyer to checkout:
+After the job-only first product seed and normal Medusa restart, verify the exact first product through the Store API and storefront before sending any buyer to checkout:
 
 1. Run `EXPECT_SUPPLIER=cj MEDUSA_BASE_URL=https://dbaronx-medusa-xrwh.onrender.com WEB_BASE_URL=<current-web-storefront-url> pnpm first-product:readiness`.
 2. Confirm the JSON includes `success: true`, `blockers: []`, `realSupplierProductPresent: true`, `verifiedSupplierProductPresent: true`, `supplier: "cj"`, `supplierProductIdPresent: true`, `supplierSkuPresent: true`, `supplierCostPresent: true`, `sourceUrlPresent: true`, `priceReady: true`, `stockReady: true`, `productUrlReady: true`, `checkoutPathReady: true`, `telegramDiscoveryReady: true`, and a concrete `nextManualStep`.
@@ -1237,3 +1219,32 @@ Bulk CJ sync is **not enabled** yet. Manual controlled verification remains mand
 - Fulfillment admin routes: POST /api/admin/fulfillment/tasks/:id/approve-cj and /disapprove-cj (InternalAuthGuard).
 - Dry-run remains default for CJ ordering. Live placement requires DBX_ENABLE_CJ_AUTO_ORDER=true and DBX_CONFIRM_CJ_ORDER_PLACEMENT=true plus admin approval record.
 - Keep refunds/voids manual unless a real payment refund endpoint succeeds.
+
+## Medusa Web Service start command policy (no startup seeding)
+
+The Medusa Render Web Service Start Command must only start the HTTP server so Render can detect the open port quickly:
+
+```bash
+pnpm --filter @dbaronx/medusa run start
+```
+
+Optional preflight startup is allowed only when it does not delay port binding; otherwise run these checks as jobs:
+
+```bash
+pnpm --filter @dbaronx/medusa run shipping:ensure && pnpm --filter @dbaronx/medusa run commerce:ensure && pnpm --filter @dbaronx/medusa start
+```
+
+Seed/import scripts are job-only. The first known CJ product seed must run through the `Medusa First Product Seed` GitHub Action, a Render one-off job, or Render shell command, not the Web Service Start Command:
+
+```bash
+DBX_CONFIRM_CJ_FIRST_PRODUCT_SEED=true pnpm --filter @dbaronx/medusa run first-product:seed:cj-shirt
+```
+
+This lets first-product visibility and checkout testing proceed while bulk CJ onboarding continues through the safe operator workflow. The next safe CJ automation run is:
+
+```text
+mode=preview
+category=fashion
+limitPerCategory=5
+dryRun=true
+```

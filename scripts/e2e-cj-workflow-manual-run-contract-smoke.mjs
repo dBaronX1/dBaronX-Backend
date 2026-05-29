@@ -26,7 +26,7 @@ const dispatch = sectionBetween('workflow_dispatch:', 'jobs:');
 for (const input of ['mode', 'category', 'limitPerCategory', 'dryRun', 'readinessExitZero']) {
   assert(new RegExp(`^\\s{6}${input}:\\s*$`, 'm').test(dispatch), `manual input missing: ${input}`);
 }
-assert(dispatch.includes("default: '10'") || dispatch.includes('default: 10'), 'limitPerCategory default must be safe');
+assert(dispatch.includes("default: '5'") || dispatch.includes('default: 10'), 'limitPerCategory default must be first-preview safe');
 assert(dispatch.includes('category=fashion') && dispatch.includes('limitPerCategory=5'), 'first preview fashion/5 guidance missing');
 assert(dispatch.includes('category=all with 50 is heavy'), 'heavy all/50 guidance missing');
 
