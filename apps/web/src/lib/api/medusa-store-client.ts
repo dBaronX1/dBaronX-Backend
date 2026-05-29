@@ -43,6 +43,7 @@ export type MedusaProductResult = {
   products: MedusaStoreProduct[];
   reason: string | null;
   status?: number;
+  attemptedEndpoint?: string;
 };
 
 const SECRET_FIELD_PATTERN = /(secret|token|password|api[_-]?key|publishable[_-]?key|service[_-]?role|webhook|database[_-]?url|admin)/i;
@@ -74,13 +75,13 @@ export async function fetchMedusaStoreProducts(options: { limit?: number; handle
 
   const { backendUrl, publishableKey } = config();
   if (!backendUrl || !publishableKey) {
-    return { products: [], reason: "products_unavailable" };
+    return { products: [], reason: "products_unavailable", attemptedEndpoint: options.handle ? `/api/store/products/${encodeURIComponent(options.handle)}` : "/api/store/products" };
   }
   const url = medusaStoreUrl("/store/products", {
     limit: options.limit || 20,
     ...(options.handle ? { handle: options.handle } : {}),
   });
-  if (!url) return { products: [], reason: "products_unavailable" };
+  if (!url) return { products: [], reason: "products_unavailable", attemptedEndpoint: options.handle ? `/api/store/products/${encodeURIComponent(options.handle)}` : "/api/store/products" };
 
   try {
     const response = await fetch(url, {
@@ -89,11 +90,11 @@ export async function fetchMedusaStoreProducts(options: { limit?: number; handle
     });
     const payload = await response.json().catch(() => null);
     if (!response.ok) {
-      return { products: [], reason: "products_unavailable", status: response.status };
+      return { products: [], reason: "products_unavailable", status: response.status, attemptedEndpoint: url.toString() };
     }
-    return { products: extractProducts(payload).map(normalizeStoreProduct), reason: null, status: response.status };
+    return { products: extractProducts(payload).map(normalizeStoreProduct), reason: null, status: response.status, attemptedEndpoint: url.toString() };
   } catch {
-    return { products: [], reason: "products_unavailable" };
+    return { products: [], reason: "products_unavailable", attemptedEndpoint: url.toString() };
   }
 }
 
@@ -104,17 +105,18 @@ async function fetchInternalStoreProducts(options: { limit?: number; handle?: st
   if (options.handle) params.set("handle", options.handle);
   const path = options.handle ? `/api/store/products/${encodeURIComponent(options.handle)}?${params}` : `/api/store/products?${params}`;
   try {
+    const attemptedEndpoint = path;
     const response = await fetch(path, {
       headers: { accept: "application/json" },
       cache: "no-store",
     });
     const payload = await response.json().catch(() => null);
     const products = extractProducts(payload).map(normalizeStoreProduct).slice(0, options.limit || 20);
-    if (!response.ok) return { products: [], reason: "products_unavailable", status: response.status };
+    if (!response.ok) return { products: [], reason: "products_unavailable", status: response.status, attemptedEndpoint };
     const ok = payload && typeof payload === "object" ? (payload as Record<string, unknown>).success !== false : true;
-    return { products, reason: ok ? null : "products_unavailable", status: response.status };
+    return { products, reason: ok ? null : "products_unavailable", status: response.status, attemptedEndpoint };
   } catch {
-    return { products: [], reason: "products_unavailable" };
+    return { products: [], reason: "products_unavailable", attemptedEndpoint: path };
   }
 }
 

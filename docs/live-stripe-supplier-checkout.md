@@ -15,13 +15,13 @@
 If the exposed Render Postgres database was deleted/replaced, the old Medusa publishable key is invalid. Before opening any Stripe checkout, deploy Medusa with the normal command:
 
 ```bash
-pnpm --filter @dbaronx/medusa run db:prepare && pnpm --filter @dbaronx/medusa run launch-commerce:ensure && pnpm --filter @dbaronx/medusa start
+pnpm --filter @dbaronx/medusa run db:prepare && pnpm --filter @dbaronx/medusa run launch-commerce:ensure && pnpm --filter @dbaronx/medusa run start
 ```
 
 For the one controlled CJ shirt seed cycle only, use:
 
 ```bash
-DBX_CONFIRM_CJ_FIRST_PRODUCT_SEED=true pnpm --filter @dbaronx/medusa run db:prepare && pnpm --filter @dbaronx/medusa run launch-commerce:ensure && pnpm --filter @dbaronx/medusa run first-product:seed:cj-shirt && pnpm --filter @dbaronx/medusa start
+DBX_CONFIRM_CJ_FIRST_PRODUCT_SEED=true pnpm --filter @dbaronx/medusa run db:prepare && pnpm --filter @dbaronx/medusa run launch-commerce:ensure && pnpm --filter @dbaronx/medusa run first-product:seed:cj-shirt && pnpm --filter @dbaronx/medusa run start
 ```
 
 After launch-commerce is green, retrieve the full fresh-DB publishable key with `DBX_CONFIRM_PRINT_MEDUSA_PUBLISHABLE_KEY=true pnpm --filter @dbaronx/medusa run publishable-key:print`. Medusa Admin `/app` may be unavailable because the admin build is disabled, and `/` or `/app` returning `Cannot GET` is not a Store API blocker. Copy `publishableApiKeyToken` into `MEDUSA_PUBLISHABLE_KEY`, `NEXT_PUBLIC_MEDUSA_PUBLISHABLE_KEY`, and `PUBLIC_MEDUSA_PUBLISHABLE_KEY`; do not use the deleted DB key. Then run the one controlled CJ shirt seed cycle above. After that seed completes, restore the normal command above and run the smokes with the new key before sending a customer to checkout.
@@ -784,13 +784,13 @@ DBX_CONFIRM_CJ_FIRST_PRODUCT_SEED=true pnpm --filter @dbaronx/medusa run first-p
 Temporary Render Medusa start command for one deploy cycle that seeds the selected CJ product, verifies shipping and commerce prerequisites, then starts Medusa:
 
 ```bash
-DBX_CONFIRM_CJ_FIRST_PRODUCT_SEED=true pnpm --filter @dbaronx/medusa run first-product:seed:cj-shirt && pnpm --filter @dbaronx/medusa run shipping:ensure && pnpm --filter @dbaronx/medusa run commerce:ensure && pnpm --filter @dbaronx/medusa start
+DBX_CONFIRM_CJ_FIRST_PRODUCT_SEED=true pnpm --filter @dbaronx/medusa run first-product:seed:cj-shirt && pnpm --filter @dbaronx/medusa run shipping:ensure && pnpm --filter @dbaronx/medusa run commerce:ensure && pnpm --filter @dbaronx/medusa run start
 ```
 
 After the seed succeeds once and the readiness smoke passes, restore the normal Medusa start command so future deploys do not keep reseeding during startup:
 
 ```bash
-pnpm --filter @dbaronx/medusa start
+pnpm --filter @dbaronx/medusa run start
 ```
 
 This profile is intentionally narrow: it requires `DBX_CONFIRM_CJ_FIRST_PRODUCT_SEED=true`, uses publish mode, seeds only `mens-cotton-linen-long-sleeve-casual-shirt`, does not scrape CJ, does not bulk import, does not expose secrets, and refuses to relabel unrelated products under the same handle.
@@ -1077,13 +1077,13 @@ pnpm first-product:render-seed-command
 Temporary Render Medusa Start Command for the one-time seed deploy:
 
 ```bash
-DBX_CONFIRM_CJ_FIRST_PRODUCT_SEED=true pnpm --filter @dbaronx/medusa first-product:seed:cj-shirt && pnpm --filter @dbaronx/medusa start
+DBX_CONFIRM_CJ_FIRST_PRODUCT_SEED=true pnpm --filter @dbaronx/medusa run first-product:seed:cj-shirt && pnpm --filter @dbaronx/medusa run start
 ```
 
 Normal Render Medusa Start Command to restore immediately after the seed deploy succeeds:
 
 ```bash
-pnpm --filter @dbaronx/medusa start
+pnpm --filter @dbaronx/medusa run start
 ```
 
 Readiness command after restoring the normal start command and redeploying/restarting Medusa:
@@ -1092,14 +1092,16 @@ Readiness command after restoring the normal start command and redeploying/resta
 EXPECT_SUPPLIER=cj MEDUSA_BASE_URL=https://dbaronx-medusa.onrender.com WEB_BASE_URL=https://dbaronx.com pnpm first-product:readiness
 ```
 
-The seed confirmation JSON must include `success`, `mode`, `productId`, `variantId`, `handle`, `supplier`, `supplierProductId`, `supplierSku`, `realSupplierProduct`, `supplierVerificationStatus`, `stockQty`, `priceAmount`, `supplierCostAmount`, `shippingCountries`, `deliveryEstimate`, and `nextManualStep`. Treat missing IDs, `realSupplierProduct: false`, or any non-`verified_for_checkout` publish result as a blocker for customer checkout.
+The seed confirmation JSON must include `success`, `mode`, `productId`, `variantId`, `handle`, `title`, `supplier`, `supplierProductId`, `supplierSku`, `sourceUrlPresent`, `imageUrlPresent`, `realSupplierProduct`, `demo`, `supplierVerificationStatus`, `stockQty`, `priceAmount`, `supplierCostAmount`, `supplierCostCurrency`, `shippingCountries`, `deliveryEstimate`, and `nextManualStep`. Treat missing IDs, missing image/source booleans, `demo: true`, `realSupplierProduct: false`, or any non-`verified_for_checkout` publish result as a blocker for customer checkout.
 
 After seed readiness passes, run first transaction smokes in this order:
 
 1. `pnpm first-product:readiness`
-2. `pnpm first-sale:readiness`
-3. `node scripts/e2e-telegram-customer-first-checkout-journey-smoke.mjs`
-4. `node scripts/e2e-first-transaction-with-telegram-ops-smoke.mjs`
+2. `pnpm first-product:visible-checkout` (static) or `DBX_FIRST_CJ_VISIBLE_SMOKE_LIVE=true EXPECT_SUPPLIER=cj MEDUSA_BASE_URL=https://dbaronx-medusa.onrender.com WEB_BASE_URL=https://dbaronx.com MEDUSA_PUBLISHABLE_KEY='<full publishable key>' pnpm first-product:visible-checkout` (runtime)
+3. `pnpm first-sale:readiness`
+4. `node scripts/e2e-telegram-customer-first-checkout-journey-smoke.mjs`
+5. `node scripts/e2e-first-transaction-with-telegram-ops-smoke.mjs`
+6. `node scripts/e2e-first-stripe-test-transaction-smoke.mjs`
 
 If a database URL, CJ access token, Telegram token, Stripe secret, Supabase service role key, or any other production secret was pasted into a local shell, ticket, chat, or log while attempting the seed, rotate that credential before inviting a real customer to checkout.
 
@@ -1112,6 +1114,17 @@ After the one-command Render seed and normal Medusa restart, verify the exact fi
 3. Confirm the exact Store API product handle is `mens-cotton-linen-long-sleeve-casual-shirt`, supplier product ID is `2408300732091605000`, supplier SKU is `CJDS212420104DW`, supplier cost currency is `usd`, sale price is `1999` USD minor units, and the image is present.
 4. Confirm the product is **not** demo metadata, is `realSupplierProduct: true`, and has `supplierVerificationStatus: "verified_for_checkout"`.
 5. Confirm the Store API can create a cart with the selected variant and returns at least one shipping option for the checkout cart. Do not fake stock or shipping readiness.
+
+
+### Rocket URLs to check after the seed
+
+Open these customer-facing Rocket routes after the normal Medusa start command has been restored and the web app has been deployed:
+
+- `https://dbaronx.com/shop` — should show products from the public catalog path and an honest empty state with the attempted endpoint if the catalog is unavailable.
+- `https://dbaronx.com/products` — should show `Men's Cotton Linen Long Sleeve Casual Shirt` with image, title, price, delivery estimate, and a product link when Medusa returns the seeded product.
+- `https://dbaronx.com/products/mens-cotton-linen-long-sleeve-casual-shirt` — should preserve existing add-to-cart / checkout guidance and link to the backend-owned checkout/session path; Rocket must not create fake payments or mark orders paid.
+
+CJ bulk automation continues separately with rate-limit-safe small previews (`category=fashion`, `limitPerCategory=5`, `dryRun=true`). Do not wait for bulk automation before validating this controlled Medusa-seeded shirt, and do not treat bulk-preview data as customer-buyable until it is separately verified and seeded/published.
 
 ## First Stripe test checkout checklist
 
@@ -1133,7 +1146,7 @@ Use Stripe test mode before live money:
 
 ## Deployment order before first live buyer
 
-1. Deploy Medusa with the selected CJ seed command only long enough to seed the product, then immediately restore `pnpm --filter @dbaronx/medusa start` and redeploy/restart Medusa.
+1. Deploy Medusa with the selected CJ seed command only long enough to seed the product, then immediately restore `pnpm --filter @dbaronx/medusa run start` and redeploy/restart Medusa.
 2. Deploy Web so `/products` and `/products/mens-cotton-linen-long-sleeve-casual-shirt` resolve to the Store API-backed storefront surfaces.
 3. Deploy NestJS/API with Stripe checkout session and signed webhook routes configured.
 4. Deploy Telegram bot after customer-discovery docs/commands match the storefront route.

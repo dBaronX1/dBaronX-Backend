@@ -8,6 +8,7 @@ export function useSupabaseProducts(options: { limit?: number; handle?: string; 
   const [products, setProducts] = useState<MedusaStoreProduct[]>(options.initialProducts || []);
   const [loading, setLoading] = useState(!options.initialProducts?.length);
   const [reason, setReason] = useState<string | null>(null);
+  const [attemptedEndpoint, setAttemptedEndpoint] = useState<string | null>(null);
 
   useEffect(() => {
     let mounted = true;
@@ -17,13 +18,18 @@ export function useSupabaseProducts(options: { limit?: number; handle?: string; 
         if (!mounted) return;
         if (result.products.length > 0 || !options.initialProducts?.length) setProducts(result.products);
         setReason(result.reason);
+        setAttemptedEndpoint(result.attemptedEndpoint || null);
       })
-      .catch(() => mounted && setReason("Products are temporarily unavailable. Please try again shortly or contact support."))
+      .catch(() => {
+        if (!mounted) return;
+        setReason("Products are temporarily unavailable. Please try again shortly or contact support.");
+        setAttemptedEndpoint(options.handle ? `/api/store/products/${encodeURIComponent(options.handle)}` : "/api/store/products");
+      })
       .finally(() => mounted && setLoading(false));
     return () => {
       mounted = false;
     };
   }, [options.limit, options.handle, options.initialProducts]);
 
-  return { products, loading, reason };
+  return { products, loading, reason, attemptedEndpoint };
 }

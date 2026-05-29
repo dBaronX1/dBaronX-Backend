@@ -7,7 +7,7 @@ import { productAvailabilityLabel, productDeliveryEstimate, productDisplayPrice,
 import { DbxCard, dbxButtonStyle } from "@/components/dbx/DbxVisualShell";
 
 export function DbxProductGrid({ handle, initialProducts = [] }: { handle?: string; initialProducts?: StoreProduct[] }) {
-  const { products, loading, reason } = useStoreProducts({ limit: handle ? 8 : 24, handle, initialProducts });
+  const { products, loading, reason, attemptedEndpoint } = useStoreProducts({ limit: handle ? 8 : 24, handle, initialProducts });
   const visible = handle ? products.filter((product) => product.handle === handle) : products;
 
   if (loading) return <DbxCard>Loading dBaronX products…</DbxCard>;
@@ -20,6 +20,11 @@ export function DbxProductGrid({ handle, initialProducts = [] }: { handle?: stri
         <p style={{ color: "#fed7aa", lineHeight: 1.7 }}>
           {fallbackMessage}
         </p>
+        {attemptedEndpoint ? (
+          <p style={{ color: "#fdba74", lineHeight: 1.7, wordBreak: "break-word" }}>
+            Attempted catalog endpoint: <code>{attemptedEndpoint}</code>
+          </p>
+        ) : null}
         <Link href="/support" style={dbxButtonStyle}>Contact support</Link>
       </DbxCard>
     );

@@ -460,19 +460,20 @@ The first customer-facing Telegram discovery path expects the selected CJ shirt 
 Do not seed from a laptop with Render's internal `DATABASE_URL`. Use Render's Medusa service Start Command for a one-time seed, then restore the normal command:
 
 ```bash
-DBX_CONFIRM_CJ_FIRST_PRODUCT_SEED=true pnpm --filter @dbaronx/medusa first-product:seed:cj-shirt && pnpm --filter @dbaronx/medusa start
+DBX_CONFIRM_CJ_FIRST_PRODUCT_SEED=true pnpm --filter @dbaronx/medusa run first-product:seed:cj-shirt && pnpm --filter @dbaronx/medusa run start
 ```
 
 Restore immediately after the seed succeeds:
 
 ```bash
-pnpm --filter @dbaronx/medusa start
+pnpm --filter @dbaronx/medusa run start
 ```
 
-Then verify customer discovery readiness:
+Then verify customer discovery and visible-checkout readiness:
 
 ```bash
 EXPECT_SUPPLIER=cj MEDUSA_BASE_URL=https://dbaronx-medusa.onrender.com WEB_BASE_URL=https://dbaronx.com pnpm first-product:readiness
+DBX_FIRST_CJ_VISIBLE_SMOKE_LIVE=true EXPECT_SUPPLIER=cj MEDUSA_BASE_URL=https://dbaronx-medusa.onrender.com WEB_BASE_URL=https://dbaronx.com MEDUSA_PUBLISHABLE_KEY='<full publishable key>' pnpm first-product:visible-checkout
 ```
 
 The readiness smoke reports old demo products separately from the verified CJ shirt. Demo products may still exist during cleanup, but they must not be relabeled as real and must not block readiness when the exact verified CJ product is present and customer-checkout-ready. Telegram `/products` and `/product mens-cotton-linen-long-sleeve-casual-shirt` should show the verified CJ shirt as customer-safe, not `DEMO` or `Supplier draft — not ready for checkout`.
@@ -480,9 +481,11 @@ The readiness smoke reports old demo products separately from the verified CJ sh
 First transaction smoke order before inviting a real customer:
 
 1. `pnpm first-product:readiness`
-2. `pnpm first-sale:readiness`
-3. `node scripts/e2e-telegram-customer-first-checkout-journey-smoke.mjs`
-4. `node scripts/e2e-first-transaction-with-telegram-ops-smoke.mjs`
+2. `pnpm first-product:visible-checkout` (or the live form shown above)
+3. `pnpm first-sale:readiness`
+4. `node scripts/e2e-telegram-customer-first-checkout-journey-smoke.mjs`
+5. `node scripts/e2e-first-transaction-with-telegram-ops-smoke.mjs`
+6. `node scripts/e2e-first-stripe-test-transaction-smoke.mjs`
 
 Rotate any database password or other production credential that was copied into a laptop terminal, chat, support ticket, or log while attempting the seed.
 
@@ -498,4 +501,4 @@ After the CJ shirt seed is visible in Medusa and the storefront is deployed, ver
 6. `/order_status <order_or_email_or_reference>` must not claim fulfilled unless backend order proof says fulfilled; current customer copy stays conservative and does not expose admin internals.
 7. Admin/ops diagnostics such as `/env_check`, `/runtime`, `/routes`, supplier readiness, wallet, payout, and Stripe settlement commands remain protected by the admin guard and are not part of customer discovery.
 
-Telegram remains read-only for customers. It must never mark paid, mark fulfilled, create fake stock, create fake supplier metadata, credit wallets/rewards, approve payouts, import supplier products, expose secrets, or bypass the Stripe signed-webhook proof requirement.
+Telegram remains read-only for customers. It must never mark paid, mark fulfilled, create fake stock, create fake supplier metadata, credit wallets/rewards, approve payouts, import supplier products, expose secrets, or bypass the Stripe signed-webhook proof requirement. CJ bulk automation continues separately with rate-limit-safe small previews (`category=fashion`, `limitPerCategory=5`, `dryRun=true`); Telegram should only display the controlled shirt after it is present in the Medusa-backed public catalog as `verified_for_checkout`.
