@@ -30,6 +30,10 @@ pass('workflow_has_list_mode', /-\s*list\b/.test(workflow));
 pass('workflow_has_ensure_mode', /-\s*ensure\b/.test(workflow));
 pass('workflow_has_confirm_create_gate', /confirmCreate/.test(workflow) && /DBX_CONFIRM_CREATE_PUBLISHABLE_KEY/.test(workflow));
 pass('workflow_runs_db_contract_preflight', /e2e-medusa-database-contract-smoke\.mjs/.test(workflow));
+
+const installStepIndex = workflow.indexOf('name: Install dependencies');
+const dbPreflightStepIndex = workflow.indexOf('name: Run Medusa DB contract preflight');
+pass('workflow_installs_before_db_contract_preflight', installStepIndex >= 0 && dbPreflightStepIndex > installStepIndex && workflow.slice(installStepIndex, dbPreflightStepIndex).includes('pnpm install --frozen-lockfile'));
 pass('workflow_runs_package_script', /pnpm --filter @dbaronx\/medusa run publishable-key:ensure/.test(workflow));
 pass('output_artifact_path_exists_in_workflow', /artifacts\/medusa-publishable-key-output\.json/.test(workflow));
 pass('workflow_uploads_artifact', /actions\/upload-artifact@v4/.test(workflow) && /medusa-publishable-key-output/.test(workflow));

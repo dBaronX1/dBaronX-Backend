@@ -67,6 +67,25 @@ function sanitizeDbError(error: unknown) {
   };
 }
 
+function isSupabaseInvalidApiKey(error: unknown): boolean {
+  const message =
+    error instanceof Error
+      ? String(error.message || "")
+      : String((error as { message?: unknown })?.message || error || "");
+  return /invalid api key/i.test(message);
+}
+
+function cjImportStagingErrorMessage(error: unknown): string {
+  if (isSupabaseInvalidApiKey(error)) {
+    return "supabase_service_role_key_invalid_for_cj_import_staging";
+  }
+  const message =
+    typeof (error as { message?: unknown })?.message === "string"
+      ? String((error as { message: string }).message)
+      : "cj_import_staging_insert_failed";
+  return message || "cj_import_staging_insert_failed";
+}
+
 @Injectable()
 export class CjProductImportService {
   constructor(
@@ -91,6 +110,8 @@ export class CjProductImportService {
 
   async runImport(category = "all", limit = 50, requestedBy?: string) {
     const capped = this.limit(limit);
+    await this.assertImportUsesPreviewCredentialContract();
+    const fetched = await this.cjAdapter.fetchProducts(category, capped);
     const run = await this.supabase
       .schema("app_private")
       .from("cj_product_import_runs")
@@ -105,18 +126,19 @@ export class CjProductImportService {
       .single();
     if (run.error || !run.data)
       throw new BadRequestException(
-        run.error?.message || "import run create failed",
+        cjImportStagingErrorMessage(run.error) || "import run create failed",
       );
-    const items = (await this.cjAdapter.fetchProducts(category, capped)).map(
-      (p) => this.normalize(p, run.data.id),
-    );
+    const items = fetched.map((p) => this.normalize(p, run.data.id));
+    if (items.length === 0) {
+      throw new BadRequestException("response_mapping_empty");
+    }
     const { error } = await this.supabase
       .schema("app_private")
       .from("cj_product_import_items")
       .upsert(items, {
         onConflict: "supplier,supplier_product_id,supplier_sku",
       });
-    if (error) throw new BadRequestException(error.message);
+    if (error) throw new BadRequestException(cjImportStagingErrorMessage(error));
     const counts = this.count(items);
     await this.supabase
       .schema("app_private")
@@ -315,6 +337,39 @@ export class CjProductImportService {
         ? "Resolve listed blockers and redeploy."
         : "Ready for CJ import.",
     };
+  }
+
+  private async assertImportUsesPreviewCredentialContract() {
+    const credential = await this.cjAdapter.preflightCredentials();
+    const blockers = Array.isArray(credential.blockers)
+      ? credential.blockers
+      : [];
+
+    if (blockers.includes("cj_auth_failed_401")) {
+      throw new BadRequestException("cj_auth_failed_401");
+    }
+    if (
+      blockers.includes("invalid_or_expired_cj_access_token") ||
+      blockers.includes("cj_token_invalid_or_expired")
+    ) {
+      throw new BadRequestException("invalid_or_expired_cj_access_token");
+    }
+    if (blockers.includes("cj_rate_limited")) {
+      throw new BadRequestException("cj_rate_limited");
+    }
+    if (
+      credential.requiredRuntimeCredential !== "CJ_ACCESS_TOKEN" ||
+      credential.runtimeCredentialSource !== "CJ_ACCESS_TOKEN" ||
+      credential.adapterCredentialSource !== "CJ_ACCESS_TOKEN" ||
+      credential.cjAuthMode !== "cj_access_token_header"
+    ) {
+      throw new BadRequestException("cj_import_auth_contract_mismatch");
+    }
+    if (!credential.success) {
+      throw new BadRequestException(
+        blockers[0] || "cj_import_auth_contract_mismatch",
+      );
+    }
   }
 
   private normalize(raw: any, runId?: string) {

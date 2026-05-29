@@ -634,8 +634,11 @@ export class CjSupplierAdapterService {
       return "cj_rate_limited";
     }
 
+    if (statusCode === 401) {
+      return "cj_auth_failed_401";
+    }
+
     if (
-      statusCode === 401 ||
       statusCode === 403 ||
       (typeof statusCode === "number" &&
         statusCode >= 200 &&
@@ -646,7 +649,7 @@ export class CjSupplierAdapterService {
       errorMessage.includes("invalid") ||
       errorMessage.includes("expired")
     ) {
-      return "cj_token_invalid_or_expired";
+      return "invalid_or_expired_cj_access_token";
     }
 
     if (

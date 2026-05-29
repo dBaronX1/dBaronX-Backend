@@ -208,6 +208,36 @@ function isCjAuthFailed401Error(error: unknown): boolean {
     error instanceof Error ? error.message : String(error),
   ).includes("cj_auth_failed_401");
 }
+function isInvalidOrExpiredCjAccessTokenError(error: unknown): boolean {
+  return sanitizeSecretText(
+    error instanceof Error ? error.message : String(error),
+  ).includes("invalid_or_expired_cj_access_token");
+}
+function isCjImportAuthContractMismatchError(error: unknown): boolean {
+  return sanitizeSecretText(
+    error instanceof Error ? error.message : String(error),
+  ).includes("cj_import_auth_contract_mismatch");
+}
+function isCjImportSupabaseKeyError(error: unknown): boolean {
+  return sanitizeSecretText(
+    error instanceof Error ? error.message : String(error),
+  ).includes("supabase_service_role_key_invalid_for_cj_import_staging");
+}
+function exactCjImportStagingBlocker(error: unknown): string | null {
+  const message = sanitizeSecretText(
+    error instanceof Error ? error.message : String(error),
+  );
+  for (const blocker of [
+    "validation_rejected_all_products",
+    "duplicate_all_items",
+    "staging_insert_failed",
+    "response_mapping_empty",
+    "missing_required_product_fields",
+  ]) {
+    if (message.includes(blocker)) return blocker;
+  }
+  return null;
+}
 function isCjRateLimitedError(error: unknown): boolean {
   const message = sanitizeSecretText(
     error instanceof Error ? error.message : String(error),
@@ -608,6 +638,10 @@ async function main() {
     const runStarted = bootstrapDiagnostics.bootstrapComplete;
     const credentialError = isCjCredentialsMissingError(error);
     const authFailed401 = isCjAuthFailed401Error(error);
+    const invalidAccessToken = isInvalidOrExpiredCjAccessTokenError(error);
+    const contractMismatch = isCjImportAuthContractMismatchError(error);
+    const supabaseKeyError = isCjImportSupabaseKeyError(error);
+    const stagingBlocker = exactCjImportStagingBlocker(error);
     const rateLimited = isCjRateLimitedError(error);
     const blockers = isTimeout
       ? ["operator_bootstrap_timeout"]
@@ -616,15 +650,26 @@ async function main() {
           ? [
               "operator_run_failed",
               "cj_auth_failed_401",
-              "invalid_or_expired_cj_credential",
+              "invalid_or_expired_cj_access_token",
             ]
-          : rateLimited
-            ? ["operator_run_failed", "cj_rate_limited"]
-            : [
-                credentialError
-                  ? "cj_credentials_missing"
-                  : "operator_run_failed",
-              ]
+          : invalidAccessToken
+            ? ["operator_run_failed", "invalid_or_expired_cj_access_token"]
+            : contractMismatch
+              ? ["operator_run_failed", "cj_import_auth_contract_mismatch"]
+              : supabaseKeyError
+                ? [
+                    "operator_run_failed",
+                    "supabase_service_role_key_invalid_for_cj_import_staging",
+                  ]
+                : stagingBlocker
+                  ? [stagingBlocker]
+                  : rateLimited
+                  ? ["operator_run_failed", "cj_rate_limited"]
+                  : [
+                      credentialError
+                        ? "cj_credentials_missing"
+                        : "operator_run_failed",
+                    ]
         : ["operator_bootstrap_failed"];
     if (
       runStarted &&
@@ -632,13 +677,19 @@ async function main() {
       !blockers.includes("operator_run_failed")
     )
       blockers.unshift("operator_run_failed");
-    const nextAction = authFailed401
+    const nextAction = authFailed401 || invalidAccessToken
       ? "Regenerate CJ_ACCESS_TOKEN in CJ dashboard/API authorization and update GitHub Actions secret. Do not paste token."
-      : rateLimited
-        ? CJ_RATE_LIMIT_RECOMMENDED_ACTION
-        : runStarted
-          ? "Resolve runtime blockers and rerun."
-          : "Inspect bootstrap logs and resolve configuration errors.";
+      : contractMismatch
+        ? "Fix CJ import auth contract so import and preview both use CJ_ACCESS_TOKEN with the CJ-Access-Token header."
+        : supabaseKeyError
+          ? "Rotate or correct SUPABASE_SERVICE_ROLE_KEY for CJ import staging writes; this is not CJ_API_KEY."
+          : stagingBlocker
+            ? "Inspect exact CJ import staging blocker and rerun after correcting product mapping, duplicates, or validation input."
+            : rateLimited
+            ? CJ_RATE_LIMIT_RECOMMENDED_ACTION
+            : runStarted
+              ? "Resolve runtime blockers and rerun."
+              : "Inspect bootstrap logs and resolve configuration errors.";
     writeOperatorOutput(
       basePayload({
         blockers: [...new Set(blockers)],
