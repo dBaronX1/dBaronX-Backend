@@ -31,7 +31,7 @@ assert(!adapter.includes('if (apiKey) return { source: "CJ_API_KEY"'), 'CJ_API_K
 
 assert(operator.includes('cjDiagnostics.cjAccessTokenPresent || cjDiagnostics.cjApiKeyPresent') && operator.includes('["CJ_ACCESS_TOKEN_or_CJ_API_KEY"]'), 'missingSecrets must only be emitted when both CJ env vars are absent');
 assert(adapter.includes('throw new BadRequestException("cj_auth_failed_401")'), 'adapter must map CJ 401 to cj_auth_failed_401');
-assert(operator.includes('invalid_or_expired_cj_credential'), 'operator must report invalid_or_expired_cj_credential for CJ 401');
+assert(operator.includes('invalid_or_expired_cj_access_token'), 'operator must report invalid_or_expired_cj_access_token for CJ 401');
 assert(operator.includes('Regenerate CJ_ACCESS_TOKEN in CJ dashboard/API authorization and update GitHub Actions secret. Do not paste token.'), 'CJ 401 nextAction is missing');
 assert(combined.includes('runtimeCredentialSource'), 'runtimeCredentialSource diagnostic missing');
 assert(combined.includes('cjAuthMode'), 'cjAuthMode diagnostic missing');

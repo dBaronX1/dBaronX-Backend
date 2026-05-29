@@ -1,5 +1,11 @@
 #!/usr/bin/env node
 
+import { mkdirSync, writeFileSync } from 'node:fs';
+import { createRequire } from 'node:module';
+import { dirname } from 'node:path';
+
+const requireFromSmoke = createRequire(import.meta.url);
+
 const REQUIRED_MEDUSA_TABLES = Object.freeze([
   'product',
   'product_variant',
@@ -20,7 +26,8 @@ const result = {
   databaseUrlPresent: false,
   medusaDatabaseConnected: false,
   medusaCoreTablesReady: false,
-  missingMedusaTables: [...REQUIRED_MEDUSA_TABLES],
+  missingMedusaTables: [],
+  medusaTableQueryRan: false,
   likelyWrongDatabase: false,
   apiSupabaseStagingTablePresent: false,
   errorCode: null,
@@ -30,8 +37,6 @@ const result = {
 function emit(exitCode) {
   const safe = JSON.stringify(result, null, 2);
   try {
-    const { mkdirSync, writeFileSync } = require('node:fs');
-    const { dirname } = require('node:path');
     mkdirSync(dirname(OUTPUT_PATH), { recursive: true });
     writeFileSync(OUTPUT_PATH, `${safe}\n`, 'utf8');
   } catch {}
@@ -39,18 +44,30 @@ function emit(exitCode) {
   process.exit(exitCode);
 }
 
+function safePgLoadError(candidate, error) {
+  const code = typeof error?.code === 'string' ? error.code : null;
+  const name = error?.name || 'Error';
+  if (code === 'MODULE_NOT_FOUND' || code === 'ERR_MODULE_NOT_FOUND') {
+    return `${candidate}:${code}`;
+  }
+  return `${candidate}:${name}`;
+}
+
 function loadPgClient() {
-  const candidates = ['pg', '../apps/api/node_modules/pg', './apps/api/node_modules/pg'];
+  const candidates = ['pg', '../apps/api/node_modules/pg', '../apps/medusa/node_modules/pg'];
   const errors = [];
   for (const candidate of candidates) {
     try {
-      return require(candidate).Client;
+      const mod = requireFromSmoke(candidate);
+      const Client = mod?.Client || mod?.default?.Client;
+      if (Client) return Client;
+      errors.push(`${candidate}:missing_Client_export`);
     } catch (error) {
-      errors.push(`${candidate}:${error.code || error.message}`);
+      errors.push(safePgLoadError(candidate, error));
     }
   }
   result.errorCode = 'pg_client_unavailable';
-  result.nextAction = 'Run pnpm install before this smoke so the workspace pg dependency is available.';
+  result.nextAction = 'Run pnpm install --frozen-lockfile before this smoke so the workspace pg dependency is available.';
   result.pgLoadDiagnostics = errors;
   emit(1);
 }
@@ -80,6 +97,7 @@ try {
     `select table_name, to_regclass('public.' || table_name) is not null as exists from unnest($1::text[]) as table_name`,
     [REQUIRED_MEDUSA_TABLES],
   );
+  result.medusaTableQueryRan = true;
   const existsByTable = Object.fromEntries(tableRows.rows.map((row) => [row.table_name, row.exists === true]));
   result.missingMedusaTables = REQUIRED_MEDUSA_TABLES.filter((table) => !existsByTable[table]);
   result.medusaCoreTablesReady = result.missingMedusaTables.length === 0;
