@@ -21,7 +21,7 @@ pnpm --filter @dbaronx/medusa run start
 
 Run Medusa migrations, launch commerce prerequisites, and the first controlled CJ shirt seed as explicit jobs only: the `Medusa First Product Seed` GitHub Action, a Render one-off job, or Render shell command. Do **not** use any seed/import/migration command as the Render Web Service Start Command; Render can time out with `No open ports detected` if startup does not bind the HTTP port quickly.
 
-The seed workflow requires `MEDUSA_DATABASE_URL` to be the real Medusa Postgres database URL. Do not point it at the API/NestJS Supabase `DATABASE_URL`, which owns CJ staging/import/audit/business tables. If the Action reports missing `tax_provider`, `payment_provider`, `fulfillment_provider`, or related Medusa tables, the job is using the wrong database or Medusa migrations have not been applied to the Medusa database.
+The seed workflow requires `MEDUSA_DATABASE_URL` to be the real Medusa Postgres database URL. Do not point it at the API/NestJS Supabase `DATABASE_URL`, which owns CJ staging/import/audit/business tables. If the Action reports missing `tax_provider`, `payment_provider`, `fulfillment_provider`, or related Medusa tables, the job is using the wrong database or Medusa migrations have not been applied to the Medusa database. If the DB contract smoke reports SQLSTATE `28000` as `medusa_database_auth_failed`, update the GitHub Actions `MEDUSA_DATABASE_URL` secret with the current Render Postgres External Database URL after any password rotation; do not retry the publishable-key or seed workflow with the API Supabase `DATABASE_URL`.
 
 ```bash
 DBX_CONFIRM_CJ_FIRST_PRODUCT_SEED=true pnpm --filter @dbaronx/medusa run first-product:seed:cj-shirt

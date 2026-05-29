@@ -46,7 +46,7 @@ const DEFAULT_LIMIT_PER_CATEGORY = 50;
 const DEFAULT_BOOTSTRAP_TIMEOUT_MS = 30000;
 const DEFAULT_CATEGORY_DELAY_MS = 2000;
 const CJ_RATE_LIMIT_RECOMMENDED_ACTION =
-  "Wait before rerun, reduce limitPerCategory, or run one category at a time.";
+  "Wait 60-120 minutes, then rerun import for one category only, e.g. category=fashion limitPerCategory=2.";
 const outputPath = (
   process.env.CJ_OPERATOR_OUTPUT_PATH || "artifacts/cj-operator-output.json"
 ).trim();
@@ -233,6 +233,7 @@ function exactCjImportStagingBlocker(error: unknown): string | null {
     "staging_insert_failed",
     "response_mapping_empty",
     "missing_required_product_fields",
+    "fetched_products_not_staged_due_to_rate_limit_boundary",
   ]) {
     if (message.includes(blocker)) return blocker;
   }
@@ -520,11 +521,15 @@ async function main() {
       }
 
       const row = makeCategoryResult(category, requested);
+      let previewItems: any[] = [];
       try {
         if (mode === "preview" || mode === "import" || mode === "full-safe") {
           const preview = await importer.preview(category, requested);
+          previewItems = Array.isArray((preview as any)?.items)
+            ? (preview as any).items
+            : [];
           const labels = new Set<string>();
-          for (const item of preview.items || []) {
+          for (const item of previewItems) {
             row.fetched += 1;
             row.previewed += 1;
             labels.add(
@@ -539,11 +544,16 @@ async function main() {
           row.labelsFound = [...labels];
         }
         if (!dryRun && (mode === "import" || mode === "full-safe")) {
-          const imported = await importer.runImport(
-            category,
-            requested,
-            "cj_operator",
-          );
+          const importSourceItems = previewItems;
+          const imported =
+            importSourceItems.length > 0
+              ? await importer.stageFetchedProducts(
+                  category,
+                  requested,
+                  importSourceItems,
+                  "cj_operator",
+                )
+              : await importer.runImport(category, requested, "cj_operator");
           row.staged = imported.imported || 0;
           row.valid = imported.accepted || 0;
           row.rejected = imported.rejected || 0;
@@ -588,21 +598,45 @@ async function main() {
             p.medusaDiagnostics || result.medusaDiagnostics;
         }
       } catch (error) {
-        if (!isCjRateLimitedError(error)) throw error;
-        row.status = "rate_limited";
-        row.rateLimited = true;
-        row.partialReason = "cj_rate_limited";
-        row.blockers.push("cj_rate_limited");
-        result.blockers = [...new Set([...result.blockers, "cj_rate_limited"])];
-        result.cjRateLimitDiagnostics = cjRateLimitDiagnostics(error);
-        result.cjDiagnostics = {
-          ...result.cjDiagnostics,
-          ...result.cjRateLimitDiagnostics,
-        };
-        result.errorName = error instanceof Error ? error.name : "Error";
-        result.errorMessage = "cj_rate_limited";
-        result.nextAction = CJ_RATE_LIMIT_RECOMMENDED_ACTION;
-        haltedByRateLimit = true;
+        const stagingBlocker = exactCjImportStagingBlocker(error);
+        if (stagingBlocker) {
+          row.status = row.fetched > 0 ? "fetched" : row.status;
+          row.blockers.push(stagingBlocker);
+          result.blockers = [...new Set([...result.blockers, stagingBlocker])];
+          result.errorName = error instanceof Error ? error.name : "Error";
+          result.errorMessage = stagingBlocker;
+          result.nextAction =
+            "Inspect exact CJ import staging blocker and rerun after correcting product mapping, duplicates, or validation input.";
+        } else if (!isCjRateLimitedError(error)) throw error;
+        else {
+          row.status = "rate_limited";
+          row.rateLimited = true;
+          row.partialReason = "cj_rate_limited";
+          row.blockers.push("cj_rate_limited");
+          result.blockers = [
+            ...new Set([...result.blockers, "cj_rate_limited"]),
+          ];
+          result.cjRateLimitDiagnostics = cjRateLimitDiagnostics(error);
+          result.cjDiagnostics = {
+            ...result.cjDiagnostics,
+            ...result.cjRateLimitDiagnostics,
+          };
+          result.errorName = error instanceof Error ? error.name : "Error";
+          result.errorMessage = "cj_rate_limited";
+          result.nextAction = CJ_RATE_LIMIT_RECOMMENDED_ACTION;
+          if (row.fetched > 0 && row.staged === 0) {
+            row.blockers.push(
+              "fetched_products_not_staged_due_to_rate_limit_boundary",
+            );
+            result.blockers = [
+              ...new Set([
+                ...result.blockers,
+                "fetched_products_not_staged_due_to_rate_limit_boundary",
+              ]),
+            ];
+          }
+          haltedByRateLimit = true;
+        }
       }
       result.categoryResults.push(row);
       applyCategoryTotals(result, row);
@@ -613,6 +647,24 @@ async function main() {
       !result.blockers.includes("cj_rate_limited")
     )
       result.blockers.push("preview_no_products_fetched");
+    if (
+      result.blockers.includes("cj_rate_limited") &&
+      result.totalFetched > 0 &&
+      result.totalStaged === 0 &&
+      !result.blockers.some((blocker: string) =>
+        [
+          "fetched_products_not_staged_due_to_rate_limit_boundary",
+          "staging_insert_failed",
+          "validation_rejected_all_products",
+          "missing_required_product_fields",
+          "duplicate_all_items",
+        ].includes(blocker),
+      )
+    ) {
+      result.blockers.push(
+        "fetched_products_not_staged_due_to_rate_limit_boundary",
+      );
+    }
     if (
       (mode === "publish-approved" || mode === "full-safe") &&
       result.totalPublished > result.totalMedusaSynced
@@ -664,12 +716,12 @@ async function main() {
                 : stagingBlocker
                   ? [stagingBlocker]
                   : rateLimited
-                  ? ["operator_run_failed", "cj_rate_limited"]
-                  : [
-                      credentialError
-                        ? "cj_credentials_missing"
-                        : "operator_run_failed",
-                    ]
+                    ? ["operator_run_failed", "cj_rate_limited"]
+                    : [
+                        credentialError
+                          ? "cj_credentials_missing"
+                          : "operator_run_failed",
+                      ]
         : ["operator_bootstrap_failed"];
     if (
       runStarted &&
@@ -677,19 +729,20 @@ async function main() {
       !blockers.includes("operator_run_failed")
     )
       blockers.unshift("operator_run_failed");
-    const nextAction = authFailed401 || invalidAccessToken
-      ? "Regenerate CJ_ACCESS_TOKEN in CJ dashboard/API authorization and update GitHub Actions secret. Do not paste token."
-      : contractMismatch
-        ? "Fix CJ import auth contract so import and preview both use CJ_ACCESS_TOKEN with the CJ-Access-Token header."
-        : supabaseKeyError
-          ? "Rotate or correct SUPABASE_SERVICE_ROLE_KEY for CJ import staging writes; this is not CJ_API_KEY."
-          : stagingBlocker
-            ? "Inspect exact CJ import staging blocker and rerun after correcting product mapping, duplicates, or validation input."
-            : rateLimited
-            ? CJ_RATE_LIMIT_RECOMMENDED_ACTION
-            : runStarted
-              ? "Resolve runtime blockers and rerun."
-              : "Inspect bootstrap logs and resolve configuration errors.";
+    const nextAction =
+      authFailed401 || invalidAccessToken
+        ? "Regenerate CJ_ACCESS_TOKEN in CJ dashboard/API authorization and update GitHub Actions secret. Do not paste token."
+        : contractMismatch
+          ? "Fix CJ import auth contract so import and preview both use CJ_ACCESS_TOKEN with the CJ-Access-Token header."
+          : supabaseKeyError
+            ? "Rotate or correct SUPABASE_SERVICE_ROLE_KEY for CJ import staging writes; this is not CJ_API_KEY."
+            : stagingBlocker
+              ? "Inspect exact CJ import staging blocker and rerun after correcting product mapping, duplicates, or validation input."
+              : rateLimited
+                ? CJ_RATE_LIMIT_RECOMMENDED_ACTION
+                : runStarted
+                  ? "Resolve runtime blockers and rerun."
+                  : "Inspect bootstrap logs and resolve configuration errors.";
     writeOperatorOutput(
       basePayload({
         blockers: [...new Set(blockers)],

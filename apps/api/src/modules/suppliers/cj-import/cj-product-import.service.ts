@@ -5,7 +5,7 @@ import { CjProductCategoryMapperService } from "./cj-product-category-mapper.ser
 import { CjProductValidationService } from "./cj-product-validation.service";
 import { Client } from "pg";
 
-const DB_READINESS_CHECKER_SOURCE = 'database_url_pg_client_to_regclass';
+const DB_READINESS_CHECKER_SOURCE = "database_url_pg_client_to_regclass";
 const DB_READINESS_RECOMMENDED_ACTION =
   "Use Supabase pooler/IPv4-compatible DATABASE_URL in GitHub Actions and ensure rotated credentials are current.";
 const DB_CONNECTION_FAILED_MESSAGE =
@@ -75,6 +75,32 @@ function isSupabaseInvalidApiKey(error: unknown): boolean {
   return /invalid api key/i.test(message);
 }
 
+function exactCjImportStagingBlockerForItems(items: any[]): string | null {
+  if (items.length === 0) return "response_mapping_empty";
+  const missingRequired = items.some(
+    (item) =>
+      !item.supplier_product_id ||
+      !item.supplier_sku ||
+      !item.title ||
+      !Number.isFinite(Number(item.price_minor)),
+  );
+  if (missingRequired) return "missing_required_product_fields";
+
+  const seen = new Set<string>();
+  const duplicateCount = items.filter((item) => {
+    const key = `${item.supplier}:${item.supplier_product_id}:${item.supplier_sku}`;
+    if (seen.has(key)) return true;
+    seen.add(key);
+    return false;
+  }).length;
+  if (duplicateCount > 0 && seen.size === 1) return "duplicate_all_items";
+
+  if (items.every((item) => item.validation_status === "validation_failed")) {
+    return "validation_rejected_all_products";
+  }
+  return null;
+}
+
 function cjImportStagingErrorMessage(error: unknown): string {
   if (isSupabaseInvalidApiKey(error)) {
     return "supabase_service_role_key_invalid_for_cj_import_staging";
@@ -112,6 +138,16 @@ export class CjProductImportService {
     const capped = this.limit(limit);
     await this.assertImportUsesPreviewCredentialContract();
     const fetched = await this.cjAdapter.fetchProducts(category, capped);
+    return this.stageFetchedProducts(category, capped, fetched, requestedBy);
+  }
+
+  async stageFetchedProducts(
+    category = "all",
+    limit = 50,
+    fetched: any[] = [],
+    requestedBy?: string,
+  ) {
+    const capped = this.limit(limit);
     const run = await this.supabase
       .schema("app_private")
       .from("cj_product_import_runs")
@@ -129,8 +165,10 @@ export class CjProductImportService {
         cjImportStagingErrorMessage(run.error) || "import run create failed",
       );
     const items = fetched.map((p) => this.normalize(p, run.data.id));
-    if (items.length === 0) {
-      throw new BadRequestException("response_mapping_empty");
+    const exactBlocker = exactCjImportStagingBlockerForItems(items);
+    if (exactBlocker) {
+      await this.markImportRunFailed(run.data.id, exactBlocker);
+      throw new BadRequestException(exactBlocker);
     }
     const { error } = await this.supabase
       .schema("app_private")
@@ -138,7 +176,12 @@ export class CjProductImportService {
       .upsert(items, {
         onConflict: "supplier,supplier_product_id,supplier_sku",
       });
-    if (error) throw new BadRequestException(cjImportStagingErrorMessage(error));
+    if (error) {
+      await this.markImportRunFailed(run.data.id, "staging_insert_failed");
+      throw new BadRequestException(
+        cjImportStagingErrorMessage(error) || "staging_insert_failed",
+      );
+    }
     const counts = this.count(items);
     await this.supabase
       .schema("app_private")
@@ -237,16 +280,16 @@ export class CjProductImportService {
             to_regclass('app_private.fulfillment_tasks') is not null as fulfillment_tasks_present`,
         });
         const row = rows[0] || {};
-        requiredTables['app_private.cj_product_import_runs'] = Boolean(
+        requiredTables["app_private.cj_product_import_runs"] = Boolean(
           row.cj_product_import_runs_present,
         );
-        requiredTables['app_private.cj_product_import_items'] = Boolean(
+        requiredTables["app_private.cj_product_import_items"] = Boolean(
           row.cj_product_import_items_present,
         );
-        requiredTables['app_public.storefront_products'] = Boolean(
+        requiredTables["app_public.storefront_products"] = Boolean(
           row.storefront_products_present,
         );
-        requiredTables['app_private.fulfillment_tasks'] = Boolean(
+        requiredTables["app_private.fulfillment_tasks"] = Boolean(
           row.fulfillment_tasks_present,
         );
         dbDiagnostics.databaseConnected = true;
@@ -258,7 +301,7 @@ export class CjProductImportService {
           row.app_public_schema_present,
         );
       } catch (error) {
-        blockers.push('database_connection_failed');
+        blockers.push("database_connection_failed");
         const sanitized = sanitizeDbError(error);
         dbDiagnostics.databaseConnected = false;
         dbDiagnostics.errorName = sanitized.errorName;
@@ -271,13 +314,13 @@ export class CjProductImportService {
     }
 
     checks.importRunsTableReady =
-      requiredTables['app_private.cj_product_import_runs'];
+      requiredTables["app_private.cj_product_import_runs"];
     checks.importItemsTableReady =
-      requiredTables['app_private.cj_product_import_items'];
+      requiredTables["app_private.cj_product_import_items"];
     checks.storefrontPublishTargetReady =
-      requiredTables['app_public.storefront_products'];
+      requiredTables["app_public.storefront_products"];
     checks.fulfillmentTasksTableReady =
-      requiredTables['app_private.fulfillment_tasks'];
+      requiredTables["app_private.fulfillment_tasks"];
 
     checks.migrationReady =
       checks.importRunsTableReady &&
@@ -373,8 +416,9 @@ export class CjProductImportService {
   }
 
   private normalize(raw: any, runId?: string) {
+    const rawCategory = raw.category ?? raw.category_slug;
     const mapped = this.mapper.map({
-      category: raw.category,
+      category: rawCategory,
       title: raw.title,
       description: raw.description,
     });
@@ -389,27 +433,39 @@ export class CjProductImportService {
     return {
       ...(runId ? { import_run_id: runId } : {}),
       supplier: "cj",
-      supplier_product_id: raw.supplierProductId,
-      supplier_sku: raw.supplierSku,
-      cj_payload: raw,
+      supplier_product_id: raw.supplierProductId ?? raw.supplier_product_id,
+      supplier_sku: raw.supplierSku ?? raw.supplier_sku,
+      cj_payload: raw.cj_payload ?? raw,
       title: raw.title,
       handle: raw.handle,
       description: raw.description,
-      source_url: raw.sourceUrl,
-      image_url: raw.imageUrl,
+      source_url: raw.sourceUrl ?? raw.source_url,
+      image_url: raw.imageUrl ?? raw.image_url,
       category: mapped.category,
       category_slug: mapped.categorySlug,
-      price_minor: raw.priceMinor,
-      cost_minor: raw.costMinor,
-      stock_qty: raw.stockQty,
-      shipping_countries: raw.shippingCountries,
-      delivery_estimate: raw.deliveryEstimate,
+      price_minor: raw.priceMinor ?? raw.price_minor,
+      cost_minor: raw.costMinor ?? raw.cost_minor,
+      stock_qty: raw.stockQty ?? raw.stock_qty,
+      shipping_countries: raw.shippingCountries ?? raw.shipping_countries,
+      delivery_estimate: raw.deliveryEstimate ?? raw.delivery_estimate,
       validation_status:
         mapped.blocked || !valid.valid ? "validation_failed" : "validated",
       approval_status: "pending_admin_approval",
       publish_status: "not_published",
       blockers,
     };
+  }
+
+  private async markImportRunFailed(runId: string, blocker: string) {
+    await this.supabase
+      .schema("app_private")
+      .from("cj_product_import_runs")
+      .update({
+        status: "failed",
+        rejected_count: 0,
+        updated_at: new Date().toISOString(),
+      })
+      .eq("id", runId);
   }
 
   private count(items: any[]) {
