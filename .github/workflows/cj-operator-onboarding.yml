@@ -4,27 +4,43 @@ on:
   workflow_dispatch:
     inputs:
       mode:
-        description: Operator mode
+        description: "Operator mode: readiness, preview, import, approve-safe, publish-approved, full-safe"
+        required: true
+        default: "preview"
         type: choice
-        options: [readiness, preview, import, approve-safe, publish-approved, full-safe]
-        default: preview
+        options:
+          - "readiness"
+          - "preview"
+          - "import"
+          - "approve-safe"
+          - "publish-approved"
+          - "full-safe"
       category:
-        description: Category slug
-        type: choice
-        options: [all, electronics, fashion, home-living, beauty, sports, automotive, agriculture, tech, finance]
-        default: fashion
+        description: "CJ category to process. Use fashion with limit 5 first. category=all with high limits is heavy."
+        required: true
+        default: "fashion"
+        type: string
       limitPerCategory:
-        description: Requested products per category. Safer first preview: category=fashion and limitPerCategory=5; category=all with 50 is heavy.
-        required: false
-        default: '5'
+        description: "Safe first value: 5. Default: 5. Heavy: 50 with category=all."
+        required: true
+        default: "5"
+        type: string
       dryRun:
-        description: Dry run only
-        type: boolean
-        default: true
+        description: "Run without mutating product records."
+        required: true
+        default: "true"
+        type: choice
+        options:
+          - "true"
+          - "false"
       readinessExitZero:
-        description: Exit 0 in readiness mode when blockers exist
-        type: boolean
-        default: true
+        description: "Allow readiness diagnostics to exit zero."
+        required: true
+        default: "true"
+        type: choice
+        options:
+          - "true"
+          - "false"
 jobs:
   run-cj-operator:
     runs-on: ubuntu-latest
@@ -42,6 +58,10 @@ jobs:
           DATABASE_URL: ${{ secrets.DATABASE_URL }}
           SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
           SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+          MEDUSA_BASE_URL: ${{ secrets.MEDUSA_BASE_URL || vars.MEDUSA_BASE_URL }}
+          MEDUSA_URL: ${{ secrets.MEDUSA_URL || vars.MEDUSA_URL }}
+          MEDUSA_ADMIN_API_KEY: ${{ secrets.MEDUSA_ADMIN_API_KEY }}
+          MEDUSA_API_KEY: ${{ secrets.MEDUSA_API_KEY }}
           CJ_ACCESS_TOKEN: ${{ secrets.CJ_ACCESS_TOKEN }}
           CJ_API_KEY: ${{ secrets.CJ_API_KEY }}
           CJ_OPERATOR_MODE: ${{ inputs.mode }}

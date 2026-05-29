@@ -25,10 +25,15 @@ assert(lineMatches(/^\s*workflow_dispatch:\s*$/), 'workflow_dispatch manual trig
 const dispatch = sectionBetween('workflow_dispatch:', 'jobs:');
 for (const input of ['mode', 'category', 'limitPerCategory', 'dryRun', 'readinessExitZero']) {
   assert(new RegExp(`^\\s{6}${input}:\\s*$`, 'm').test(dispatch), `manual input missing: ${input}`);
+  const inputStart = dispatch.search(new RegExp(`^\\s{6}${input}:\\s*$`, 'm'));
+  const afterInput = dispatch.slice(inputStart);
+  const nextInput = afterInput.slice(1).search(/^\s{6}[A-Za-z][A-Za-z0-9]*:\s*$/m);
+  const inputBlock = nextInput >= 0 ? afterInput.slice(0, nextInput + 1) : afterInput;
+  assert(/^\s{8}required:\s*true\s*$/m.test(inputBlock), `manual input must be required: ${input}`);
 }
-assert(dispatch.includes("default: '5'") || dispatch.includes('default: 10'), 'limitPerCategory default must be first-preview safe');
-assert(dispatch.includes('category=fashion') && dispatch.includes('limitPerCategory=5'), 'first preview fashion/5 guidance missing');
-assert(dispatch.includes('category=all with 50 is heavy'), 'heavy all/50 guidance missing');
+assert(/default:\s*[\"']?(?:5|10)[\"']?/.test(sectionBetween('limitPerCategory:', 'dryRun:')), 'limitPerCategory default must be first-preview safe');
+assert(dispatch.includes('Use fashion with limit 5 first') || (dispatch.includes('category=fashion') && dispatch.includes('limitPerCategory=5')), 'first preview fashion/5 guidance missing');
+assert(dispatch.includes('category=all with high limits is heavy') || dispatch.includes('Heavy: 50 with category=all') || dispatch.includes('category=all with 50 is heavy'), 'heavy all/50 guidance missing');
 
 const operatorStep = sectionBetween('name: Run CJ operator and capture JSON output', '- name: Validate operator output contract');
 assert(operatorStep.includes('CJ_ACCESS_TOKEN: ${{ secrets.CJ_ACCESS_TOKEN }}'), 'CJ_ACCESS_TOKEN is not mapped into operator step');
