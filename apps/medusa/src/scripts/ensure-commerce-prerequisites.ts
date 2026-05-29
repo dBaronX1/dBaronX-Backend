@@ -1,3 +1,5 @@
+import { writeFileSync } from "node:fs";
+
 import { ExecArgs } from "@medusajs/framework/types";
 import {
   createRegionsWorkflow,
@@ -13,8 +15,10 @@ import {
   serializeProviderLinkRepairError,
 } from "./shipping-readiness";
 
-const TARGET_VARIANT_ID = "variant_01KQR5QC1GWD6Z6Q4S9EY358JQ";
-const TARGET_INVENTORY_ITEM_ID = "iitem_01KQR5QC2583QHSFDYDWE942Y7";
+const TARGET_HANDLE = "mens-cotton-linen-long-sleeve-casual-shirt";
+const TARGET_SUPPLIER = "cj";
+const TARGET_SUPPLIER_PRODUCT_ID = "2408300732091605000";
+const TARGET_SUPPLIER_SKU = "CJDS212420104DW";
 const isRecord = (value: unknown): value is Record<string, unknown> =>
   typeof value === "object" && value !== null;
 
@@ -24,6 +28,24 @@ const asArray = <T = unknown>(value: unknown): T[] =>
 const pushUnique = (values: string[], value: string) => {
   if (!values.includes(value)) values.push(value);
 };
+
+function emitCommerceResult(result: Record<string, unknown>) {
+  const json = JSON.stringify(result, null, 2);
+  const outputPath = String(process.env.DBX_COMMERCE_ENSURE_OUTPUT_PATH || "").trim();
+  if (outputPath) writeFileSync(outputPath, `${json}\n`, { encoding: "utf8" });
+  console.log(json);
+}
+
+function metadataMatchesTarget(metadata: Record<string, unknown>) {
+  return (
+    String(metadata.supplier || "").toLowerCase() === TARGET_SUPPLIER &&
+    String(metadata.supplierProductId || "") === TARGET_SUPPLIER_PRODUCT_ID &&
+    String(metadata.supplierSku || "") === TARGET_SUPPLIER_SKU &&
+    metadata.realSupplierProduct === true &&
+    metadata.demo === false &&
+    metadata.supplierVerificationStatus === "verified_for_checkout"
+  );
+}
 
 async function runEnsureCommercePrerequisites({ container }: ExecArgs) {
   const query = getQueryFromContainer(container);
@@ -119,9 +141,12 @@ async function runEnsureCommercePrerequisites({ container }: ExecArgs) {
     entity: "product",
     fields: [
       "id",
+      "handle",
       "metadata",
       "variants.id",
+      "variants.sku",
       "variants.metadata",
+      "variants.inventory_items.inventory_item_id",
       "variants.prices.id",
       "variants.prices.amount",
       "variants.prices.currency_code",
@@ -131,83 +156,78 @@ async function runEnsureCommercePrerequisites({ container }: ExecArgs) {
     pagination: { take: 200 },
   });
   const products = asArray(productsRes.data);
-  const variants = products.flatMap((p) =>
-    isRecord(p) ? asArray(p.variants) : [],
-  );
-  const productCount = products.length;
-  const variantCount = variants.length;
+  const targetProduct = products.find((p) => {
+    if (!isRecord(p) || p.handle !== TARGET_HANDLE) return false;
+    const productMetadata = isRecord(p.metadata) ? p.metadata : {};
+    const variantsForProduct = asArray(p.variants);
+    return (
+      metadataMatchesTarget(productMetadata) ||
+      variantsForProduct.some((v) =>
+        isRecord(v) && metadataMatchesTarget(isRecord(v.metadata) ? v.metadata : {}),
+      )
+    );
+  });
+  const variants = isRecord(targetProduct) ? asArray(targetProduct.variants) : [];
+  const targetVariant = variants.find((v) => isRecord(v) && v.sku === TARGET_SUPPLIER_SKU) || variants.find((v) => isRecord(v));
+  const productCount = isRecord(targetProduct) ? 1 : 0;
+  const variantCount = isRecord(targetVariant) ? 1 : 0;
 
-  const priceReady = variants.length > 0 && variants.every((v) =>
-    asArray(isRecord(v) ? v.prices : undefined).some(
+  const priceReady = isRecord(targetVariant) &&
+    asArray(targetVariant.prices).some(
       (price) =>
         isRecord(price) &&
         Number(price.amount || 0) > 0 &&
         String(price.currency_code || "").toLowerCase() === "usd",
-    ),
+    );
+  const supplierMetadataReady = Boolean(
+    isRecord(targetProduct) &&
+      (metadataMatchesTarget(isRecord(targetProduct.metadata) ? targetProduct.metadata : {}) ||
+        (isRecord(targetVariant) &&
+          metadataMatchesTarget(isRecord(targetVariant.metadata) ? targetVariant.metadata : {}))),
   );
-  let inventoryLevelReady = false;
-  let stockReady = false;
-  const stockInventoryItemId = TARGET_INVENTORY_ITEM_ID;
-  const stockLevelRes = await query.graph({
-    entity: "inventory_level",
-    fields: ["id", "inventory_item_id", "location_id", "stocked_quantity"],
-    filters: {
-      inventory_item_id: stockInventoryItemId,
-      ...(stockLocationId ? { location_id: stockLocationId } : {}),
-    },
-    pagination: { take: 1 },
-  });
-  const stockLevel = asArray(stockLevelRes.data)[0];
-  if (isRecord(stockLevel) && typeof stockLevel.id === "string") {
-    inventoryLevelReady = true;
-    const stockedQuantity = Number(stockLevel.stocked_quantity ?? 0);
-    stockReady = stockedQuantity > 0;
-    pushUnique(existing, "inventory_level");
-  }
-  if (!stockReady) {
-    const targetVariant = variants.find(
-      (v) => isRecord(v) && v.id === TARGET_VARIANT_ID,
-    );
-    if (isRecord(targetVariant)) {
-      const quantity = Number(targetVariant.inventory_quantity ?? 0);
-      const managed = Boolean(targetVariant.manage_inventory);
-      if (!managed || quantity > 0) stockReady = true;
-    }
-  }
-  const supplierMetadataReady = products.length > 0 && products.every((p) => {
-    if (!isRecord(p)) return false;
-    const meta = isRecord(p.metadata) ? p.metadata : {};
-    const pSupplier = Boolean(
-      meta.supplierRef || meta.supplier || meta.supplier_ref,
-    );
-    const vSupplier = asArray(p.variants).some((v) => {
-      if (!isRecord(v)) return false;
-      const vMeta = isRecord(v.metadata) ? v.metadata : {};
-      return Boolean(vMeta.supplierRef || vMeta.supplier || vMeta.supplier_ref);
-    });
-    return pSupplier || vSupplier;
-  });
 
-  if (productCount === 0) pushUnique(blockers, "products_missing");
-  if (variantCount === 0) pushUnique(blockers, "variants_missing");
-  if (!priceReady) pushUnique(blockers, "price_pending");
-  if (!stockReady) pushUnique(blockers, "out_of_stock");
-  if (!supplierMetadataReady) pushUnique(blockers, "supplier_na");
-
-  const targetVariantFromProducts = variants.find((v) => isRecord(v) && typeof v.id === "string");
-  const targetVariantId = isRecord(targetVariantFromProducts)
-    ? String(targetVariantFromProducts.id)
-    : TARGET_VARIANT_ID;
-  let variantId: string | null = null;
+  let variantId: string | null = isRecord(targetVariant) && typeof targetVariant.id === "string" ? targetVariant.id : null;
   let inventoryItemId: string | null = null;
-  if (variantCount > 0 && targetVariantId) {
-    const variantLink = await ensureVariantInventoryLink(container, targetVariantId);
+  if (variantId) {
+    const variantLink = await ensureVariantInventoryLink(container, variantId);
     variantId = variantLink.variantId;
     inventoryItemId = variantLink.inventoryItemId;
     for (const item of variantLink.created) pushUnique(created, item);
     for (const item of variantLink.existing) pushUnique(existing, item);
     for (const blocker of variantLink.blockers) pushUnique(blockers, blocker);
   }
+
+  let inventoryLevelReady = false;
+  let stockReady = false;
+  if (inventoryItemId) {
+    const stockLevelRes = await query.graph({
+      entity: "inventory_level",
+      fields: ["id", "inventory_item_id", "location_id", "stocked_quantity"],
+      filters: {
+        inventory_item_id: inventoryItemId,
+        ...(stockLocationId ? { location_id: stockLocationId } : {}),
+      },
+      pagination: { take: 1 },
+    });
+    const stockLevel = asArray(stockLevelRes.data)[0];
+    if (isRecord(stockLevel) && typeof stockLevel.id === "string") {
+      inventoryLevelReady = true;
+      const stockedQuantity = Number(stockLevel.stocked_quantity ?? 0);
+      stockReady = stockedQuantity > 0;
+      pushUnique(existing, "inventory_level");
+    }
+  }
+  if (!stockReady && isRecord(targetVariant)) {
+    const quantity = Number(targetVariant.inventory_quantity ?? 0);
+    const managed = Boolean(targetVariant.manage_inventory);
+    if (!managed || quantity > 0) stockReady = true;
+  }
+
+  if (productCount === 0) pushUnique(blockers, "first_cj_product_not_seeded");
+  if (variantCount === 0) pushUnique(blockers, "variants_missing");
+  if (!priceReady) pushUnique(blockers, "price_pending");
+  if (!stockReady) pushUnique(blockers, "out_of_stock");
+  if (!supplierMetadataReady) pushUnique(blockers, "supplier_na");
 
   const salesChannelStockLocationLinked =
     shippingReadiness.salesChannelStockLocationLinked;
@@ -219,8 +239,7 @@ async function runEnsureCommercePrerequisites({ container }: ExecArgs) {
     pushUnique(blockers, "sales_channel_stock_location_link_missing");
   if (variantCount > 0 && !inventoryLevelReady) pushUnique(blockers, "inventory_level_missing");
 
-  console.log(
-    JSON.stringify(
+  emitCommerceResult(
       {
         success: blockers.length === 0,
         infrastructureReady: Boolean(regionId && salesChannelId && stockLocationId && shippingProfileId && shippingOptionReady && storeShippingOptionReady && salesChannelStockLocationLinked),
@@ -263,9 +282,6 @@ async function runEnsureCommercePrerequisites({ container }: ExecArgs) {
         stockReady,
         supplierMetadataReady,
       },
-      null,
-      2,
-    ),
   );
 }
 
@@ -281,8 +297,7 @@ export default async function ensureCommercePrerequisites(args: ExecArgs) {
           )}`,
         ];
 
-    console.log(
-      JSON.stringify(
+    emitCommerceResult(
         {
           success: false,
           created: [],
@@ -291,9 +306,6 @@ export default async function ensureCommercePrerequisites(args: ExecArgs) {
           error: serializeProviderLinkRepairError(error),
           note: "If Medusa boot fails before this script runs, Redis must be fixed at the environment/infrastructure level.",
         },
-        null,
-        2,
-      ),
     );
   }
 }

@@ -4,23 +4,23 @@ on:
   workflow_dispatch:
     inputs:
       confirmSeed:
-        description: "Type true to seed the verified first CJ product. Required."
+        description: "Type true to authorize the controlled verified CJ first product seed."
         required: true
         default: "false"
         type: choice
         options:
           - "false"
           - "true"
-      mode:
-        description: "Execution mode. external-db uses the Render External Database URL secret when provided."
+      dryRun:
+        description: "Keep true for preflight-only diagnostics; set false for the actual Medusa seed."
         required: true
-        default: "external-db"
+        default: "true"
         type: choice
         options:
-          - "external-db"
-          - "default-db"
-      dryRun:
-        description: "Run command with DRY_RUN=true for diagnostics only; false is required to seed."
+          - "true"
+          - "false"
+      runMigrations:
+        description: "Run Medusa migrations only when the DB preflight says migrations are missing. Default false."
         required: true
         default: "false"
         type: choice
@@ -37,25 +37,34 @@ env:
   API_BASE_URL: https://dbaronx-api-unified-qo2j.onrender.com
   FASTAPI_BASE_URL: https://dbaronx-fastapi-5ci9.onrender.com
   BOT_BASE_URL: https://dbaronx-telegram-bot.onrender.com
+  DBX_MEDUSA_DB_CONTRACT_OUTPUT_PATH: artifacts/medusa-db-contract.json
   DBX_FIRST_PRODUCT_SEED_OUTPUT_PATH: artifacts/medusa-first-product-seed-output.json
+  DBX_COMMERCE_ENSURE_OUTPUT_PATH: artifacts/medusa-commerce-ensure-output.json
   MEDUSA_ADMIN_API_KEY: ${{ secrets.MEDUSA_ADMIN_API_KEY }}
   MEDUSA_API_KEY: ${{ secrets.MEDUSA_API_KEY }}
+  DATABASE_URL: ${{ secrets.MEDUSA_DATABASE_URL }}
+  MEDUSA_DATABASE_URL: ${{ secrets.MEDUSA_DATABASE_URL }}
 
 jobs:
   seed:
     name: Seed verified first CJ product
     runs-on: ubuntu-latest
-    timeout-minutes: 30
-    env:
-      DEFAULT_DATABASE_URL: ${{ secrets.MEDUSA_DATABASE_URL || secrets.DATABASE_URL }}
-      EXTERNAL_DATABASE_URL: ${{ secrets.MEDUSA_EXTERNAL_DATABASE_URL || secrets.RENDER_EXTERNAL_DATABASE_URL }}
+    timeout-minutes: 35
     steps:
-      - name: Require explicit confirmation
+      - name: Require Medusa seed inputs and database secret
         run: |
-          if [ "${{ inputs.confirmSeed }}" != "true" ]; then
-            echo "confirmSeed must be true to run the first CJ product seed." >&2
+          set -euo pipefail
+          mkdir -p artifacts
+          if [ -z "${MEDUSA_DATABASE_URL:-}" ]; then
+            echo "medusa_database_url_missing" >&2
+            printf '%s\n' '{"success":false,"errorCode":"medusa_database_url_missing","nextAction":"Set the MEDUSA_DATABASE_URL GitHub secret to the real Medusa database URL; do not use the API Supabase DATABASE_URL."}' > artifacts/medusa-db-contract.json
             exit 1
           fi
+          if [ "${{ inputs.confirmSeed }}" != "true" ]; then
+            echo "confirmSeed must be true to authorize the first CJ product seed." >&2
+            exit 1
+          fi
+          echo "Medusa database secret is present; value intentionally not printed."
 
       - name: Check out repository
         uses: actions/checkout@v4
@@ -71,80 +80,78 @@ jobs:
           node-version: ${{ env.NODE_VERSION }}
           cache: pnpm
 
-      - name: Select database URL without printing it
-        run: |
-          set -euo pipefail
-          mkdir -p artifacts
-          env_eq='='
-          if [ "${{ inputs.mode }}" = "external-db" ] && [ -n "${EXTERNAL_DATABASE_URL:-}" ]; then
-            {
-              printf '%s\n' "DATABASE_URL${env_eq}${EXTERNAL_DATABASE_URL}"
-              printf '%s\n' "MEDUSA_DATABASE_URL${env_eq}${EXTERNAL_DATABASE_URL}"
-            } >> "$GITHUB_ENV"
-          else
-            {
-              printf '%s\n' "DATABASE_URL${env_eq}${DEFAULT_DATABASE_URL:-}"
-              printf '%s\n' "MEDUSA_DATABASE_URL${env_eq}${DEFAULT_DATABASE_URL:-}"
-            } >> "$GITHUB_ENV"
-          fi
-          node - <<'NODE'
-          const selected = process.env.EXTERNAL_DATABASE_URL && '${{ inputs.mode }}' === 'external-db'
-            ? process.env.EXTERNAL_DATABASE_URL
-            : process.env.DEFAULT_DATABASE_URL || '';
-          let hostname = '';
-          try { hostname = selected ? new URL(selected).hostname : ''; } catch {}
-          const diagnostics = {
-            databaseUrlPresent: Boolean(selected),
-            usingExternalDbHint: Boolean(selected && !/\.internal$|-internal|internal/i.test(hostname)),
-            internalRenderHostLikely: Boolean(hostname && (/\.internal$|-internal|internal/i.test(hostname))),
-            selectedMode: '${{ inputs.mode }}',
-            dryRun: '${{ inputs.dryRun }}' === 'true',
-            note: 'Database URL value is intentionally not printed.',
-          };
-          console.log(JSON.stringify(diagnostics, null, 2));
-          if (!diagnostics.databaseUrlPresent) process.exit(1);
-          if (diagnostics.internalRenderHostLikely) process.exit(1);
-          NODE
-
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 
       - name: Build Medusa
         run: pnpm --filter @dbaronx/medusa build
 
+      - name: Run Medusa DB contract preflight
+        id: medusa_db_contract
+        continue-on-error: true
+        run: node scripts/e2e-medusa-database-contract-smoke.mjs
+
+      - name: Run Medusa migrations when explicitly allowed
+        if: steps.medusa_db_contract.outcome == 'failure' && inputs.runMigrations == 'true'
+        run: pnpm --filter @dbaronx/medusa run db:migrate
+
+      - name: Re-run Medusa DB contract preflight after migrations
+        if: steps.medusa_db_contract.outcome == 'failure' && inputs.runMigrations == 'true'
+        run: node scripts/e2e-medusa-database-contract-smoke.mjs
+
+      - name: Stop before seed when Medusa DB is not ready
+        if: steps.medusa_db_contract.outcome == 'failure' && inputs.runMigrations != 'true'
+        run: |
+          echo "wrong_database_or_medusa_migrations_missing" >&2
+          cat artifacts/medusa-db-contract.json >&2
+          exit 1
+
+      - name: Stop after dry-run preflight
+        if: inputs.dryRun == 'true'
+        run: |
+          echo "dryRun=true requested; DB contract preflight completed and the real seed was not run. Set dryRun=false for the actual first CJ product seed."
+
       - name: Run first CJ product seed job
+        if: inputs.dryRun == 'false'
         env:
           DBX_CONFIRM_CJ_FIRST_PRODUCT_SEED: "true"
           DRY_RUN: ${{ inputs.dryRun }}
         run: pnpm --filter @dbaronx/medusa run first-product:seed:cj-shirt
 
-      - name: Assert seed success output
+      - name: Ensure shipping readiness
+        if: inputs.dryRun == 'false'
+        run: pnpm --filter @dbaronx/medusa run shipping:ensure
+
+      - name: Ensure commerce prerequisites
+        if: inputs.dryRun == 'false'
+        run: pnpm --filter @dbaronx/medusa run commerce:ensure
+
+      - name: Assert seed and commerce readiness outputs
+        if: inputs.dryRun == 'false'
         run: |
           node - <<'NODE'
           const fs = require('node:fs');
-          const path = 'artifacts/medusa-first-product-seed-output.json';
-          if (!fs.existsSync(path)) {
-            console.error(`${path} was not created by the seed script.`);
-            process.exit(1);
+          function read(path) {
+            if (!fs.existsSync(path)) throw new Error(`${path} was not created.`);
+            return JSON.parse(fs.readFileSync(path, 'utf8'));
           }
-          const output = JSON.parse(fs.readFileSync(path, 'utf8'));
-          const required = ['success', 'productId', 'variantId', 'handle', 'supplier', 'supplierProductId', 'supplierSku', 'priceReady', 'stockReady', 'salesChannelReady', 'imageReady', 'supplierMetadataReady', 'nextManualStep'];
-          const missing = required.filter((key) => !(key in output));
-          if (missing.length) {
-            console.error(`Seed output missing keys: ${missing.join(', ')}`);
-            process.exit(1);
-          }
-          if (output.success !== true) {
-            console.error(`Seed output success !== true; blockers=${JSON.stringify(output.blockers || [])}`);
-            process.exit(1);
-          }
-          console.log(JSON.stringify({ success: true, productId: output.productId, variantId: output.variantId, handle: output.handle }, null, 2));
+          const seed = read('artifacts/medusa-first-product-seed-output.json');
+          const commerce = read('artifacts/medusa-commerce-ensure-output.json');
+          const required = ['success', 'productId', 'variantId', 'handle', 'title', 'supplier', 'supplierProductId', 'supplierSku', 'priceReady', 'stockReady', 'salesChannelReady', 'imageReady', 'supplierMetadataReady', 'nextManualStep'];
+          const missing = required.filter((key) => !(key in seed));
+          if (missing.length) throw new Error(`Seed output missing keys: ${missing.join(', ')}`);
+          if (seed.success !== true) throw new Error(`Seed output success !== true; blockers=${JSON.stringify(seed.blockers || [])}`);
+          if (commerce.productReady !== true) throw new Error(`Commerce productReady !== true; blockers=${JSON.stringify(commerce.blockers || [])}`);
+          console.log(JSON.stringify({ success: true, productId: seed.productId, variantId: seed.variantId, productReady: commerce.productReady }, null, 2));
           NODE
 
-      - name: Upload seed output artifact
+      - name: Upload Medusa seed artifacts
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: medusa-first-product-seed-output
-          path: artifacts/medusa-first-product-seed-output.json
-          if-no-files-found: error
+          name: medusa-first-product-seed-artifacts
+          path: |
+            artifacts/medusa-db-contract.json
+            artifacts/medusa-first-product-seed-output.json
+            artifacts/medusa-commerce-ensure-output.json
+          if-no-files-found: warn

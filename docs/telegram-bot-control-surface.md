@@ -457,7 +457,7 @@ Implement real passkey plus authenticator/TOTP step-up for high-risk and critica
 
 The first customer-facing Telegram discovery path expects the selected CJ shirt to be seeded in Medusa with `handle=mens-cotton-linen-long-sleeve-casual-shirt`, `supplierProductId=2408300732091605000`, and `supplierSku=CJDS212420104DW`. Telegram remains read-only: it may discover the product and guide the customer to web checkout, but it must not seed products, create carts, create checkout sessions, mark paid, fulfill, or mutate supplier state.
 
-Do not seed from a laptop with Render's internal `DATABASE_URL`. Do not put seed/import work in the Render Medusa Web Service Start Command. Run the first-shirt seed only as the `Medusa First Product Seed` GitHub Action, a Render one-off job, or a Render shell command with the external database URL when required:
+Do not seed from a laptop with Render's internal `DATABASE_URL`. Do not put seed/import work in the Render Medusa Web Service Start Command. Run the first-shirt seed only as the `Medusa First Product Seed` GitHub Action, a Render one-off job, or a Render shell command with `MEDUSA_DATABASE_URL` pointing at the real Medusa database. The API/NestJS Supabase `DATABASE_URL` is only for CJ staging/business tables; missing `tax_provider` or `payment_provider` means the seed job is using the wrong database or Medusa migrations are missing:
 
 ```bash
 DBX_CONFIRM_CJ_FIRST_PRODUCT_SEED=true pnpm --filter @dbaronx/medusa run first-product:seed:cj-shirt
@@ -472,8 +472,8 @@ pnpm --filter @dbaronx/medusa run start
 Then verify customer discovery and visible-checkout readiness:
 
 ```bash
-EXPECT_SUPPLIER=cj MEDUSA_BASE_URL=https://dbaronx-medusa-xrwh.onrender.com WEB_BASE_URL=<current-web-storefront-url> pnpm first-product:readiness
-DBX_FIRST_CJ_VISIBLE_SMOKE_LIVE=true EXPECT_SUPPLIER=cj MEDUSA_BASE_URL=https://dbaronx-medusa-xrwh.onrender.com WEB_BASE_URL=<current-web-storefront-url> MEDUSA_PUBLISHABLE_KEY='<full publishable key>' pnpm first-product:visible-checkout
+EXPECT_SUPPLIER=cj MEDUSA_BASE_URL=https://dbaronx-medusa-xrwh.onrender.com API_BASE_URL=https://dbaronx-api-unified-qo2j.onrender.com FASTAPI_BASE_URL=https://dbaronx-fastapi-5ci9.onrender.com BOT_BASE_URL=https://dbaronx-telegram-bot.onrender.com WEB_BASE_URL=<current-web-storefront-url> pnpm first-product:readiness
+DBX_FIRST_CJ_VISIBLE_SMOKE_LIVE=true EXPECT_SUPPLIER=cj MEDUSA_BASE_URL=https://dbaronx-medusa-xrwh.onrender.com API_BASE_URL=https://dbaronx-api-unified-qo2j.onrender.com FASTAPI_BASE_URL=https://dbaronx-fastapi-5ci9.onrender.com BOT_BASE_URL=https://dbaronx-telegram-bot.onrender.com WEB_BASE_URL=<current-web-storefront-url> MEDUSA_PUBLISHABLE_KEY='<full publishable key>' pnpm first-product:visible-checkout
 ```
 
 The readiness smoke reports old demo products separately from the verified CJ shirt. Demo products may still exist during cleanup, but they must not be relabeled as real and must not block readiness when the exact verified CJ product is present and customer-checkout-ready. Telegram `/products` and `/product mens-cotton-linen-long-sleeve-casual-shirt` should show the verified CJ shirt as customer-safe, not `DEMO` or `Supplier draft — not ready for checkout`.

@@ -15,8 +15,15 @@ const EXPECTED = Object.freeze({
   deliveryEstimate: '7-15 business days',
 });
 
-const MEDUSA_BASE_URL = baseUrl(process.env.MEDUSA_BASE_URL || process.env.NEXT_PUBLIC_MEDUSA_BACKEND_URL || 'http://localhost:9000');
-const WEB_BASE_URL = baseUrl(process.env.WEB_BASE_URL || process.env.NEXT_PUBLIC_WEB_BASE_URL || 'http://localhost:3000');
+const EXPECTED_MEDUSA_BASE_URL = 'https://dbaronx-medusa-xrwh.onrender.com';
+const EXPECTED_API_BASE_URL = 'https://dbaronx-api-unified-qo2j.onrender.com';
+const EXPECTED_FASTAPI_BASE_URL = 'https://dbaronx-fastapi-5ci9.onrender.com';
+const EXPECTED_BOT_BASE_URL = 'https://dbaronx-telegram-bot.onrender.com';
+const MEDUSA_BASE_URL = baseUrl(process.env.MEDUSA_BASE_URL || process.env.NEXT_PUBLIC_MEDUSA_BACKEND_URL || EXPECTED_MEDUSA_BASE_URL);
+const API_BASE_URL = baseUrl(process.env.API_BASE_URL || EXPECTED_API_BASE_URL);
+const FASTAPI_BASE_URL = baseUrl(process.env.FASTAPI_BASE_URL || EXPECTED_FASTAPI_BASE_URL);
+const BOT_BASE_URL = baseUrl(process.env.BOT_BASE_URL || EXPECTED_BOT_BASE_URL);
+const WEB_BASE_URL = baseUrl(process.env.WEB_BASE_URL || process.env.NEXT_PUBLIC_WEB_BASE_URL || 'https://dbaronx.com');
 const MEDUSA_PUBLISHABLE_KEY = clean(
   process.env.MEDUSA_PUBLISHABLE_KEY ||
     process.env.NEXT_PUBLIC_MEDUSA_PUBLISHABLE_KEY ||
@@ -27,6 +34,10 @@ const CHECK_LIVE = process.env.DBX_FIRST_CJ_VISIBLE_SMOKE_LIVE === 'true';
 const blockers = [];
 const warnings = [];
 const responseSnippets = {};
+if (MEDUSA_BASE_URL !== EXPECTED_MEDUSA_BASE_URL) blockers.push('medusa_live_url_incorrect');
+if (API_BASE_URL !== EXPECTED_API_BASE_URL) blockers.push('api_live_url_incorrect');
+if (FASTAPI_BASE_URL !== EXPECTED_FASTAPI_BASE_URL) blockers.push('fastapi_live_url_incorrect');
+if (BOT_BASE_URL !== EXPECTED_BOT_BASE_URL) blockers.push('telegram_live_url_incorrect');
 
 const telegramSource = await readTextFile('apps/telegram-bot/src/handlers/customer_handler.py');
 const medusaSeedSource = await readTextFile('apps/medusa/src/scripts/seed-cj-first-shirt-product.ts');
@@ -84,8 +95,11 @@ let live = null;
 if (CHECK_LIVE) {
   if (!MEDUSA_PUBLISHABLE_KEY) blockers.push('medusa_publishable_key_missing_for_live_check');
   const store = await getJson(`${MEDUSA_BASE_URL}/store/products?handle=${encodeURIComponent(EXPECTED.handle)}&limit=5`, 'medusaStoreProductsByHandle', medusaHeaders());
+  if (!store.ok && medusaDatabaseNotReady(store)) blockers.push('medusa_database_not_ready');
+  const storeProducts = extractProducts(store.json);
+  if (store.ok && storeProducts.length === 0) blockers.push('first_cj_product_not_seeded');
   const web = await getJson(`${WEB_BASE_URL}/api/store/products/${encodeURIComponent(EXPECTED.handle)}?limit=5`, 'rocketStoreProductByHandle');
-  const candidates = [...extractProducts(store.json), ...extractProducts(web.json)];
+  const candidates = [...storeProducts, ...extractProducts(web.json)];
   product = candidates.find(isExactCjProduct) || candidates.find((item) => clean(item?.handle) === EXPECTED.handle) || null;
   variant = firstVariant(product);
   live = buildLiveReadiness(product, variant, store, web);
@@ -257,6 +271,11 @@ function stripCommentsForCostCheck(source) {
     .split('\n')
     .filter((line) => !line.trim().startsWith('#'))
     .join('\n');
+}
+
+function medusaDatabaseNotReady(response) {
+  const text = `${response?.text || ''} ${JSON.stringify(response?.json || {})}`;
+  return /relation .* does not exist|missing .*table|tax_provider|payment_provider|fulfillment_provider|shipping_option|sales_channel|stock_location|database.*schema/i.test(text);
 }
 
 function snippet(value) {
