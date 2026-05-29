@@ -93,7 +93,7 @@ The ensure output prints only `publishableApiKeyTokenPreview`. Retrieve the full
 Run readiness with the new key:
 
 ```bash
-MEDUSA_BASE_URL=https://dbaronx-medusa.onrender.com \
+MEDUSA_BASE_URL=https://dbaronx-medusa-xrwh.onrender.com \
 MEDUSA_PUBLISHABLE_KEY=<new-fresh-db-publishable-key> \
 pnpm --filter @dbaronx/medusa run first-product:readiness
 ```

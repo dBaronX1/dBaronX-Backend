@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 
-const API_BASE_URL = (process.env.API_BASE_URL || "https://dbaronx-api-unified.onrender.com").replace(/\/+$/, "");
+const API_BASE_URL = (process.env.API_BASE_URL || "https://dbaronx-api-unified-qo2j.onrender.com").replace(/\/+$/, "");
 const TOKEN = process.env.DBX_OWNER_BOOTSTRAP_TOKEN || process.env.INTERNAL_SERVICE_TOKEN || "";
 const ENABLED = process.env.DBX_ENABLE_FIRST_OWNER_BOOTSTRAP === "true";
 const OWNER_USER_ID = process.env.DBX_OWNER_SUPABASE_USER_ID || "c0d9c557-15a9-4cc9-933c-99634fefeda1";

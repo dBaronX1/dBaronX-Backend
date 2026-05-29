@@ -75,19 +75,19 @@ const normalize = (raw) => {
   return { baseUrl: baseUrl.replace(/\/+$/, ''), hasApiSuffix };
 };
 const endpoint = (suffix) => '/api' + (suffix.startsWith('/') ? suffix : ('/' + suffix));
-const root = normalize('https://dbaronx-api-unified.onrender.com');
-const withApi = normalize('https://dbaronx-api-unified.onrender.com/api');
+const root = normalize('https://dbaronx-api-unified-qo2j.onrender.com');
+const withApi = normalize('https://dbaronx-api-unified-qo2j.onrender.com/api');
 
-if (root.baseUrl !== 'https://dbaronx-api-unified.onrender.com' || root.hasApiSuffix !== false) {
+if (root.baseUrl !== 'https://dbaronx-api-unified-qo2j.onrender.com' || root.hasApiSuffix !== false) {
   throw new Error('root base normalization failed');
 }
-if (withApi.baseUrl !== 'https://dbaronx-api-unified.onrender.com' || withApi.hasApiSuffix !== true) {
+if (withApi.baseUrl !== 'https://dbaronx-api-unified-qo2j.onrender.com' || withApi.hasApiSuffix !== true) {
   throw new Error('api-suffix base normalization failed');
 }
-if (`${root.baseUrl}${endpoint('/admin/cj/products/import-preview')}` !== 'https://dbaronx-api-unified.onrender.com/api/admin/cj/products/import-preview') {
+if (`${root.baseUrl}${endpoint('/admin/cj/products/import-preview')}` !== 'https://dbaronx-api-unified-qo2j.onrender.com/api/admin/cj/products/import-preview') {
   throw new Error('root base endpoint join failed');
 }
-if (`${withApi.baseUrl}${endpoint('/admin/cj/products/import-preview')}` !== 'https://dbaronx-api-unified.onrender.com/api/admin/cj/products/import-preview') {
+if (`${withApi.baseUrl}${endpoint('/admin/cj/products/import-preview')}` !== 'https://dbaronx-api-unified-qo2j.onrender.com/api/admin/cj/products/import-preview') {
   throw new Error('api suffix endpoint join failed');
 }
 if (`${withApi.baseUrl}${endpoint('/admin/cj/products/import-preview')}`.includes('/api/api/')) {

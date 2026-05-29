@@ -176,7 +176,7 @@ pnpm runtime:fly:readiness
 Then run product and checkout smokes:
 
 ```bash
-EXPECT_SUPPLIER=cj MEDUSA_BASE_URL=https://dbaronx-medusa.onrender.com WEB_BASE_URL=https://dbaronx.com pnpm first-product:readiness
+EXPECT_SUPPLIER=cj MEDUSA_BASE_URL=https://dbaronx-medusa-xrwh.onrender.com WEB_BASE_URL=<current-web-storefront-url> pnpm first-product:readiness
 node scripts/e2e-telegram-customer-first-checkout-journey-smoke.mjs
 node scripts/e2e-first-stripe-test-transaction-smoke.mjs
 node scripts/e2e-first-transaction-with-telegram-ops-smoke.mjs

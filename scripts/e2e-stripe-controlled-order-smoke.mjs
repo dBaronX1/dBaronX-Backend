@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 
-const MEDUSA_URL = (process.env.MEDUSA_URL || process.env.MEDUSA_BACKEND_URL || "https://dbaronx-medusa.onrender.com").replace(/\/$/, "");
-const API_URL = (process.env.API_URL || process.env.NESTJS_API_URL || "https://dbaronx-api-unified.onrender.com").replace(/\/$/, "");
+const MEDUSA_URL = (process.env.MEDUSA_URL || process.env.MEDUSA_BACKEND_URL || "https://dbaronx-medusa-xrwh.onrender.com").replace(/\/$/, "");
+const API_URL = (process.env.API_URL || process.env.NESTJS_API_URL || "https://dbaronx-api-unified-qo2j.onrender.com").replace(/\/$/, "");
 const MEDUSA_PUBLISHABLE_KEY = (process.env.MEDUSA_PUBLISHABLE_KEY || process.env.NEXT_PUBLIC_MEDUSA_PUBLISHABLE_KEY || "").trim();
 const MEDUSA_PUBLISHABLE_KEY_SOURCE = process.env.MEDUSA_PUBLISHABLE_KEY
   ? "MEDUSA_PUBLISHABLE_KEY"

@@ -14,7 +14,7 @@ Canonical Telegram bot port is **8080**.
 Expected public webhook URL:
 
 ```text
-https://<bot-host>/webhook/telegram
+https://dbaronx-telegram-bot.onrender.com/webhook/telegram
 ```
 
 Fly deploy command:
@@ -26,8 +26,8 @@ fly deploy --config apps/telegram-bot/fly.toml --app dbaronx-telegram-bot
 Webhook set command after deploy and token rotation:
 
 ```bash
-TELEGRAM_BOT_PUBLIC_BASE_URL=https://<bot-host> \
-TELEGRAM_WEBHOOK_URL=https://<bot-host>/webhook/telegram \
+TELEGRAM_BOT_PUBLIC_BASE_URL=https://dbaronx-telegram-bot.onrender.com \
+TELEGRAM_WEBHOOK_URL=https://dbaronx-telegram-bot.onrender.com/webhook/telegram \
 node scripts/telegram-set-webhook.mjs
 ```
 
@@ -131,9 +131,9 @@ node scripts/e2e-telegram-customer-bot-contract-smoke.mjs
 Live readiness smoke:
 
 ```bash
-BOT_BASE_URL=https://<bot-host> \
-API_BASE_URL=https://<api-host> \
-MEDUSA_BASE_URL=https://<medusa-host> \
+BOT_BASE_URL=https://dbaronx-telegram-bot.onrender.com \
+API_BASE_URL=https://dbaronx-api-unified-qo2j.onrender.com \
+MEDUSA_BASE_URL=https://dbaronx-medusa-xrwh.onrender.com \
 node scripts/e2e-telegram-bot-live-readiness-smoke.mjs
 ```
 
@@ -142,9 +142,9 @@ The live readiness smoke accepts `API_BASE_URL` or `API_URL`, `MEDUSA_BASE_URL` 
 First transaction combined smoke:
 
 ```bash
-BOT_BASE_URL=https://<bot-host> \
-API_BASE_URL=https://<api-host> \
-MEDUSA_BASE_URL=https://<medusa-host> \
+BOT_BASE_URL=https://dbaronx-telegram-bot.onrender.com \
+API_BASE_URL=https://dbaronx-api-unified-qo2j.onrender.com \
+MEDUSA_BASE_URL=https://dbaronx-medusa-xrwh.onrender.com \
 MEDUSA_PUBLISHABLE_KEY= \
 INTERNAL_SERVICE_TOKEN= \
 node scripts/e2e-first-transaction-with-telegram-ops-smoke.mjs
@@ -267,7 +267,7 @@ Customer-visible behavior:
 Run the first real product smoke before sending customers to checkout:
 
 ```bash
-MEDUSA_BASE_URL=https://<medusa-host> \
+MEDUSA_BASE_URL=https://dbaronx-medusa-xrwh.onrender.com \
 MEDUSA_PUBLISHABLE_KEY=<publishable key if required> \
 WEB_BASE_URL=https://<web-host> \
 pnpm first-product:readiness
@@ -326,8 +326,8 @@ Readiness command:
 
 ```bash
 EXPECT_SUPPLIER=cj \
-MEDUSA_BASE_URL=https://dbaronx-medusa.onrender.com \
-WEB_BASE_URL=https://dbaronx.com \
+MEDUSA_BASE_URL=https://dbaronx-medusa-xrwh.onrender.com \
+WEB_BASE_URL=<current-web-storefront-url> \
 MEDUSA_PUBLISHABLE_KEY='<publishable key if required>' \
 pnpm first-product:readiness
 ```
@@ -392,8 +392,8 @@ Final deployed readiness command:
 ```bash
 FIRST_SALE_PRODUCTION_READINESS=true \
 EXPECT_SUPPLIER=cj \
-MEDUSA_BASE_URL=https://dbaronx-medusa.onrender.com \
-WEB_BASE_URL=https://dbaronx.com \
+MEDUSA_BASE_URL=https://dbaronx-medusa-xrwh.onrender.com \
+WEB_BASE_URL=<current-web-storefront-url> \
 MEDUSA_PUBLISHABLE_KEY='<publishable key if required>' \
 REDIS_URL='<Render Redis/Key Value internal URL or equivalent>' \
 MEDUSA_PRODUCTION_SESSION_STORE_READY='<true only after a production-safe Medusa session store is configured/proven>' \
@@ -472,8 +472,8 @@ pnpm --filter @dbaronx/medusa run start
 Then verify customer discovery and visible-checkout readiness:
 
 ```bash
-EXPECT_SUPPLIER=cj MEDUSA_BASE_URL=https://dbaronx-medusa.onrender.com WEB_BASE_URL=https://dbaronx.com pnpm first-product:readiness
-DBX_FIRST_CJ_VISIBLE_SMOKE_LIVE=true EXPECT_SUPPLIER=cj MEDUSA_BASE_URL=https://dbaronx-medusa.onrender.com WEB_BASE_URL=https://dbaronx.com MEDUSA_PUBLISHABLE_KEY='<full publishable key>' pnpm first-product:visible-checkout
+EXPECT_SUPPLIER=cj MEDUSA_BASE_URL=https://dbaronx-medusa-xrwh.onrender.com WEB_BASE_URL=<current-web-storefront-url> pnpm first-product:readiness
+DBX_FIRST_CJ_VISIBLE_SMOKE_LIVE=true EXPECT_SUPPLIER=cj MEDUSA_BASE_URL=https://dbaronx-medusa-xrwh.onrender.com WEB_BASE_URL=<current-web-storefront-url> MEDUSA_PUBLISHABLE_KEY='<full publishable key>' pnpm first-product:visible-checkout
 ```
 
 The readiness smoke reports old demo products separately from the verified CJ shirt. Demo products may still exist during cleanup, but they must not be relabeled as real and must not block readiness when the exact verified CJ product is present and customer-checkout-ready. Telegram `/products` and `/product mens-cotton-linen-long-sleeve-casual-shirt` should show the verified CJ shirt as customer-safe, not `DEMO` or `Supplier draft — not ready for checkout`.

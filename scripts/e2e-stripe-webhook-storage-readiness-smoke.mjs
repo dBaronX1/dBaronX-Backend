@@ -4,7 +4,7 @@ const API_URL = String(
   process.env.API_URL ||
     process.env.API_BASE_URL ||
     process.env.NESTJS_API_URL ||
-    'https://dbaronx-api-unified.onrender.com',
+    'https://dbaronx-api-unified-qo2j.onrender.com',
 ).replace(/\/+$/, '');
 const API_BASE_URL = API_URL.endsWith('/api') ? API_URL.slice(0, -4) : API_URL;
 const INTERNAL_SERVICE_TOKEN = String(process.env.INTERNAL_SERVICE_TOKEN || '').trim();

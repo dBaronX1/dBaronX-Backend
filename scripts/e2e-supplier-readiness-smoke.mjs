@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 
-const API_URL = (process.env.API_URL || process.env.NEXT_PUBLIC_API_BASE_URL || "https://dbaronx-api-unified.onrender.com").replace(/\/$/, "");
+const API_URL = (process.env.API_URL || process.env.NEXT_PUBLIC_API_BASE_URL || "https://dbaronx-api-unified-qo2j.onrender.com").replace(/\/$/, "");
 const INTERNAL_SERVICE_TOKEN = (process.env.INTERNAL_SERVICE_TOKEN || "").trim();
 const CJ_ACCESS_TOKEN = (process.env.CJ_ACCESS_TOKEN || "").trim();
 const ALIEXPRESS_APP_SECRET = (process.env.ALIEXPRESS_APP_SECRET || "").trim();
