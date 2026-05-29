@@ -457,13 +457,13 @@ Implement real passkey plus authenticator/TOTP step-up for high-risk and critica
 
 The first customer-facing Telegram discovery path expects the selected CJ shirt to be seeded in Medusa with `handle=mens-cotton-linen-long-sleeve-casual-shirt`, `supplierProductId=2408300732091605000`, and `supplierSku=CJDS212420104DW`. Telegram remains read-only: it may discover the product and guide the customer to web checkout, but it must not seed products, create carts, create checkout sessions, mark paid, fulfill, or mutate supplier state.
 
-Do not seed from a laptop with Render's internal `DATABASE_URL`. Use Render's Medusa service Start Command for a one-time seed, then restore the normal command:
+Do not seed from a laptop with Render's internal `DATABASE_URL`. Do not put seed/import work in the Render Medusa Web Service Start Command. Run the first-shirt seed only as the `Medusa First Product Seed` GitHub Action, a Render one-off job, or a Render shell command with the external database URL when required:
 
 ```bash
-DBX_CONFIRM_CJ_FIRST_PRODUCT_SEED=true pnpm --filter @dbaronx/medusa run first-product:seed:cj-shirt && pnpm --filter @dbaronx/medusa run start
+DBX_CONFIRM_CJ_FIRST_PRODUCT_SEED=true pnpm --filter @dbaronx/medusa run first-product:seed:cj-shirt
 ```
 
-Restore immediately after the seed succeeds:
+Keep the Web Service command server-only:
 
 ```bash
 pnpm --filter @dbaronx/medusa run start

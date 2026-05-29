@@ -41,7 +41,7 @@ The readiness contract includes `success`, `blockers`, `databaseReachable`, `mis
 Use this only once after DB prep, shipping, and commerce readiness pass:
 
 ```bash
-DBX_CONFIRM_CJ_FIRST_PRODUCT_SEED=true pnpm --filter @dbaronx/medusa run db:prepare && pnpm --filter @dbaronx/medusa run launch-commerce:ensure && pnpm --filter @dbaronx/medusa run first-product:seed:cj-shirt && pnpm --filter @dbaronx/medusa start
+DBX_CONFIRM_CJ_FIRST_PRODUCT_SEED=true pnpm --filter @dbaronx/medusa run first-product:seed:cj-shirt
 ```
 
 After the seed completes, restore the normal start command:

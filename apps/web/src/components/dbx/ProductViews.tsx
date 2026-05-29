@@ -57,7 +57,10 @@ export function DbxProductCard({ product }: { product: StoreProduct }) {
         <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
           <Link href={href} style={dbxButtonStyle}>View product</Link>
           {variantId ? (
-            <Link href={`/checkout?variant=${encodeURIComponent(variantId)}&handle=${encodeURIComponent(String(product.handle || ""))}`} style={{ ...dbxButtonStyle, background: "rgba(255,255,255,.08)", color: "#fff7ed", border: "1px solid rgba(255,255,255,.16)" }} data-default-variant-id={variantId}>Checkout</Link>
+            <>
+              <Link href={`/cart?variant=${encodeURIComponent(variantId)}&handle=${encodeURIComponent(String(product.handle || ""))}`} style={{ ...dbxButtonStyle, background: "rgba(255,255,255,.08)", color: "#fff7ed", border: "1px solid rgba(255,255,255,.16)" }} data-default-variant-id={variantId}>Add to Cart</Link>
+              <Link href={`/checkout?variant=${encodeURIComponent(variantId)}&handle=${encodeURIComponent(String(product.handle || ""))}`} style={{ ...dbxButtonStyle, background: "rgba(251,191,36,.18)", color: "#fff7ed", border: "1px solid rgba(251,191,36,.35)" }} data-default-variant-id={variantId}>Buy Now</Link>
+            </>
           ) : (
             <span style={{ ...dbxButtonStyle, background: "rgba(255,255,255,.08)", color: "#fed7aa", border: "1px solid rgba(255,255,255,.16)", cursor: "not-allowed" }} data-default-variant-id="">Unavailable for checkout</span>
           )}

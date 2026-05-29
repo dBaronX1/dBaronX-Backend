@@ -4,11 +4,11 @@
 
 ## Required env vars
 
-```bash
-SUPABASE_URL=...
-SUPABASE_SERVICE_ROLE_KEY=...
-CJ_ACCESS_TOKEN=... # or CJ_API_KEY=...
-```
+- `SUPABASE_URL`
+- `SUPABASE_SERVICE_ROLE_KEY`
+- `CJ_ACCESS_TOKEN` (preferred) or `CJ_API_KEY`
+
+Set these in the runtime environment or secret store; never commit the values.
 
 For local/manual import while CJ API credentials are finalized:
 

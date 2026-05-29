@@ -1,3 +1,5 @@
+import { writeFileSync } from "node:fs";
+
 import type { ExecArgs } from "@medusajs/framework/types";
 import { ContainerRegistrationKeys } from "@medusajs/framework/utils";
 import {
@@ -23,6 +25,8 @@ import {
 } from "./seed-first-real-supplier-product";
 
 const CONFIRM_ENV = "DBX_CONFIRM_CJ_FIRST_PRODUCT_SEED";
+const LIVE_MEDUSA_URL = "https://dbaronx-medusa-xrwh.onrender.com";
+
 const TARGET: FirstProductInput = {
   mode: "publish",
   title: "Men's Cotton Linen Long Sleeve Casual Shirt",
@@ -95,6 +99,36 @@ function assertSafeToRepairExistingProduct(product: Record<string, unknown> | nu
     nextManualStep: "Manually review the existing Medusa product. This seed will not relabel unrelated products or demo products unless exact CJ metadata proves identity.",
   }, null, 2));
   process.exit(1);
+}
+
+
+function databaseSeedDiagnostics() {
+  const raw = String(process.env.MEDUSA_DATABASE_URL || process.env.DATABASE_URL || "").trim();
+  let hostname = "";
+  try {
+    hostname = raw ? new URL(raw).hostname : "";
+  } catch {
+    hostname = "";
+  }
+  const internalRenderHostLikely = Boolean(hostname && (/\.internal$/i.test(hostname) || hostname.includes("-internal") || hostname.includes("internal")));
+  const usingExternalDbHint = Boolean(raw && !internalRenderHostLikely);
+  return {
+    databaseUrlPresent: Boolean(raw),
+    usingExternalDbHint,
+    internalRenderHostLikely,
+    databaseUrlSafety: internalRenderHostLikely
+      ? "Render-internal database host detected; run this seed from Render Shell/Job or provide the external database URL to GitHub Actions."
+      : raw
+        ? "Database URL is present and does not look like a Render-internal host."
+        : "DATABASE_URL/MEDUSA_DATABASE_URL is missing; the job cannot seed Medusa.",
+  };
+}
+
+function emitSeedResult(result: Record<string, unknown>) {
+  const json = JSON.stringify(result, null, 2);
+  const outputPath = String(process.env.DBX_FIRST_PRODUCT_SEED_OUTPUT_PATH || "").trim();
+  if (outputPath) writeFileSync(outputPath, `${json}\n`, { encoding: "utf8" });
+  console.log(json);
 }
 
 function pushUnique(values: string[], value: string | null | undefined) {
@@ -375,11 +409,27 @@ async function storeJson(path: string, token: string | null, init: RequestInit =
   }
 }
 
+
+function firstPriceAmountFromStoreProduct(product: Record<string, unknown> | null): number {
+  const variant = asArray<Record<string, unknown>>(product?.variants)[0] || null;
+  if (!variant) return 0;
+  const calculated = isRecord(variant.calculated_price) ? variant.calculated_price : null;
+  const calculatedAmount = Number(calculated?.calculated_amount ?? calculated?.amount ?? 0);
+  if (Number.isSafeInteger(calculatedAmount) && calculatedAmount > 0) return calculatedAmount;
+  const price = asArray<Record<string, unknown>>(variant.prices).find((item) => Number(item.amount) > 0);
+  return Number(price?.amount || 0);
+}
+
 async function verifyStoreApi(token: string | null, regionId: string | null, variantId: string | null) {
   const byHandle = await storeJson(`/store/products?handle=${encodeURIComponent(TARGET.handle)}&limit=5`, token);
   const list = await storeJson(`/store/products?limit=20`, token);
-  const productVisibleByHandle = asArray<Record<string, unknown>>(byHandle.json?.products).some((product) => product.handle === TARGET.handle);
-  const productVisibleInList = asArray<Record<string, unknown>>(list.json?.products).some((product) => product.handle === TARGET.handle);
+  const byHandleProducts = asArray<Record<string, unknown>>(byHandle.json?.products);
+  const listProducts = asArray<Record<string, unknown>>(list.json?.products);
+  const storeProduct = byHandleProducts.find((product) => product.handle === TARGET.handle) || listProducts.find((product) => product.handle === TARGET.handle) || null;
+  const productVisibleByHandle = Boolean(byHandleProducts.find((product) => product.handle === TARGET.handle));
+  const productVisibleInList = Boolean(listProducts.find((product) => product.handle === TARGET.handle));
+  const priceReady = firstPriceAmountFromStoreProduct(storeProduct) === TARGET.priceAmount;
+  const imageReady = Boolean(storeProduct?.thumbnail || asArray<Record<string, unknown>>(storeProduct?.images).some((image) => typeof image.url === "string" && image.url));
   const blockers: string[] = [];
   if (!productVisibleByHandle) pushUnique(blockers, byHandle.ok ? "product_not_visible_by_handle" : "store_products_by_handle_unreachable");
   if (!productVisibleInList) pushUnique(blockers, list.ok ? "product_not_visible_in_list" : "store_products_list_unreachable");
@@ -418,16 +468,19 @@ async function verifyStoreApi(token: string | null, regionId: string | null, var
     pushUnique(blockers, "region_or_variant_missing_for_shipping_visibility_check");
   }
 
-  return { blockers, productVisibleByHandle, productVisibleInList, shippingOptionVisible, shippingOptionIds };
+  if (!priceReady) pushUnique(blockers, "store_product_price_missing_or_mismatch");
+  if (!imageReady) pushUnique(blockers, "store_product_image_missing");
+
+  return { blockers, productVisibleByHandle, productVisibleInList, priceReady, imageReady, shippingOptionVisible, shippingOptionIds };
 }
 
 export async function reseedCjFirstProductCanonical({ container }: ExecArgs) {
   if (process.env[CONFIRM_ENV] !== "true") {
-    console.log(JSON.stringify({
+    emitSeedResult({
       success: false,
       blockers: [`${CONFIRM_ENV}_required`],
       nextManualStep: `Rerun with ${CONFIRM_ENV}=true to explicitly authorize reseeding the verified CJ first product.`,
-    }, null, 2));
+    });
     process.exit(1);
   }
 
@@ -462,9 +515,9 @@ export async function reseedCjFirstProductCanonical({ container }: ExecArgs) {
   const store = await verifyStoreApi(context.publishableKeyToken, context.regionId, idOf(variant));
   for (const blocker of store.blockers) pushUnique(blockers, blocker);
 
-  const success = blockers.length === 0 && Boolean(product?.id && variant?.id && inventoryLevelReady && store.productVisibleByHandle && store.productVisibleInList && store.shippingOptionVisible);
+  const success = blockers.length === 0 && Boolean(product?.id && variant?.id && inventoryLevelReady && store.priceReady && store.imageReady && store.productVisibleByHandle && store.productVisibleInList && store.shippingOptionVisible);
   const metadata = metadataFor(TARGET);
-  console.log(JSON.stringify({
+  const result = {
     success,
     mode: TARGET.mode,
     blockers,
@@ -491,14 +544,22 @@ export async function reseedCjFirstProductCanonical({ container }: ExecArgs) {
     stockLocationId: context.stockLocationId,
     inventoryItemId,
     inventoryLevelReady,
+    priceReady: store.priceReady,
+    stockReady: inventoryLevelReady,
+    salesChannelReady: Boolean(context.canonicalSalesChannelId && store.productVisibleByHandle && store.productVisibleInList),
+    imageReady: store.imageReady,
+    supplierMetadataReady: exactTargetMetadataPresent(product),
     productVisibleByHandle: store.productVisibleByHandle,
     productVisibleInList: store.productVisibleInList,
     shippingOptionVisible: store.shippingOptionVisible,
     shippingOptionIds: store.shippingOptionIds,
+    medusaBaseUrlForStoreVerification: medusaBaseUrl() || LIVE_MEDUSA_URL,
+    ...databaseSeedDiagnostics(),
     nextManualStep: success
       ? "Run first-product:readiness and first Stripe test transaction smoke with the full publishable key before opening live checkout."
       : "Resolve blockers, rerun first-product:reseed:canonical, then rerun Store API readiness before opening checkout.",
-  }, null, 2));
+  };
+  emitSeedResult(result);
   if (!success) process.exit(1);
 }
 
