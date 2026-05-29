@@ -18,13 +18,31 @@ If the exposed Render Postgres database was deleted/replaced, the old Medusa pub
 pnpm --filter @dbaronx/medusa run db:prepare && pnpm --filter @dbaronx/medusa run launch-commerce:ensure && pnpm --filter @dbaronx/medusa run start
 ```
 
-For the one controlled CJ shirt seed cycle only, use:
+For the one controlled CJ shirt seed cycle only, the Render Web Service Start Command must still bind the web port quickly. Do **not** use this seed-first command as a Render Web Service start command because Render can time out with `No open ports detected` before Medusa starts listening:
 
 ```bash
-DBX_CONFIRM_CJ_FIRST_PRODUCT_SEED=true pnpm --filter @dbaronx/medusa run db:prepare && pnpm --filter @dbaronx/medusa run launch-commerce:ensure && pnpm --filter @dbaronx/medusa run first-product:seed:cj-shirt && pnpm --filter @dbaronx/medusa run start
+DBX_CONFIRM_CJ_FIRST_PRODUCT_SEED=true pnpm --filter @dbaronx/medusa run first-product:seed:cj-shirt && pnpm --filter @dbaronx/medusa run start
 ```
 
-After launch-commerce is green, retrieve the full fresh-DB publishable key with `DBX_CONFIRM_PRINT_MEDUSA_PUBLISHABLE_KEY=true pnpm --filter @dbaronx/medusa run publishable-key:print`. Medusa Admin `/app` may be unavailable because the admin build is disabled, and `/` or `/app` returning `Cannot GET` is not a Store API blocker. Copy `publishableApiKeyToken` into `MEDUSA_PUBLISHABLE_KEY`, `NEXT_PUBLIC_MEDUSA_PUBLISHABLE_KEY`, and `PUBLIC_MEDUSA_PUBLISHABLE_KEY`; do not use the deleted DB key. Then run the one controlled CJ shirt seed cycle above. After that seed completes, restore the normal command above and run the smokes with the new key before sending a customer to checkout.
+Safer temporary Render Medusa Start Command for that one seed deploy:
+
+```bash
+sh -c 'pnpm --filter @dbaronx/medusa run start & app_pid=$!; sleep 30; DBX_CONFIRM_CJ_FIRST_PRODUCT_SEED=true pnpm --filter @dbaronx/medusa run first-product:seed:cj-shirt || true; wait $app_pid'
+```
+
+Normal Render Medusa Start Command to restore immediately after the seed deploy:
+
+```bash
+pnpm --filter @dbaronx/medusa run start
+```
+
+Production readiness start command, when using the stricter readiness preflight standard instead of the plain restore command:
+
+```bash
+pnpm --filter @dbaronx/medusa run shipping:ensure && pnpm --filter @dbaronx/medusa run commerce:ensure && pnpm --filter @dbaronx/medusa start
+```
+
+After launch-commerce is green, retrieve the full fresh-DB publishable key with `DBX_CONFIRM_PRINT_MEDUSA_PUBLISHABLE_KEY=true pnpm --filter @dbaronx/medusa run publishable-key:print`. Medusa Admin `/app` may be unavailable because the admin build is disabled, and `/` or `/app` returning `Cannot GET` is not a Store API blocker. Copy `publishableApiKeyToken` into `MEDUSA_PUBLISHABLE_KEY`, `NEXT_PUBLIC_MEDUSA_PUBLISHABLE_KEY`, and `PUBLIC_MEDUSA_PUBLISHABLE_KEY`; do not use the deleted DB key. Then run the one controlled CJ shirt seed cycle with the safer temporary command above. After that seed completes, restore the normal command above and run the smokes with the new key before sending a customer to checkout.
 
 ## Render environment checklist
 
@@ -1074,16 +1092,28 @@ Print the exact operator commands without secrets:
 pnpm first-product:render-seed-command
 ```
 
-Temporary Render Medusa Start Command for the one-time seed deploy:
+Render Web Services must bind an HTTP port quickly during deploy. A seed-first command can complete correctly but still fail deployment because Medusa does not listen until after the seed exits; Render reports this as `No open ports detected`. This command can therefore time out and should not be used as the Web Service Start Command:
 
 ```bash
 DBX_CONFIRM_CJ_FIRST_PRODUCT_SEED=true pnpm --filter @dbaronx/medusa run first-product:seed:cj-shirt && pnpm --filter @dbaronx/medusa run start
+```
+
+Safer temporary Render Medusa Start Command for the one-time seed deploy. It starts Medusa first, gives Render a listening process, runs the confirmed one-product seed after a short delay, tolerates a duplicate-seed/nonfatal seed failure without killing the web process, and then waits on Medusa:
+
+```bash
+sh -c 'pnpm --filter @dbaronx/medusa run start & app_pid=$!; sleep 30; DBX_CONFIRM_CJ_FIRST_PRODUCT_SEED=true pnpm --filter @dbaronx/medusa run first-product:seed:cj-shirt || true; wait $app_pid'
 ```
 
 Normal Render Medusa Start Command to restore immediately after the seed deploy succeeds:
 
 ```bash
 pnpm --filter @dbaronx/medusa run start
+```
+
+Production readiness start command, if using readiness preflights before normal Medusa start:
+
+```bash
+pnpm --filter @dbaronx/medusa run shipping:ensure && pnpm --filter @dbaronx/medusa run commerce:ensure && pnpm --filter @dbaronx/medusa start
 ```
 
 Readiness command after restoring the normal start command and redeploying/restarting Medusa:
