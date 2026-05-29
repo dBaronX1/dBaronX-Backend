@@ -1,13 +1,14 @@
-# Live Stripe + Supplier Checkout (dbaronx.com)
+# Live Stripe + Supplier Checkout
 
 > Final first-transaction operator pack: see [docs/first-transaction-final-operator-pack.md](./first-transaction-final-operator-pack.md) for the canonical Render/Fly release commands, safe publishable-key retrieval, CJ shirt seed cycle, smoke sequence, and stop/go checklist.
 
 ## DNS map
 
-- web: `https://dbaronx.com`
-- api: `https://dbaronx-api-unified.onrender.com`
-- commerce (Medusa): `https://dbaronx-medusa.onrender.com`
-- fastapi: configured separately as the intelligence/risk layer; it is not part of Stripe settlement.
+- api: `https://dbaronx-api-unified-qo2j.onrender.com`
+- commerce (Medusa): `https://dbaronx-medusa-xrwh.onrender.com`
+- fastapi: `https://dbaronx-fastapi-5ci9.onrender.com`
+- telegram bot: `https://dbaronx-telegram-bot.onrender.com`
+- web storefront: set `WEB_BASE_URL` / `NEXT_PUBLIC_WEB_BASE_URL` to the current storefront deployment; do not use `https://dbaronx.com` unless DNS has been confirmed.
 
 
 ## Fresh Medusa DB prerequisite
@@ -70,8 +71,8 @@ Set these on the web service with public/test values only. The first controlled 
 
 ```dotenv
 NEXT_PUBLIC_STRIPE_PUBLIC_KEY=
-NEXT_PUBLIC_API_BASE_URL=https://dbaronx-api-unified.onrender.com
-NEXT_PUBLIC_MEDUSA_BACKEND_URL=https://dbaronx-medusa.onrender.com
+NEXT_PUBLIC_API_BASE_URL=https://dbaronx-api-unified-qo2j.onrender.com
+NEXT_PUBLIC_MEDUSA_BACKEND_URL=https://dbaronx-medusa-xrwh.onrender.com
 NEXT_PUBLIC_MEDUSA_PUBLISHABLE_KEY=
 ```
 
@@ -95,11 +96,11 @@ Never use a Stripe test card on a `cs_live_*` session. A smoke output containing
 
 1. Open Stripe Dashboard with **Test mode** enabled for the controlled test.
 2. Go to **Developers → Webhooks → Add endpoint**.
-3. Enter the exact dBaronX API endpoint URL: `https://dbaronx-api-unified.onrender.com/api/checkout/stripe/webhook`.
+3. Enter the exact dBaronX API endpoint URL: `https://dbaronx-api-unified-qo2j.onrender.com/api/checkout/stripe/webhook`.
 4. Select `checkout.session.completed`.
 5. Save the endpoint and copy the `whsec_*` signing secret from that same test webhook endpoint into the API service as `STRIPE_WEBHOOK_SECRET`.
 6. Do not use the webhook destination ID (`we_*`) as `STRIPE_WEBHOOK_SECRET`; `we_*` identifies the destination, while `whsec_*` verifies signatures.
-7. Do not use the Supabase project URL as the direct Stripe webhook URL unless an explicit Supabase Edge Function relay is intentionally built, deployed, and documented. The canonical direct webhook destination is `https://dbaronx-api-unified.onrender.com/api/checkout/stripe/webhook`.
+7. Do not use the Supabase project URL as the direct Stripe webhook URL unless an explicit Supabase Edge Function relay is intentionally built, deployed, and documented. The canonical direct webhook destination is `https://dbaronx-api-unified-qo2j.onrender.com/api/checkout/stripe/webhook`.
 8. Redeploy/restart the API service so the env var is loaded.
 9. Keep test-mode and live-mode webhook endpoints/secrets separate.
 
@@ -152,8 +153,8 @@ If `MEDUSA_PUBLISHABLE_KEY` or `NEXT_PUBLIC_MEDUSA_PUBLISHABLE_KEY` is still `<M
 PowerShell live smoke environment:
 
 ```powershell
-$env:API_URL="https://dbaronx-api-unified.onrender.com"
-$env:MEDUSA_URL="https://dbaronx-medusa.onrender.com"
+$env:API_URL="https://dbaronx-api-unified-qo2j.onrender.com"
+$env:MEDUSA_URL="https://dbaronx-medusa-xrwh.onrender.com"
 $env:MEDUSA_PUBLISHABLE_KEY="<publishable-key>"
 $env:NEXT_PUBLIC_MEDUSA_PUBLISHABLE_KEY="<publishable-key>"
 $env:INTERNAL_SERVICE_TOKEN = "<internal-service-token>"
@@ -194,8 +195,8 @@ This metadata is for reconciliation only. It is not proof of payment, and it mus
 Controlled Render test smoke:
 
 ```bash
-MEDUSA_URL=https://dbaronx-medusa.onrender.com \
-API_URL=https://dbaronx-api-unified.onrender.com \
+MEDUSA_URL=https://dbaronx-medusa-xrwh.onrender.com \
+API_URL=https://dbaronx-api-unified-qo2j.onrender.com \
 NEXT_PUBLIC_MEDUSA_PUBLISHABLE_KEY= \
 INTERNAL_SERVICE_TOKEN= \
 node scripts/e2e-live-stripe-controlled-checkout-smoke.mjs
@@ -214,9 +215,9 @@ node scripts/e2e-live-stripe-controlled-checkout-smoke.mjs
 First controlled transaction proof smoke:
 
 ```bash
-MEDUSA_URL=https://dbaronx-medusa.onrender.com \
-API_URL=https://dbaronx-api-unified.onrender.com \
-WEB_BASE_URL=https://dbaronx.com \
+MEDUSA_URL=https://dbaronx-medusa-xrwh.onrender.com \
+API_URL=https://dbaronx-api-unified-qo2j.onrender.com \
+WEB_BASE_URL=<current-web-storefront-url> \
 INTERNAL_SERVICE_TOKEN= \
 node scripts/e2e-first-stripe-test-transaction-smoke.mjs
 ```
@@ -248,7 +249,7 @@ node scripts/e2e-stripe-checkout-session-smoke.mjs
   "checkoutUrlPresent": true,
   "stripeSessionModeDetected": "test",
   "stripeSessionModeAllowed": true,
-  "stripeWebhookUrlExpected": "https://dbaronx-api-unified.onrender.com/api/checkout/stripe/webhook",
+  "stripeWebhookUrlExpected": "https://dbaronx-api-unified-qo2j.onrender.com/api/checkout/stripe/webhook",
   "webhookEndpointReady": true,
   "unsignedWebhookRejected": true,
   "paymentMarkedPaid": false,
@@ -267,9 +268,9 @@ node scripts/e2e-stripe-checkout-session-smoke.mjs
 1. Run the first Stripe smoke and save its `cartId`, `orderRef`, `checkoutRef`, `sessionId`, and `checkoutUrl`:
 
    ```bash
-   MEDUSA_URL=https://dbaronx-medusa.onrender.com \
-   API_URL=https://dbaronx-api-unified.onrender.com \
-   WEB_BASE_URL=https://dbaronx.com \
+   MEDUSA_URL=https://dbaronx-medusa-xrwh.onrender.com \
+   API_URL=https://dbaronx-api-unified-qo2j.onrender.com \
+   WEB_BASE_URL=<current-web-storefront-url> \
    INTERNAL_SERVICE_TOKEN= \
    node scripts/e2e-first-stripe-test-transaction-smoke.mjs
    ```
@@ -281,7 +282,7 @@ node scripts/e2e-stripe-checkout-session-smoke.mjs
 6. Run the post-payment settlement smoke against the read-only settlement lookup endpoint:
 
    ```bash
-   API_URL=https://dbaronx-api-unified.onrender.com \
+   API_URL=https://dbaronx-api-unified-qo2j.onrender.com \
    STRIPE_SESSION_ID=cs_test_... \
    CART_ID=cart_... \
    ORDER_REF=stripe-controlled-... \
@@ -303,31 +304,31 @@ node scripts/e2e-stripe-checkout-session-smoke.mjs
    Example post-payment lookup commands:
 
    ```bash
-   API_URL=https://dbaronx-api-unified.onrender.com \
+   API_URL=https://dbaronx-api-unified-qo2j.onrender.com \
    STRIPE_SESSION_ID=cs_test_... \
    node scripts/e2e-stripe-post-payment-settlement-smoke.mjs
    ```
 
    ```bash
-   API_URL=https://dbaronx-api-unified.onrender.com \
+   API_URL=https://dbaronx-api-unified-qo2j.onrender.com \
    STRIPE_EVENT_ID=evt_... \
    node scripts/e2e-stripe-post-payment-settlement-smoke.mjs
    ```
 
    ```bash
-   API_URL=https://dbaronx-api-unified.onrender.com \
+   API_URL=https://dbaronx-api-unified-qo2j.onrender.com \
    PAYMENT_INTENT_ID=pi_... \
    node scripts/e2e-stripe-post-payment-settlement-smoke.mjs
    ```
 
    ```bash
-   API_URL=https://dbaronx-api-unified.onrender.com \
+   API_URL=https://dbaronx-api-unified-qo2j.onrender.com \
    CHARGE_ID=ch_... \
    node scripts/e2e-stripe-post-payment-settlement-smoke.mjs
    ```
 
    ```bash
-   API_URL=https://dbaronx-api-unified.onrender.com \
+   API_URL=https://dbaronx-api-unified-qo2j.onrender.com \
    CART_ID=cart_... \
    ORDER_REF=stripe-controlled-... \
    CHECKOUT_REF=stripe-controlled-... \
@@ -350,7 +351,7 @@ The settlement storage readiness endpoint is `GET /api/checkout/stripe/settlemen
 Before repeating paid Stripe tests, prove storage readiness from an operator shell:
 
 ```bash
-API_URL=https://dbaronx-api-unified.onrender.com \
+API_URL=https://dbaronx-api-unified-qo2j.onrender.com \
 INTERNAL_SERVICE_TOKEN= \
 node scripts/e2e-stripe-post-payment-settlement-smoke.mjs
 ```
@@ -375,12 +376,12 @@ Use replay only after the Supabase storage readiness endpoint reports no missing
 2. Navigate to **Developers → Events**.
 3. Search for the completed Checkout Session or event. Use the saved `cs_test_*` session ID, `pi_*` payment intent ID, or the original `evt_*` event ID if you have it.
 4. Open the `checkout.session.completed` event.
-5. Use Stripe Dashboard's replay/resend control for the event, choose the webhook endpoint configured as `https://dbaronx-api-unified.onrender.com/api/checkout/stripe/webhook`, and send it again.
+5. Use Stripe Dashboard's replay/resend control for the event, choose the webhook endpoint configured as `https://dbaronx-api-unified-qo2j.onrender.com/api/checkout/stripe/webhook`, and send it again.
 6. Confirm the endpoint delivery returns HTTP 2xx.
 7. Rerun:
 
 ```bash
-API_URL=https://dbaronx-api-unified.onrender.com \
+API_URL=https://dbaronx-api-unified-qo2j.onrender.com \
 INTERNAL_SERVICE_TOKEN= \
 STRIPE_SESSION_ID=cs_test_... \
 CART_ID=cart_... \
@@ -419,11 +420,11 @@ First product import-readiness remains explicit and non-mutating. Send one appro
 CJ smoke commands:
 
 ```bash
-API_URL=https://dbaronx-api-unified.onrender.com node scripts/e2e-supplier-readiness-smoke.mjs
+API_URL=https://dbaronx-api-unified-qo2j.onrender.com node scripts/e2e-supplier-readiness-smoke.mjs
 ```
 
 ```bash
-API_URL=https://dbaronx-api-unified.onrender.com \
+API_URL=https://dbaronx-api-unified-qo2j.onrender.com \
 INTERNAL_SERVICE_TOKEN=... \
 CJ_TEST_PRODUCT_ID=... \
 node scripts/e2e-cj-live-probe-smoke.mjs
@@ -481,7 +482,7 @@ AliExpress remains disabled until the approved app key and app secret are presen
 ### Supplier readiness smoke
 
 ```bash
-API_URL=https://dbaronx-api-unified.onrender.com \
+API_URL=https://dbaronx-api-unified-qo2j.onrender.com \
 INTERNAL_SERVICE_TOKEN= \
 node scripts/e2e-supplier-readiness-smoke.mjs
 ```
@@ -489,7 +490,7 @@ node scripts/e2e-supplier-readiness-smoke.mjs
 CJ live probe and optional first explicit product import-readiness smoke:
 
 ```bash
-API_URL=https://dbaronx-api-unified.onrender.com \
+API_URL=https://dbaronx-api-unified-qo2j.onrender.com \
 INTERNAL_SERVICE_TOKEN= \
 CJ_TEST_PRODUCT_ID= \
 CJ_TEST_SKU= \
@@ -527,8 +528,8 @@ The smoke confirms API health, pending intent creation, invalid/fake transaction
 Run this smoke before opening any hosted Checkout URL:
 
 ```powershell
-$env:API_URL = "https://dbaronx-api-unified.onrender.com"
-$env:MEDUSA_URL = "https://dbaronx-medusa.onrender.com"
+$env:API_URL = "https://dbaronx-api-unified-qo2j.onrender.com"
+$env:MEDUSA_URL = "https://dbaronx-medusa-xrwh.onrender.com"
 $env:NEXT_PUBLIC_MEDUSA_PUBLISHABLE_KEY = "<publishable-key>"
 $env:INTERNAL_SERVICE_TOKEN = "<internal-service-token>"
 node scripts/e2e-first-stripe-test-transaction-smoke.mjs
@@ -610,14 +611,14 @@ These references do not change Stripe, supplier, or settlement behavior. They ad
 The canonical Stripe webhook URL for both the API implementation and Stripe Dashboard test endpoint is:
 
 ```text
-https://dbaronx-api-unified.onrender.com/api/checkout/stripe/webhook
+https://dbaronx-api-unified-qo2j.onrender.com/api/checkout/stripe/webhook
 ```
 
 ### Stripe Dashboard test webhook setup
 
 1. Open Stripe Dashboard with **Test mode** enabled.
 2. Navigate to **Developers → Webhooks → Add endpoint**.
-3. Use exactly `https://dbaronx-api-unified.onrender.com/api/checkout/stripe/webhook` as the endpoint URL.
+3. Use exactly `https://dbaronx-api-unified-qo2j.onrender.com/api/checkout/stripe/webhook` as the endpoint URL.
 4. Select only `checkout.session.completed` for this phase.
 5. Save the endpoint and copy the endpoint signing secret that begins with `whsec_`.
 6. Set that value as `STRIPE_WEBHOOK_SECRET` on the NestJS/API Render service only, then redeploy the API.
@@ -685,7 +686,7 @@ Do not enable live Stripe money mode until all of these are true in test mode:
 - Use Stripe test keys only; the controlled smoke may open Checkout only when `stripeSessionModeDetected` is `test`, `stripeSessionModeAllowed=true`, `checkoutSafeToOpen=true`, and the session ID starts with `cs_test_`.
 - A `cs_live_*` session is blocked for controlled smoke unless `ALLOW_LIVE_STRIPE_SMOKE=true`; do not use that override for the first test transaction.
 - Telegram is read-only/proof-only for payment settlement. Use `/stripe_first_tx_status`, `/stripe_storage`, `/stripe_settlement <cs_test_or_cs_live_session_id>`, `/payments_status`, `/medusa_status`, and `/commerce_status` for visibility only.
-- If `TELEGRAM_BOT_TOKEN` appears in logs, rotate it immediately, redeploy the bot with the new token, and re-register the webhook at `https://<bot-public-host>/webhook/telegram`.
+- If `TELEGRAM_BOT_TOKEN` appears in logs, rotate it immediately, redeploy the bot with the new token, and re-register the webhook at `https://dbaronx-telegram-bot.onrender.com/webhook/telegram`.
 - Configure `BOT_PUBLIC_BASE_URL` or `TELEGRAM_BOT_PUBLIC_BASE_URL` to the public bot origin; the webhook path remains `/webhook/telegram`. Configure `TELEGRAM_ALLOWED_ADMIN_IDS` as comma-separated numeric Telegram user IDs before using protected ops commands.
 - Claim payment/order settled only when signed Stripe webhook evidence, verified Stripe event storage, economic event persistence, payment record linkage, duplicate webhook safety, and Medusa order sync proof are all returned by backend proof endpoints.
 
@@ -697,25 +698,25 @@ Run these commands from a private terminal with shell tracing disabled. Never pr
 
 ```bash
 set +x
-BOT_PUBLIC_BASE_URL=https://<bot-public-host> \
+BOT_PUBLIC_BASE_URL=https://dbaronx-telegram-bot.onrender.com \
 TELEGRAM_BOT_TOKEN= \
 TELEGRAM_WEBHOOK_SECRET= \
 node scripts/telegram-set-webhook.mjs
 
-BOT_PUBLIC_BASE_URL=https://<bot-public-host> \
+BOT_PUBLIC_BASE_URL=https://dbaronx-telegram-bot.onrender.com \
 TELEGRAM_BOT_TOKEN= \
 node scripts/telegram-webhook-info.mjs
 
-BOT_BASE_URL=https://<bot-public-host> \
-API_BASE_URL=https://dbaronx-api-unified.onrender.com \
-FASTAPI_BASE_URL=<current FastAPI URL> \
-MEDUSA_BASE_URL=https://dbaronx-medusa.onrender.com \
+BOT_BASE_URL=https://dbaronx-telegram-bot.onrender.com \
+API_BASE_URL=https://dbaronx-api-unified-qo2j.onrender.com \
+FASTAPI_BASE_URL=https://dbaronx-fastapi-5ci9.onrender.com \
+MEDUSA_BASE_URL=https://dbaronx-medusa-xrwh.onrender.com \
 node scripts/e2e-telegram-bot-live-readiness-smoke.mjs
 
-BOT_BASE_URL=https://<bot-public-host> \
-API_BASE_URL=https://dbaronx-api-unified.onrender.com \
-FASTAPI_BASE_URL=<current FastAPI URL> \
-MEDUSA_BASE_URL=https://dbaronx-medusa.onrender.com \
+BOT_BASE_URL=https://dbaronx-telegram-bot.onrender.com \
+API_BASE_URL=https://dbaronx-api-unified-qo2j.onrender.com \
+FASTAPI_BASE_URL=https://dbaronx-fastapi-5ci9.onrender.com \
+MEDUSA_BASE_URL=https://dbaronx-medusa-xrwh.onrender.com \
 INTERNAL_SERVICE_TOKEN= \
 node scripts/e2e-first-transaction-with-telegram-ops-smoke.mjs
 ```
@@ -856,7 +857,7 @@ The seed script refuses missing supplier/product/source fields, non-positive cus
 After Medusa is running and the product is published, run:
 
 ```bash
-MEDUSA_BASE_URL=https://<medusa-host> \
+MEDUSA_BASE_URL=https://dbaronx-medusa-xrwh.onrender.com \
 MEDUSA_PUBLISHABLE_KEY=<publishable key if required> \
 WEB_BASE_URL=https://<web-host> \
 pnpm first-product:readiness
@@ -917,8 +918,8 @@ Readiness command:
 
 ```bash
 EXPECT_SUPPLIER=cj \
-MEDUSA_BASE_URL=https://dbaronx-medusa.onrender.com \
-WEB_BASE_URL=https://dbaronx.com \
+MEDUSA_BASE_URL=https://dbaronx-medusa-xrwh.onrender.com \
+WEB_BASE_URL=<current-web-storefront-url> \
 MEDUSA_PUBLISHABLE_KEY='<publishable key if required>' \
 pnpm first-product:readiness
 ```
@@ -991,8 +992,8 @@ Use Node 20 locally and on Render. The repo has `.nvmrc=20.19.0`, root and Medus
 ```bash
 FIRST_SALE_PRODUCTION_READINESS=true \
 EXPECT_SUPPLIER=cj \
-MEDUSA_BASE_URL=https://dbaronx-medusa.onrender.com \
-WEB_BASE_URL=https://dbaronx.com \
+MEDUSA_BASE_URL=https://dbaronx-medusa-xrwh.onrender.com \
+WEB_BASE_URL=<current-web-storefront-url> \
 MEDUSA_PUBLISHABLE_KEY='<publishable key if required>' \
 REDIS_URL='<Render Redis/Key Value internal URL or equivalent>' \
 MEDUSA_PRODUCTION_SESSION_STORE_READY='<true only after a production-safe Medusa session store is configured/proven>' \
@@ -1119,7 +1120,7 @@ pnpm --filter @dbaronx/medusa run shipping:ensure && pnpm --filter @dbaronx/medu
 Readiness command after restoring the normal start command and redeploying/restarting Medusa:
 
 ```bash
-EXPECT_SUPPLIER=cj MEDUSA_BASE_URL=https://dbaronx-medusa.onrender.com WEB_BASE_URL=https://dbaronx.com pnpm first-product:readiness
+EXPECT_SUPPLIER=cj MEDUSA_BASE_URL=https://dbaronx-medusa-xrwh.onrender.com WEB_BASE_URL=<current-web-storefront-url> pnpm first-product:readiness
 ```
 
 The seed confirmation JSON must include `success`, `mode`, `productId`, `variantId`, `handle`, `title`, `supplier`, `supplierProductId`, `supplierSku`, `sourceUrlPresent`, `imageUrlPresent`, `realSupplierProduct`, `demo`, `supplierVerificationStatus`, `stockQty`, `priceAmount`, `supplierCostAmount`, `supplierCostCurrency`, `shippingCountries`, `deliveryEstimate`, and `nextManualStep`. Treat missing IDs, missing image/source booleans, `demo: true`, `realSupplierProduct: false`, or any non-`verified_for_checkout` publish result as a blocker for customer checkout.
@@ -1127,7 +1128,7 @@ The seed confirmation JSON must include `success`, `mode`, `productId`, `variant
 After seed readiness passes, run first transaction smokes in this order:
 
 1. `pnpm first-product:readiness`
-2. `pnpm first-product:visible-checkout` (static) or `DBX_FIRST_CJ_VISIBLE_SMOKE_LIVE=true EXPECT_SUPPLIER=cj MEDUSA_BASE_URL=https://dbaronx-medusa.onrender.com WEB_BASE_URL=https://dbaronx.com MEDUSA_PUBLISHABLE_KEY='<full publishable key>' pnpm first-product:visible-checkout` (runtime)
+2. `pnpm first-product:visible-checkout` (static) or `DBX_FIRST_CJ_VISIBLE_SMOKE_LIVE=true EXPECT_SUPPLIER=cj MEDUSA_BASE_URL=https://dbaronx-medusa-xrwh.onrender.com WEB_BASE_URL=<current-web-storefront-url> MEDUSA_PUBLISHABLE_KEY='<full publishable key>' pnpm first-product:visible-checkout` (runtime)
 3. `pnpm first-sale:readiness`
 4. `node scripts/e2e-telegram-customer-first-checkout-journey-smoke.mjs`
 5. `node scripts/e2e-first-transaction-with-telegram-ops-smoke.mjs`
@@ -1139,7 +1140,7 @@ If a database URL, CJ access token, Telegram token, Stripe secret, Supabase serv
 
 After the one-command Render seed and normal Medusa restart, verify the exact first product through the Store API and storefront before sending any buyer to checkout:
 
-1. Run `EXPECT_SUPPLIER=cj MEDUSA_BASE_URL=https://dbaronx-medusa.onrender.com WEB_BASE_URL=https://dbaronx.com pnpm first-product:readiness`.
+1. Run `EXPECT_SUPPLIER=cj MEDUSA_BASE_URL=https://dbaronx-medusa-xrwh.onrender.com WEB_BASE_URL=<current-web-storefront-url> pnpm first-product:readiness`.
 2. Confirm the JSON includes `success: true`, `blockers: []`, `realSupplierProductPresent: true`, `verifiedSupplierProductPresent: true`, `supplier: "cj"`, `supplierProductIdPresent: true`, `supplierSkuPresent: true`, `supplierCostPresent: true`, `sourceUrlPresent: true`, `priceReady: true`, `stockReady: true`, `productUrlReady: true`, `checkoutPathReady: true`, `telegramDiscoveryReady: true`, and a concrete `nextManualStep`.
 3. Confirm the exact Store API product handle is `mens-cotton-linen-long-sleeve-casual-shirt`, supplier product ID is `2408300732091605000`, supplier SKU is `CJDS212420104DW`, supplier cost currency is `usd`, sale price is `1999` USD minor units, and the image is present.
 4. Confirm the product is **not** demo metadata, is `realSupplierProduct: true`, and has `supplierVerificationStatus: "verified_for_checkout"`.
@@ -1150,9 +1151,9 @@ After the one-command Render seed and normal Medusa restart, verify the exact fi
 
 Open these customer-facing Rocket routes after the normal Medusa start command has been restored and the web app has been deployed:
 
-- `https://dbaronx.com/shop` — should show products from the public catalog path and an honest empty state with the attempted endpoint if the catalog is unavailable.
-- `https://dbaronx.com/products` — should show `Men's Cotton Linen Long Sleeve Casual Shirt` with image, title, price, delivery estimate, and a product link when Medusa returns the seeded product.
-- `https://dbaronx.com/products/mens-cotton-linen-long-sleeve-casual-shirt` — should preserve existing add-to-cart / checkout guidance and link to the backend-owned checkout/session path; Rocket must not create fake payments or mark orders paid.
+- `<current-web-storefront-url>/shop` — should show products from the public catalog path and an honest empty state with the attempted endpoint if the catalog is unavailable.
+- `<current-web-storefront-url>/products` — should show `Men's Cotton Linen Long Sleeve Casual Shirt` with image, title, price, delivery estimate, and a product link when Medusa returns the seeded product.
+- `<current-web-storefront-url>/products/mens-cotton-linen-long-sleeve-casual-shirt` — should preserve existing add-to-cart / checkout guidance and link to the backend-owned checkout/session path; Rocket must not create fake payments or mark orders paid.
 
 CJ bulk automation continues separately with rate-limit-safe small previews (`category=fashion`, `limitPerCategory=5`, `dryRun=true`). Do not wait for bulk automation before validating this controlled Medusa-seeded shirt, and do not treat bulk-preview data as customer-buyable until it is separately verified and seeded/published.
 
@@ -1163,9 +1164,9 @@ Use Stripe test mode before live money:
 1. Run the controlled first Stripe smoke with deployed URLs and the internal token available only in the shell/runtime environment, never pasted into docs or chat:
 
    ```bash
-   MEDUSA_URL=https://dbaronx-medusa.onrender.com \
-   API_URL=https://dbaronx-api-unified.onrender.com \
-   WEB_BASE_URL=https://dbaronx.com \
+   MEDUSA_URL=https://dbaronx-medusa-xrwh.onrender.com \
+   API_URL=https://dbaronx-api-unified-qo2j.onrender.com \
+   WEB_BASE_URL=<current-web-storefront-url> \
    node scripts/e2e-first-stripe-test-transaction-smoke.mjs
    ```
 

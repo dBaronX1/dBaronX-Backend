@@ -6,7 +6,7 @@ const normalMedusaStartCommand = 'pnpm --filter @dbaronx/medusa run start';
 const productionReadinessStartCommand =
   'pnpm --filter @dbaronx/medusa run shipping:ensure && pnpm --filter @dbaronx/medusa run commerce:ensure && pnpm --filter @dbaronx/medusa start';
 const readinessCommand =
-  'EXPECT_SUPPLIER=cj MEDUSA_BASE_URL=https://dbaronx-medusa.onrender.com WEB_BASE_URL=https://dbaronx.com pnpm first-product:readiness';
+  'EXPECT_SUPPLIER=cj MEDUSA_BASE_URL=https://dbaronx-medusa-xrwh.onrender.com WEB_BASE_URL="${WEB_BASE_URL:?set current web storefront URL}" pnpm first-product:readiness';
 
 console.log(
   JSON.stringify(

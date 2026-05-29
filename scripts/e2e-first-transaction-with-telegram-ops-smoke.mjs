@@ -1,10 +1,10 @@
 #!/usr/bin/env node
 import { spawnSync } from 'node:child_process';
 
-const API_URL = normalizeBaseUrl(process.env.API_BASE_URL || process.env.API_URL || process.env.NESTJS_API_URL || process.env.NESTJS_BASE_URL || 'https://dbaronx-api-unified.onrender.com');
+const API_URL = normalizeBaseUrl(process.env.API_BASE_URL || process.env.API_URL || process.env.NESTJS_API_URL || process.env.NESTJS_BASE_URL || 'https://dbaronx-api-unified-qo2j.onrender.com');
 const API_BASE_URL = API_URL.endsWith('/api') ? API_URL.slice(0, -4) : API_URL;
 const BOT_BASE_URL = normalizeBaseUrl(process.env.BOT_BASE_URL || process.env.BOT_PUBLIC_BASE_URL || process.env.TELEGRAM_BOT_PUBLIC_BASE_URL || process.env.TELEGRAM_BOT_BASE_URL || '');
-const MEDUSA_URL = normalizeBaseUrl(process.env.MEDUSA_BASE_URL || process.env.MEDUSA_URL || process.env.MEDUSA_BACKEND_URL || process.env.NEXT_PUBLIC_MEDUSA_BACKEND_URL || 'https://dbaronx-medusa.onrender.com');
+const MEDUSA_URL = normalizeBaseUrl(process.env.MEDUSA_BASE_URL || process.env.MEDUSA_URL || process.env.MEDUSA_BACKEND_URL || process.env.NEXT_PUBLIC_MEDUSA_BACKEND_URL || 'https://dbaronx-medusa-xrwh.onrender.com');
 const MEDUSA_KEY = String(process.env.MEDUSA_PUBLISHABLE_KEY || process.env.NEXT_PUBLIC_MEDUSA_PUBLISHABLE_KEY || '').trim();
 const INTERNAL_SERVICE_TOKEN = String(process.env.INTERNAL_SERVICE_TOKEN || '').trim();
 const timeoutMs = Number.parseInt(process.env.FIRST_TRANSACTION_OPS_SMOKE_TIMEOUT_MS || '180000', 10);

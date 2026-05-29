@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 
-const API_URL = (process.env.API_URL || process.env.NESTJS_API_URL || "https://dbaronx-api-unified.onrender.com").replace(/\/+$/, "");
-const MEDUSA_URL = (process.env.MEDUSA_URL || process.env.MEDUSA_BACKEND_URL || process.env.NEXT_PUBLIC_MEDUSA_BACKEND_URL || "https://dbaronx-medusa.onrender.com").replace(/\/+$/, "");
+const API_URL = (process.env.API_URL || process.env.NESTJS_API_URL || "https://dbaronx-api-unified-qo2j.onrender.com").replace(/\/+$/, "");
+const MEDUSA_URL = (process.env.MEDUSA_URL || process.env.MEDUSA_BACKEND_URL || process.env.NEXT_PUBLIC_MEDUSA_BACKEND_URL || "https://dbaronx-medusa-xrwh.onrender.com").replace(/\/+$/, "");
 const WEB_BASE_URL = (process.env.WEB_BASE_URL || process.env.NEXT_PUBLIC_WEB_BASE_URL || "https://dbaronx.com").replace(/\/+$/, "");
 const MEDUSA_PUBLISHABLE_KEY_CANDIDATES = [
   ["MEDUSA_PUBLISHABLE_KEY", process.env.MEDUSA_PUBLISHABLE_KEY],
@@ -16,7 +16,7 @@ const SMOKE_CONTRACT_VERSION = "2026-05-09.internal-token-preview-v1";
 const SHIPPING_OPTION_ID = (process.env.SHIPPING_OPTION_ID || "").trim();
 const TARGET_SALES_CHANNEL_ID = process.env.MEDUSA_CANONICAL_SALES_CHANNEL_ID || process.env.MEDUSA_SALES_CHANNEL_ID || "";
 const SNIPPET_LIMIT = 900;
-const CANONICAL_STRIPE_WEBHOOK_URL = "https://dbaronx-api-unified.onrender.com/api/checkout/stripe/webhook";
+const CANONICAL_STRIPE_WEBHOOK_URL = "https://dbaronx-api-unified-qo2j.onrender.com/api/checkout/stripe/webhook";
 const STRIPE_WEBHOOK_URL_EXPECTED = `${API_URL.endsWith("/api") ? API_URL.slice(0, -4) : API_URL}/api/checkout/stripe/webhook`;
 const ALLOW_LIVE_STRIPE_SMOKE = String(process.env.ALLOW_LIVE_STRIPE_SMOKE || "").trim().toLowerCase() === "true";
 const FAKE_DBX_SIGNATURE = `fake-smoke-signature-${Date.now()}`;

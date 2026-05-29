@@ -3,14 +3,14 @@
 const API_URL = (
   process.env.API_URL ||
   process.env.NESTJS_API_URL ||
-  "https://dbaronx-api-unified.onrender.com"
+  "https://dbaronx-api-unified-qo2j.onrender.com"
 ).replace(/\/+$/, "");
 const API_BASE_URL = API_URL.endsWith("/api") ? API_URL.slice(0, -4) : API_URL;
 const MEDUSA_URL = (
   process.env.MEDUSA_URL ||
   process.env.MEDUSA_BACKEND_URL ||
   process.env.NEXT_PUBLIC_MEDUSA_BACKEND_URL ||
-  "https://dbaronx-medusa.onrender.com"
+  "https://dbaronx-medusa-xrwh.onrender.com"
 ).replace(/\/+$/, "");
 const MEDUSA_KEY_CANDIDATES = [
   ["MEDUSA_PUBLISHABLE_KEY", process.env.MEDUSA_PUBLISHABLE_KEY],
@@ -44,7 +44,7 @@ const WEB_BASE_URL = (
 const TARGET_REGION_ID = "reg_01KQSEKK6A9T86NJ0AG05XPK3H";
 const SNIPPET_LIMIT = 900;
 const CANONICAL_STRIPE_WEBHOOK_URL =
-  "https://dbaronx-api-unified.onrender.com/api/checkout/stripe/webhook";
+  "https://dbaronx-api-unified-qo2j.onrender.com/api/checkout/stripe/webhook";
 const STRIPE_WEBHOOK_URL_EXPECTED = `${API_BASE_URL}/api/checkout/stripe/webhook`;
 const ALLOW_LIVE_STRIPE_SMOKE =
   String(process.env.ALLOW_LIVE_STRIPE_SMOKE || "")

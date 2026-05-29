@@ -61,7 +61,7 @@ This contract defines how the separate Rocket frontend repo (`dBaronX/dbaronx`) 
 
 - **Primary endpoint**: `POST /api/checkout/stripe/session`
 - **Required backend base URL**:
-  - `NEXT_PUBLIC_API_BASE_URL=https://dbaronx-api-unified.onrender.com`
+  - `NEXT_PUBLIC_API_BASE_URL=https://dbaronx-api-unified-qo2j.onrender.com`
 - **First-sale fallback payload Rocket should send**:
   - `amount`
   - `currency`
