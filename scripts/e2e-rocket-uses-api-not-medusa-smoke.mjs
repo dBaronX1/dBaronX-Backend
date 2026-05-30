@@ -22,10 +22,12 @@ for (const [file, text] of source) {
 const server = fs.readFileSync("apps/web/src/lib/store-products-server.ts", "utf8");
 const client = fs.readFileSync("apps/web/src/lib/api/medusa-store-client.ts", "utf8");
 const route = fs.readFileSync("apps/web/src/app/api/store/products/store-products-response.ts", "utf8");
+const env = fs.readFileSync("apps/web/src/lib/env.ts", "utf8");
 const required = [
   server.includes("NEXT_PUBLIC_API_BASE_URL") && server.includes("/api/catalog/products"),
   client.includes("/api/catalog/products"),
   route.includes("/api/catalog/products") && route.includes("nestjs_catalog_proxy"),
+  env.includes("NEXT_PUBLIC_API_BASE_URL") && !env.includes("NEXT_PUBLIC_MEDUSA_"),
 ];
 if (violations.length || required.some((ok) => !ok)) {
   console.error(JSON.stringify({ success: false, violations, required }, null, 2));

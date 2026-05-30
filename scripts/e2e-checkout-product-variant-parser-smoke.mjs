@@ -9,7 +9,7 @@ const checks = [
   dto.includes("product_id") && dto.includes("variant_id") && dto.includes("priceMinor") && dto.includes("quantity"),
   stripe.includes("input.variantId ?? input.variant_id") && stripe.includes("input.priceMinor"),
   panel.includes("productId") && panel.includes("variantId") && panel.includes("priceMinor") && panel.includes("createStripeCheckoutSession"),
-  checkout.includes("/api/checkout/stripe/session"),
+  checkout.includes("/api/checkout/stripe/session") && !checkout.includes("!base || !env.stripePublicKey"),
 ];
 if (checks.some((ok) => !ok)) {
   console.error(JSON.stringify({ success: false, checks }, null, 2));

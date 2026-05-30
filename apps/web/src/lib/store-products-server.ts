@@ -10,7 +10,7 @@ function cleanBaseUrl(value: string | undefined) {
 }
 
 function apiBaseUrl() {
-  return cleanBaseUrl(process.env.NEXT_PUBLIC_API_BASE_URL || process.env.API_BASE_URL || process.env.NESTJS_API_URL) || "https://dbaronx-api-unified-qo2j.onrender.com";
+  return cleanBaseUrl(process.env.NEXT_PUBLIC_API_BASE_URL || process.env.API_BASE_URL || process.env.NESTJS_API_URL);
 }
 
 export function extractStoreProducts(payload: unknown): MedusaStoreProduct[] {
@@ -30,7 +30,9 @@ export function normalizeServerStoreProduct(product: MedusaStoreProduct): Medusa
 
 export async function fetchServerStoreProducts(options: { limit?: number; handle?: string } = {}): Promise<MedusaProductResult> {
   const path = options.handle ? `/api/catalog/products/${encodeURIComponent(options.handle)}` : "/api/catalog/products";
-  const url = new URL(`${apiBaseUrl()}${path}`);
+  const baseUrl = apiBaseUrl();
+  if (!baseUrl) return { products: [], reason: "api_base_url_missing", attemptedEndpoint: path };
+  const url = new URL(`${baseUrl}${path}`);
   if (!options.handle) url.searchParams.set("limit", String(options.limit || 20));
 
   try {

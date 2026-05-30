@@ -76,7 +76,7 @@ export function CustomerAccountPanel({ mode = "account" }: { mode?: "account" | 
           ...metadata,
           full_name: nextFullName || nextDisplayName,
           display_name: nextDisplayName || nextFullName,
-          avatar_url: photoPreview,
+          ...(photoPreview && !photoPreview.startsWith("blob:") ? { avatar_url: photoPreview } : {}),
           gender: genderDraft,
           pronouns: pronounsDraft,
           country: countryDraft.trim(),

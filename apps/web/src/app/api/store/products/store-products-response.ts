@@ -5,7 +5,7 @@ function cleanBaseUrl(value: string | undefined) {
 }
 
 function apiBaseUrl() {
-  return cleanBaseUrl(process.env.NEXT_PUBLIC_API_BASE_URL || process.env.API_BASE_URL || process.env.NESTJS_API_URL) || "https://dbaronx-api-unified-qo2j.onrender.com";
+  return cleanBaseUrl(process.env.NEXT_PUBLIC_API_BASE_URL || process.env.API_BASE_URL || process.env.NESTJS_API_URL);
 }
 
 function safeFailure(status = 200, handle?: string, code = "catalog_unavailable") {
@@ -30,7 +30,9 @@ function safeFailure(status = 200, handle?: string, code = "catalog_unavailable"
 
 export async function storeProductsResponse({ handle = "", limit = "20" }: { handle?: string; limit?: string } = {}) {
   const path = handle ? `/api/catalog/products/${encodeURIComponent(handle)}` : "/api/catalog/products";
-  const url = new URL(`${apiBaseUrl()}${path}`);
+  const baseUrl = apiBaseUrl();
+  if (!baseUrl) return safeFailure(200, handle, "api_base_url_missing");
+  const url = new URL(`${baseUrl}${path}`);
   if (!handle) url.searchParams.set("limit", limit || "20");
 
   try {

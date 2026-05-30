@@ -23,7 +23,7 @@ export async function createStripeCheckoutSession(input: StripeCheckoutSessionIn
   const base = env.apiBaseUrl;
   const webBase = env.webBaseUrl || env.siteUrl || (typeof window !== "undefined" ? window.location.origin : "");
 
-  if (!base || !env.stripePublicKey) {
+  if (!base) {
     return {
       configured: false,
       checkoutUrl: null,

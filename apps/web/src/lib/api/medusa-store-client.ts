@@ -56,7 +56,7 @@ const SECRET_FIELD_PATTERN = /(secret|token|password|api[_-]?key|publishable[_-]
 
 function apiBaseUrl() {
   const env = getPublicEnv();
-  return (env.apiBaseUrl || "https://dbaronx-api-unified-qo2j.onrender.com").trim().replace(/\/+$/, "");
+  return env.apiBaseUrl.trim().replace(/\/+$/, "");
 }
 
 function apiCatalogUrl(path: string, params?: Record<string, string | number>) {
