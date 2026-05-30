@@ -51,6 +51,7 @@ export function DbxProductCard({ product }: { product: StoreProduct }) {
         <h2 style={{ margin: 0, fontSize: 24 }}>{product.title || "dBaronX product"}</h2>
         <p style={{ margin: 0, color: "#fed7aa", lineHeight: 1.6 }}>{product.description || "Verified dBaronX product."}</p>
         <p style={{ margin: 0, fontSize: 22, fontWeight: 950 }}>{productDisplayPrice(product)}</p>
+        {product.category ? <p style={{ margin: 0, color: "#fdba74" }}>Category: {String(product.category)}</p> : null}
         <p style={{ margin: 0, color: "#fdba74" }}>Handle: {product.handle || "product"}</p>
         <p style={{ margin: 0, color: "#fdba74" }}>Variant: {variantId || "Unavailable for checkout"}</p>
         <p style={{ margin: 0, color: "#fdba74" }}>Delivery: {productDeliveryEstimate(product)}</p>

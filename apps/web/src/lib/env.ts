@@ -3,8 +3,6 @@ const publicEnv = {
   apiBaseUrl: process.env.NEXT_PUBLIC_API_BASE_URL || process.env.NEXT_PUBLIC_NESTJS_BASE_URL || "",
   nestjsBaseUrl: process.env.NEXT_PUBLIC_NESTJS_BASE_URL || process.env.NEXT_PUBLIC_API_BASE_URL || "",
   fastapiBaseUrl: process.env.NEXT_PUBLIC_FASTAPI_BASE_URL || "",
-  medusaBackendUrl: process.env.NEXT_PUBLIC_MEDUSA_BACKEND_URL || "",
-  medusaPublishableKey: process.env.NEXT_PUBLIC_MEDUSA_PUBLISHABLE_KEY || "",
   supabaseUrl: process.env.NEXT_PUBLIC_SUPABASE_URL || "",
   supabaseAnonKey: process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || "",
   stripePublicKey: process.env.NEXT_PUBLIC_STRIPE_PUBLIC_KEY || "",
@@ -17,8 +15,6 @@ const PUBLIC_ENV_NAMES = [
   "NEXT_PUBLIC_API_BASE_URL",
   "NEXT_PUBLIC_NESTJS_BASE_URL",
   "NEXT_PUBLIC_FASTAPI_BASE_URL",
-  "NEXT_PUBLIC_MEDUSA_BACKEND_URL",
-  "NEXT_PUBLIC_MEDUSA_PUBLISHABLE_KEY",
   "NEXT_PUBLIC_SUPABASE_URL",
   "NEXT_PUBLIC_SUPABASE_ANON_KEY",
   "NEXT_PUBLIC_STRIPE_PUBLIC_KEY",
@@ -52,7 +48,6 @@ export function getPublicEnv() {
     apiBaseUrl: cleanBaseUrl(publicEnv.apiBaseUrl),
     nestjsBaseUrl: cleanBaseUrl(publicEnv.nestjsBaseUrl),
     fastapiBaseUrl: cleanBaseUrl(publicEnv.fastapiBaseUrl),
-    medusaBackendUrl: cleanBaseUrl(publicEnv.medusaBackendUrl),
   };
 }
 

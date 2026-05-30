@@ -5,6 +5,11 @@ type StripeCheckoutSessionInput = {
   variantId?: string;
   quantity?: number;
   amount?: number;
+  priceMinor?: number;
+  productId?: string;
+  productHandle?: string;
+  title?: string;
+  customerEmail?: string;
   currency?: string;
   orderIntentId?: string;
   orderRef?: string;

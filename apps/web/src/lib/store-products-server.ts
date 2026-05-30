@@ -1,4 +1,3 @@
-import { fetchSupabaseStorefrontProducts } from "@/lib/supabase-products";
 import {
   normalizeStoreProduct,
   productPrimaryVariantId,
@@ -10,11 +9,8 @@ function cleanBaseUrl(value: string | undefined) {
   return (value || "").trim().replace(/\/+$/, "");
 }
 
-export function getMedusaStoreServerConfig() {
-  return {
-    backendUrl: cleanBaseUrl(process.env.MEDUSA_BACKEND_URL || process.env.NEXT_PUBLIC_MEDUSA_BACKEND_URL),
-    publishableKey: (process.env.MEDUSA_PUBLISHABLE_KEY || process.env.NEXT_PUBLIC_MEDUSA_PUBLISHABLE_KEY || "").trim(),
-  };
+function apiBaseUrl() {
+  return cleanBaseUrl(process.env.NEXT_PUBLIC_API_BASE_URL || process.env.API_BASE_URL || process.env.NESTJS_API_URL) || "https://dbaronx-api-unified-qo2j.onrender.com";
 }
 
 export function extractStoreProducts(payload: unknown): MedusaStoreProduct[] {
@@ -33,27 +29,21 @@ export function normalizeServerStoreProduct(product: MedusaStoreProduct): Medusa
 }
 
 export async function fetchServerStoreProducts(options: { limit?: number; handle?: string } = {}): Promise<MedusaProductResult> {
-  const { backendUrl, publishableKey } = getMedusaStoreServerConfig();
-  if (!backendUrl || !publishableKey) return { products: [], reason: "products_unavailable" };
-
-  const url = new URL(`${backendUrl}/store/products`);
-  url.searchParams.set("limit", String(options.limit || 20));
-  if (options.handle) url.searchParams.set("handle", options.handle);
+  const path = options.handle ? `/api/catalog/products/${encodeURIComponent(options.handle)}` : "/api/catalog/products";
+  const url = new URL(`${apiBaseUrl()}${path}`);
+  if (!options.handle) url.searchParams.set("limit", String(options.limit || 20));
 
   try {
     const response = await fetch(url, {
-      headers: {
-        accept: "application/json",
-        "x-publishable-api-key": publishableKey,
-      },
+      headers: { accept: "application/json" },
       cache: "no-store",
     });
     const payload = await response.json().catch(() => null);
-    if (!response.ok) return { products: [], reason: "products_unavailable", status: response.status };
-    const products = extractStoreProducts(payload).map(normalizeServerStoreProduct);
-    return { products, reason: null, status: response.status };
+    if (!response.ok) return { products: [], reason: "products_unavailable", status: response.status, attemptedEndpoint: url.toString() };
+    const products = extractStoreProducts(payload).map(normalizeServerStoreProduct).slice(0, options.limit || (options.handle ? 5 : 20));
+    return { products, reason: null, status: response.status, attemptedEndpoint: url.toString() };
   } catch {
-    return { products: [], reason: "products_unavailable" };
+    return { products: [], reason: "products_unavailable", attemptedEndpoint: url.toString() };
   }
 }
 
@@ -81,9 +71,6 @@ function rocketStoreProductsUrl(options: { limit?: number; handle?: string } = {
 }
 
 export async function fetchRocketStoreProducts(options: { limit?: number; handle?: string } = {}): Promise<MedusaProductResult> {
-  const supabase = await fetchSupabaseStorefrontProducts(options);
-  if (supabase.products.length > 0 || supabase.reason === null) return supabase;
-
   const url = rocketStoreProductsUrl(options);
   if (url) {
     try {
@@ -93,12 +80,12 @@ export async function fetchRocketStoreProducts(options: { limit?: number; handle
       });
       const payload = await response.json().catch(() => null);
       const products = extractStoreProducts(payload).map(normalizeServerStoreProduct).slice(0, options.limit || (options.handle ? 5 : 20));
-      if (response.ok && products.length > 0) return { products, reason: null, status: response.status };
+      if (response.ok && products.length > 0) return { products, reason: null, status: response.status, attemptedEndpoint: url.toString() };
       if (response.ok && payload && typeof payload === "object" && (payload as Record<string, unknown>).success !== false) {
-        return { products, reason: null, status: response.status };
+        return { products, reason: null, status: response.status, attemptedEndpoint: url.toString() };
       }
     } catch {
-      // Fall back to direct Medusa store reads when the same-origin Rocket route is unavailable locally.
+      // Fall back to NestJS API reads when the same-origin Rocket route is unavailable locally.
     }
   }
 

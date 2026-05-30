@@ -27,6 +27,12 @@ export type MedusaStoreProduct = Record<string, unknown> & {
   priceFormatted?: string;
   currencyCode?: string;
   defaultVariantId?: string;
+  variantId?: string;
+  productId?: string;
+  category?: string;
+  inventoryStatus?: string;
+  inStock?: boolean;
+  buyable?: boolean;
   checkoutEnabled?: boolean;
   variants?: StoreProductVariant[];
   stockStatus?: string;
@@ -48,23 +54,15 @@ export type MedusaProductResult = {
 
 const SECRET_FIELD_PATTERN = /(secret|token|password|api[_-]?key|publishable[_-]?key|service[_-]?role|webhook|database[_-]?url|admin)/i;
 
-function config() {
+function apiBaseUrl() {
   const env = getPublicEnv();
-  return {
-    backendUrl: env.medusaBackendUrl,
-    publishableKey: env.medusaPublishableKey,
-  };
+  return (env.apiBaseUrl || "https://dbaronx-api-unified-qo2j.onrender.com").trim().replace(/\/+$/, "");
 }
 
-function medusaHeaders(): Record<string, string> {
-  const { publishableKey } = config();
-  return publishableKey ? { "x-publishable-api-key": publishableKey } : {};
-}
-
-function medusaStoreUrl(path: string, params?: Record<string, string | number>) {
-  const { backendUrl } = config();
-  if (!backendUrl) return null;
-  const url = new URL(`${backendUrl}${path.startsWith("/") ? path : `/${path}`}`);
+function apiCatalogUrl(path: string, params?: Record<string, string | number>) {
+  const baseUrl = apiBaseUrl();
+  if (!baseUrl) return null;
+  const url = new URL(`${baseUrl}${path.startsWith("/") ? path : `/${path}`}`);
   Object.entries(params || {}).forEach(([key, value]) => url.searchParams.set(key, String(value)));
   return url;
 }
@@ -73,19 +71,15 @@ export async function fetchMedusaStoreProducts(options: { limit?: number; handle
   const internal = await fetchInternalStoreProducts(options);
   if (internal.products.length > 0 || internal.reason === null) return internal;
 
-  const { backendUrl, publishableKey } = config();
-  if (!backendUrl || !publishableKey) {
-    return { products: [], reason: "products_unavailable", attemptedEndpoint: options.handle ? `/api/store/products/${encodeURIComponent(options.handle)}` : "/api/store/products" };
+  const path = options.handle ? `/api/catalog/products/${encodeURIComponent(options.handle)}` : "/api/catalog/products";
+  const url = apiCatalogUrl(path, options.handle ? undefined : { limit: options.limit || 20 });
+  if (!url) {
+    return { products: [], reason: "products_unavailable", attemptedEndpoint: path };
   }
-  const url = medusaStoreUrl("/store/products", {
-    limit: options.limit || 20,
-    ...(options.handle ? { handle: options.handle } : {}),
-  });
-  if (!url) return { products: [], reason: "products_unavailable", attemptedEndpoint: options.handle ? `/api/store/products/${encodeURIComponent(options.handle)}` : "/api/store/products" };
 
   try {
     const response = await fetch(url, {
-      headers: medusaHeaders(),
+      headers: { accept: "application/json" },
       cache: "no-store",
     });
     const payload = await response.json().catch(() => null);
@@ -159,6 +153,7 @@ export function productDisplayPrice(product: MedusaStoreProduct | null | undefin
 export function productPrimaryVariantId(product: MedusaStoreProduct | null | undefined) {
   if (product?.checkoutEnabled === false) return "";
   if (typeof product?.defaultVariantId === "string" && product.defaultVariantId) return product.defaultVariantId;
+  if (typeof product?.variantId === "string" && product.variantId) return product.variantId;
   const variant = Array.isArray(product?.variants) ? product?.variants?.[0] : null;
   return typeof variant?.id === "string" ? variant.id : "";
 }
@@ -189,20 +184,26 @@ export function productDeliveryEstimate(product: MedusaStoreProduct | null | und
 
 export function normalizeStoreProduct(product: MedusaStoreProduct): MedusaStoreProduct {
   const safe = stripInternalFields(product) as MedusaStoreProduct;
+  const apiVariantId = publicString(safe.variantId);
+  const apiPriceMinor = safeNumber(safe.priceMinor);
+  const apiCurrencyCode = publicString(safe.currencyCode || "usd").toLowerCase() || "usd";
   const variants = normalizeVariants(Array.isArray(safe.variants) ? safe.variants : []);
-  const checkoutEnabled = safe.checkoutEnabled === false ? false : undefined;
-  const defaultVariantId = productPrimaryVariantId({ ...safe, variants, checkoutEnabled });
-  const priceInfo = resolvePriceInfo({ ...safe, variants });
-  const image = productPrimaryImage({ ...safe, variants });
+  const normalizedVariants = variants.length > 0 ? variants : apiVariantId ? [{ id: apiVariantId, prices: apiPriceMinor ? [{ amount: apiPriceMinor, currency_code: apiCurrencyCode }] : [] }] : [];
+  const checkoutEnabled = safe.checkoutEnabled === false || safe.buyable === false ? false : undefined;
+  const defaultVariantId = apiVariantId || productPrimaryVariantId({ ...safe, variants: normalizedVariants, checkoutEnabled });
+  const priceInfo = apiPriceMinor && apiPriceMinor > 0
+    ? { price: apiPriceMinor / 100, priceMinor: apiPriceMinor, priceFormatted: formatMinor(apiPriceMinor, apiCurrencyCode), currencyCode: apiCurrencyCode.toUpperCase() }
+    : resolvePriceInfo({ ...safe, variants: normalizedVariants });
+  const image = productPrimaryImage({ ...safe, variants: normalizedVariants });
   const metadata = sanitizeMetadata(safe.metadata);
-  const inventoryQuantity = resolveInventoryQuantity({ ...safe, variants });
+  const inventoryQuantity = resolveInventoryQuantity({ ...safe, variants: normalizedVariants });
   const supplier = publicString(metadata.supplier ?? safe.supplier);
   const supplierProductId = publicString(metadata.supplierProductId ?? metadata.supplier_product_id ?? safe.supplierProductId);
-  const supplierSku = publicString(metadata.supplierSku ?? metadata.supplier_sku ?? safe.supplierSku ?? variants[0]?.sku);
+  const supplierSku = publicString(metadata.supplierSku ?? metadata.supplier_sku ?? safe.supplierSku ?? normalizedVariants[0]?.sku);
   const deliveryEstimate = publicString(metadata.deliveryEstimate ?? metadata.delivery_estimate ?? safe.deliveryEstimate);
 
   return {
-    id: publicString(safe.id),
+    id: publicString(safe.id || safe.productId),
     title: publicString(safe.title ?? safe.name) || "dBaronX product",
     name: publicString(safe.name ?? safe.title) || "dBaronX product",
     handle: publicString(safe.handle),
@@ -215,9 +216,15 @@ export function normalizeStoreProduct(product: MedusaStoreProduct): MedusaStoreP
     priceFormatted: priceInfo.priceFormatted,
     currencyCode: priceInfo.currencyCode,
     defaultVariantId,
+    variantId: defaultVariantId,
+    productId: publicString(safe.productId || safe.id),
+    ...(safe.category ? { category: publicString(safe.category) } : {}),
+    ...(safe.inventoryStatus ? { inventoryStatus: publicString(safe.inventoryStatus) } : {}),
+    ...(typeof safe.inStock === "boolean" ? { inStock: safe.inStock } : {}),
+    ...(typeof safe.buyable === "boolean" ? { buyable: safe.buyable } : {}),
     ...(checkoutEnabled === false ? { checkoutEnabled } : {}),
-    variants,
-    stockStatus: inventoryQuantity === null ? (variants[0]?.manage_inventory === false ? "Available" : "Availability pending") : inventoryQuantity > 0 ? `Available (${inventoryQuantity} in launch stock)` : "Availability pending",
+    variants: normalizedVariants,
+    stockStatus: publicString(safe.inventoryStatus || safe.stockStatus) || (inventoryQuantity === null ? (normalizedVariants[0]?.manage_inventory === false ? "Available" : "Availability pending") : inventoryQuantity > 0 ? `Available (${inventoryQuantity} in launch stock)` : "Availability pending"),
     ...(inventoryQuantity !== null ? { inventoryQuantity } : {}),
     ...(supplier ? { supplier } : {}),
     ...(supplierProductId ? { supplierProductId } : {}),
@@ -232,7 +239,7 @@ function normalizeVariants(variants: StoreProductVariant[]): StoreProductVariant
   return variants.map((variant) => {
     const safe = stripInternalFields(variant) as StoreProductVariant;
     return {
-      id: publicString(safe.id),
+      id: publicString(safe.id || safe.productId),
       title: publicString(safe.title),
       sku: publicString(safe.sku),
       manage_inventory: typeof safe.manage_inventory === "boolean" ? safe.manage_inventory : undefined,

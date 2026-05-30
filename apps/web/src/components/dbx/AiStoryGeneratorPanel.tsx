@@ -109,7 +109,7 @@ export function AiStoryGeneratorPanel({ compact = false }: { compact?: boolean }
         </div>
         <button type="submit" disabled={isLoading} style={{ ...dbxButtonStyle, cursor: isLoading ? "wait" : "pointer", border: 0, opacity: isLoading ? 0.72 : 1 }}>{isLoading ? "Generating…" : "Generate story"}</button>
       </form>
-      {status ? <p role="status" style={{ color: lastError ? "#fecaca" : "#fed7aa", lineHeight: 1.6 }}>{status}</p> : null}
+      {status ? <p role="status" style={{ color: lastError ? "#fecaca" : "#fed7aa", lineHeight: 1.6 }}>{status}{lastError ? ` Backend code: ${lastError}` : ""}</p> : null}
       {lastError && lastRequest ? <button type="button" onClick={() => submit(lastRequest)} style={{ ...dbxButtonStyle, border: 0, marginTop: 8 }}>Retry generation</button> : null}
       {!saved && content ? <p style={{ color: "#fdba74" }}>Generated draft is not confirmed saved yet.</p> : null}
       {content ? <article style={{ marginTop: 14, whiteSpace: "pre-wrap", color: "#fff7ed", lineHeight: 1.7 }}>{content}</article> : null}

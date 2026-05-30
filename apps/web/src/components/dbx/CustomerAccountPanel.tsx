@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { ChangeEvent, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 
 import { useAuthSession } from "@/lib/hooks/useAuthSession";
@@ -26,16 +26,40 @@ export function CustomerAccountPanel({ mode = "account" }: { mode?: "account" | 
   const [fullNameDraft, setFullNameDraft] = useState(initialFullName);
   const [displayNameDraft, setDisplayNameDraft] = useState(initialDisplayName);
   const [status, setStatus] = useState("");
+  const [photoPreview, setPhotoPreview] = useState(textValue(metadata.avatar_url) || textValue(metadata.picture));
+  const [genderDraft, setGenderDraft] = useState(textValue(metadata.gender) || "Prefer not to say");
+  const [pronounsDraft, setPronounsDraft] = useState(textValue(metadata.pronouns) || "Prefer not to say");
+  const [countryDraft, setCountryDraft] = useState(textValue(metadata.country));
+  const [phoneCodeDraft, setPhoneCodeDraft] = useState(textValue(metadata.phone_code));
+  const [languageDraft, setLanguageDraft] = useState(textValue(metadata.language) || "English");
 
   useEffect(() => {
     setFullNameDraft(initialFullName);
     setDisplayNameDraft(initialDisplayName);
-  }, [initialFullName, initialDisplayName]);
+    setPhotoPreview(textValue(metadata.avatar_url) || textValue(metadata.picture));
+    setGenderDraft(textValue(metadata.gender) || "Prefer not to say");
+    setPronounsDraft(textValue(metadata.pronouns) || "Prefer not to say");
+    setCountryDraft(textValue(metadata.country));
+    setPhoneCodeDraft(textValue(metadata.phone_code));
+    setLanguageDraft(textValue(metadata.language) || "English");
+  }, [initialFullName, initialDisplayName, metadata]);
 
   const referralReference = useMemo(() => {
     return textValue(metadata.referral_code) || textValue(metadata.referralCode) || textValue(metadata.ref) || textValue(metadata.reference) || textValue(metadata.reference_id);
   }, [metadata]);
   const referralLink = referralReference && typeof window !== "undefined" ? `${window.location.origin}/register?ref=${encodeURIComponent(referralReference)}` : "";
+
+  function previewProfilePhoto(event: ChangeEvent<HTMLInputElement>) {
+    const file = event.target.files?.[0];
+    if (!file) return;
+    const allowed = new Set(["image/jpeg", "image/png", "image/webp"]);
+    if (!allowed.has(file.type)) {
+      setStatus("Profile photo must be a JPG, JPEG, PNG, or WEBP image.");
+      return;
+    }
+    setPhotoPreview(URL.createObjectURL(file));
+    setStatus("Profile photo preview selected. Save profile to keep the preview URL with your safe metadata.");
+  }
 
   async function updateProfile() {
     const nextFullName = fullNameDraft.trim();
@@ -52,6 +76,12 @@ export function CustomerAccountPanel({ mode = "account" }: { mode?: "account" | 
           ...metadata,
           full_name: nextFullName || nextDisplayName,
           display_name: nextDisplayName || nextFullName,
+          avatar_url: photoPreview,
+          gender: genderDraft,
+          pronouns: pronounsDraft,
+          country: countryDraft.trim(),
+          phone_code: phoneCodeDraft.trim(),
+          language: languageDraft.trim(),
         },
       });
       if (updateError) {
@@ -106,6 +136,34 @@ export function CustomerAccountPanel({ mode = "account" }: { mode?: "account" | 
         </p>
         {editing ? (
           <div style={{ display: "grid", gap: 10 }}>
+
+            <label style={{ color: "#fed7aa", fontWeight: 800 }} htmlFor="dbx-profile-photo">Profile photo</label>
+            <input
+              id="dbx-profile-photo"
+              type="file"
+              accept="image/jpeg,image/jpg,image/png,image/webp"
+              onChange={previewProfilePhoto}
+              style={{ border: "1px solid rgba(255,255,255,.16)", borderRadius: 16, background: "rgba(255,255,255,.08)", color: "#fff7ed", padding: "12px 14px", fontWeight: 800 }}
+            />
+            {photoPreview ? <img src={photoPreview} alt="Profile photo preview" style={{ width: 96, height: 96, borderRadius: 24, objectFit: "cover", border: "1px solid rgba(251,191,36,.35)" }} /> : null}
+            <label style={{ color: "#fed7aa", fontWeight: 800 }} htmlFor="dbx-profile-gender">Gender</label>
+            <select id="dbx-profile-gender" value={genderDraft} onChange={(event) => setGenderDraft(event.target.value)} style={{ border: "1px solid rgba(255,255,255,.16)", borderRadius: 16, background: "rgba(255,255,255,.08)", color: "#fff7ed", padding: "12px 14px", fontWeight: 800 }}>
+              <option>Male</option>
+              <option>Female</option>
+              <option>Prefer not to say</option>
+            </select>
+            <label style={{ color: "#fed7aa", fontWeight: 800 }} htmlFor="dbx-profile-pronouns">Pronouns</label>
+            <select id="dbx-profile-pronouns" value={pronounsDraft} onChange={(event) => setPronounsDraft(event.target.value)} style={{ border: "1px solid rgba(255,255,255,.16)", borderRadius: 16, background: "rgba(255,255,255,.08)", color: "#fff7ed", padding: "12px 14px", fontWeight: 800 }}>
+              <option>He</option>
+              <option>She</option>
+              <option>Prefer not to say</option>
+            </select>
+            <label style={{ color: "#fed7aa", fontWeight: 800 }} htmlFor="dbx-profile-country">Country</label>
+            <input id="dbx-profile-country" value={countryDraft} onChange={(event) => setCountryDraft(event.target.value)} style={{ border: "1px solid rgba(255,255,255,.16)", borderRadius: 16, background: "rgba(255,255,255,.08)", color: "#fff7ed", padding: "12px 14px", fontWeight: 800 }} />
+            <label style={{ color: "#fed7aa", fontWeight: 800 }} htmlFor="dbx-profile-phone-code">Phone code</label>
+            <input id="dbx-profile-phone-code" value={phoneCodeDraft} onChange={(event) => setPhoneCodeDraft(event.target.value)} style={{ border: "1px solid rgba(255,255,255,.16)", borderRadius: 16, background: "rgba(255,255,255,.08)", color: "#fff7ed", padding: "12px 14px", fontWeight: 800 }} />
+            <label style={{ color: "#fed7aa", fontWeight: 800 }} htmlFor="dbx-profile-language">Language</label>
+            <input id="dbx-profile-language" value={languageDraft} onChange={(event) => setLanguageDraft(event.target.value)} style={{ border: "1px solid rgba(255,255,255,.16)", borderRadius: 16, background: "rgba(255,255,255,.08)", color: "#fff7ed", padding: "12px 14px", fontWeight: 800 }} />
             <label style={{ color: "#fed7aa", fontWeight: 800 }} htmlFor="dbx-profile-full-name">Full name</label>
             <input
               id="dbx-profile-full-name"

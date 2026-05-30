@@ -6,6 +6,7 @@ import { AffiliateModule } from "../affiliate/affiliate.module";
 import { PaymentsModule } from "../payments/payments.module";
 import { AiStoriesModule } from "../ai-stories/ai-stories.module";
 import { CommerceModule } from "../commerce/commerce.module";
+import { CatalogModule } from "../catalog/catalog.module";
 import { WalletModule } from "../wallet/wallet.module";
 import { PayoutsModule } from "../payouts/payouts.module";
 import { SuppliersModule } from "../suppliers/suppliers.module";
@@ -23,6 +24,7 @@ import { PlatformShellService } from "./platform-shell.service";
     PaymentsModule,
     AiStoriesModule,
     CommerceModule,
+    CatalogModule,
     WalletModule,
     PayoutsModule,
     SuppliersModule,
@@ -43,6 +45,7 @@ import { PlatformShellService } from "./platform-shell.service";
     PaymentsModule,
     AiStoriesModule,
     CommerceModule,
+    CatalogModule,
     WalletModule,
     PayoutsModule,
     SuppliersModule,
