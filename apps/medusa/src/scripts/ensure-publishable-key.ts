@@ -13,6 +13,7 @@ import { DEFAULT_SALES_CHANNEL_NAME } from "./shipping-readiness";
 
 export const PUBLISHABLE_KEY_TITLE = "dBaronX Storefront Publishable Key";
 const LEGACY_KEY_TITLE = "dBaronX Live Storefront Publishable Key";
+const PREFERRED_KEY_TITLES = [LEGACY_KEY_TITLE, PUBLISHABLE_KEY_TITLE] as const;
 
 type QueryGraphResult = Record<string, unknown> | unknown[] | null | undefined;
 type RecordValue = Record<string, unknown>;
@@ -48,7 +49,9 @@ const asArray = <T = RecordValue>(
 };
 
 const idOf = (value: unknown): string | null =>
-  value && typeof value === "object" && typeof (value as RecordValue).id === "string"
+  value &&
+  typeof value === "object" &&
+  typeof (value as RecordValue).id === "string"
     ? String((value as RecordValue).id)
     : null;
 
@@ -58,13 +61,20 @@ const stringOf = (value: unknown): string | null => {
 };
 
 const booleanEnv = (name: string): boolean =>
-  ["1", "true", "yes", "y"].includes(String(process.env[name] || "").trim().toLowerCase());
+  ["1", "true", "yes", "y"].includes(
+    String(process.env[name] || "")
+      .trim()
+      .toLowerCase(),
+  );
 
 const modeFromEnv = (): PublishableKeyMode =>
-  String(process.env.MEDUSA_PUBLISHABLE_KEY_MODE || process.env.DBX_PUBLISHABLE_KEY_MODE || "ensure") === "list"
+  String(
+    process.env.MEDUSA_PUBLISHABLE_KEY_MODE ||
+      process.env.DBX_PUBLISHABLE_KEY_MODE ||
+      "ensure",
+  ) === "list"
     ? "list"
     : "ensure";
-
 
 const medusaBaseUrl = () =>
   String(
@@ -76,7 +86,10 @@ const medusaBaseUrl = () =>
     .trim()
     .replace(/\/+$/, "");
 
-export async function storeGet(path: string, token: string | null): Promise<boolean | null> {
+export async function storeGet(
+  path: string,
+  token: string | null,
+): Promise<boolean | null> {
   const baseUrl = medusaBaseUrl();
   if (!baseUrl || !token) return null;
   try {
@@ -101,7 +114,9 @@ const isActivePublishableKey = (key: RecordValue): boolean =>
   key.type === "publishable" && !key.revoked_at && !key.revoked_by;
 
 const salesChannelIdsOf = (value: unknown): string[] =>
-  Array.from(new Set(asArray<RecordValue>(value).map(idOf).filter(Boolean) as string[]));
+  Array.from(
+    new Set(asArray<RecordValue>(value).map(idOf).filter(Boolean) as string[]),
+  );
 
 const safeGraph = async (
   query: any,
@@ -122,18 +137,31 @@ const safeGraph = async (
     );
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
-    console.warn(`publishable-key workflow could not query ${entity}: ${message}`);
+    console.warn(
+      `publishable-key workflow could not query ${entity}: ${message}`,
+    );
     return [];
   }
 };
 
 const chooseSalesChannel = async (query: any): Promise<RecordValue | null> => {
-  const channels = await safeGraph(query, "sales_channel", ["id", "name", "is_default"], undefined, 100);
+  const channels = await safeGraph(
+    query,
+    "sales_channel",
+    ["id", "name", "is_default"],
+    undefined,
+    100,
+  );
 
   const products = await safeGraph(
     query,
     "product",
-    ["id", "sales_channels.id", "sales_channels.name", "sales_channels.is_default"],
+    [
+      "id",
+      "sales_channels.id",
+      "sales_channels.name",
+      "sales_channels.is_default",
+    ],
     undefined,
     25,
   );
@@ -165,23 +193,38 @@ const createDefaultSalesChannel = async (container: ExecArgs["container"]) => {
   return asArray<RecordValue>(createdChannel.result)[0] || null;
 };
 
-const findExistingLinkedKey = (keys: RecordValue[], targetSalesChannelId: string | null) =>
-  keys.find((key) => {
+const titlePreference = (key: RecordValue): number => {
+  const index = PREFERRED_KEY_TITLES.findIndex((title) => key.title === title);
+  return index === -1 ? PREFERRED_KEY_TITLES.length : index;
+};
+
+const sortByPreferredTitle = (keys: RecordValue[]) =>
+  [...keys].sort((a, b) => titlePreference(a) - titlePreference(b));
+
+const findExistingLinkedKey = (
+  keys: RecordValue[],
+  targetSalesChannelId: string | null,
+) =>
+  sortByPreferredTitle(keys).find((key) => {
     if (!isActivePublishableKey(key)) return false;
     if (!targetSalesChannelId) return false;
     return salesChannelIdsOf(key.sales_channels).includes(targetSalesChannelId);
   }) || null;
 
 const findReusableUnlinkedKey = (keys: RecordValue[]) =>
-  keys.find(
+  sortByPreferredTitle(keys).find(
     (key) =>
       isActivePublishableKey(key) &&
-      (key.title === PUBLISHABLE_KEY_TITLE || key.title === LEGACY_KEY_TITLE),
+      PREFERRED_KEY_TITLES.includes(key.title as any),
   ) || null;
 
-const writeArtifact = (output: EnsurePublishableKeyOutput, fullToken: string | null) => {
+const writeArtifact = (
+  output: EnsurePublishableKeyOutput,
+  fullToken: string | null,
+) => {
   const outputPath = stringOf(
-    process.env.MEDUSA_PUBLISHABLE_KEY_OUTPUT_PATH || process.env.DBX_PUBLISHABLE_KEY_OUTPUT_PATH,
+    process.env.MEDUSA_PUBLISHABLE_KEY_OUTPUT_PATH ||
+      process.env.DBX_PUBLISHABLE_KEY_OUTPUT_PATH,
   );
   if (!outputPath) return;
 
@@ -228,7 +271,9 @@ export async function ensurePublishableKeyWorkflow(
     100,
   );
 
-  let key = findExistingLinkedKey(keys, salesChannelId) || findReusableUnlinkedKey(keys);
+  let key =
+    findExistingLinkedKey(keys, salesChannelId) ||
+    findReusableUnlinkedKey(keys);
   let created = false;
   let fullToken: string | null = null;
 
@@ -256,13 +301,22 @@ export async function ensurePublishableKeyWorkflow(
   const publishableKeyId = idOf(key);
   const publishableKeyTitle = stringOf(key?.title);
   let linkedSalesChannelIds = salesChannelIdsOf(key?.sales_channels);
-  let salesChannelLinked = Boolean(salesChannelId && linkedSalesChannelIds.includes(salesChannelId));
+  let salesChannelLinked = Boolean(
+    salesChannelId && linkedSalesChannelIds.includes(salesChannelId),
+  );
 
-  if (publishableKeyId && salesChannelId && !salesChannelLinked && mode === "ensure") {
+  if (
+    publishableKeyId &&
+    salesChannelId &&
+    !salesChannelLinked &&
+    mode === "ensure"
+  ) {
     await linkSalesChannelsToApiKeyWorkflow(container).run({
       input: { id: publishableKeyId, add: [salesChannelId] },
     });
-    linkedSalesChannelIds = Array.from(new Set([...linkedSalesChannelIds, salesChannelId]));
+    linkedSalesChannelIds = Array.from(
+      new Set([...linkedSalesChannelIds, salesChannelId]),
+    );
     salesChannelLinked = true;
   }
 
@@ -307,5 +361,7 @@ export async function ensurePublishableKeyWorkflow(
 }
 
 export default async function ensurePublishableKey({ container }: ExecArgs) {
-  console.log(JSON.stringify(await ensurePublishableKeyWorkflow(container), null, 2));
+  console.log(
+    JSON.stringify(await ensurePublishableKeyWorkflow(container), null, 2),
+  );
 }

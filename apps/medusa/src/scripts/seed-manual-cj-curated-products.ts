@@ -15,7 +15,10 @@ import {
 
 import { ensureVariantInventoryLink } from "./ensure-variant-inventory-link";
 import { ensureLaunchSalesChannelConsistency } from "./ensure-launch-sales-channel-consistency";
-import { ensurePublishableApiKey, KEY_TITLE } from "./ensure-publishable-api-key";
+import {
+  ensurePublishableApiKey,
+  KEY_TITLE,
+} from "./ensure-publishable-api-key";
 import {
   DEFAULT_SALES_CHANNEL_NAME,
   DEFAULT_SHIPPING_PROFILE_NAME,
@@ -31,6 +34,21 @@ const CONFIRM_ENV = "DBX_CONFIRM_MANUAL_CJ_CURATED_SEED";
 const OUTPUT_PATH_ENV = "DBX_MANUAL_CJ_CURATED_PRODUCTS_OUTPUT_PATH";
 const LEGACY_OUTPUT_PATH_ENV = "MANUAL_CJ_CURATED_PRODUCTS_OUTPUT_PATH";
 const LIVE_STOREFRONT_KEY_TITLE = "dBaronX Live Storefront Publishable Key";
+const STOREFRONT_KEY_TITLE = KEY_TITLE;
+const PUBLISHABLE_KEY_TITLES = [
+  LIVE_STOREFRONT_KEY_TITLE,
+  STOREFRONT_KEY_TITLE,
+] as const;
+const LIVE_SALES_CHANNEL_SOURCES = [
+  "live_publishable_key_title",
+  "live_storefront_publishable_key",
+] as const;
+const CANONICAL_ONLY_BLOCKERS = new Set([
+  "publishable_key_not_linked_to_canonical_sales_channel",
+  "first_cj_product_not_linked_to_canonical_sales_channel",
+  "stock_location_not_linked_to_canonical_sales_channel",
+  "shipping_option_not_visible_for_canonical_store_context",
+]);
 const TAG_MODE = "metadata_only";
 
 type GraphRecord = Record<string, unknown>;
@@ -67,6 +85,24 @@ const idOf = (value: unknown): string | null =>
 function pushUnique(values: string[], value: string | null | undefined) {
   if (value && !values.includes(value)) values.push(value);
 }
+
+const isLiveSalesChannelSource = (value: string | null | undefined) =>
+  LIVE_SALES_CHANNEL_SOURCES.includes(
+    value as (typeof LIVE_SALES_CHANNEL_SOURCES)[number],
+  );
+
+const medusaBaseUrl = () =>
+  String(
+    process.env.MEDUSA_BASE_URL ||
+      process.env.MEDUSA_BACKEND_URL ||
+      process.env.NEXT_PUBLIC_MEDUSA_BACKEND_URL ||
+      "",
+  )
+    .trim()
+    .replace(/\/+$/, "");
+
+const medusaPublishableKey = () =>
+  String(process.env.MEDUSA_PUBLISHABLE_KEY || "").trim();
 
 function emit(result: Record<string, unknown>, exitCode = 0): never {
   const json = JSON.stringify(result, null, 2);
@@ -106,7 +142,6 @@ function tagValuesFor(product: ManualCjCuratedProduct) {
     .map((value) => value.trim().toLowerCase())
     .filter(Boolean);
 }
-
 
 function definedTagIds(tags: Array<{ id?: string | null }> = []) {
   return tags
@@ -196,7 +231,8 @@ function validateBuyable(product: ManualCjCuratedProduct): string[] {
   if (!product.productUrl) blockers.push("missing_product_url");
   if (!product.imageUrl) blockers.push("missing_image");
   if (product.inventory <= 0) blockers.push("missing_inventory");
-  if (product.supplierPriceMinorUsd <= 0) blockers.push("missing_supplier_price");
+  if (product.supplierPriceMinorUsd <= 0)
+    blockers.push("missing_supplier_price");
   if (product.shippingCostMinorUsd < 0) blockers.push("invalid_shipping_cost");
   if (product.sellingPriceMinorUsd <= 0) blockers.push("missing_selling_price");
   if (product.sellingPriceMinorUsd <= product.totalCostMinorUsd)
@@ -261,17 +297,27 @@ async function resolveLiveStorefrontSalesChannel(query: any) {
     { type: "publishable" },
     100,
   );
-  const liveKey = keys.find((candidate) => candidate.title === LIVE_STOREFRONT_KEY_TITLE);
-  const liveSalesChannelId = asArray<GraphRecord>(liveKey?.sales_channels)
-    .map(idOf)
-    .find((id): id is string => Boolean(id));
-  if (liveSalesChannelId) {
-    return {
-      salesChannelId: liveSalesChannelId,
-      salesChannelSource: "live_publishable_key_title",
-    };
+  for (const title of PUBLISHABLE_KEY_TITLES) {
+    const key = keys.find((candidate) => candidate.title === title);
+    const salesChannelId = asArray<GraphRecord>(key?.sales_channels)
+      .map(idOf)
+      .find((id): id is string => Boolean(id));
+    if (salesChannelId) {
+      return {
+        salesChannelId,
+        salesChannelSource:
+          title === LIVE_STOREFRONT_KEY_TITLE
+            ? "live_publishable_key_title"
+            : "live_storefront_publishable_key",
+        publishableKeyTitleUsed: title,
+      };
+    }
   }
-  return { salesChannelId: null, salesChannelSource: "live_publishable_key_missing" };
+  return {
+    salesChannelId: null,
+    salesChannelSource: "live_publishable_key_missing",
+    publishableKeyTitleUsed: null,
+  };
 }
 
 async function resolveContext(container: ExecArgs["container"], query: any) {
@@ -279,19 +325,26 @@ async function resolveContext(container: ExecArgs["container"], query: any) {
   const shipping = await ensureShippingReadiness(container, { repair: true });
   const consistency = await ensureLaunchSalesChannelConsistency(container);
   const liveSalesChannel = await resolveLiveStorefrontSalesChannel(query);
-  const salesChannels = await graph(
-    query,
-    "sales_channel",
-    ["id", "name", "is_default"],
-  );
+  const salesChannels = await graph(query, "sales_channel", [
+    "id",
+    "name",
+    "is_default",
+  ]);
   const fallbackSalesChannelId =
-    consistency.canonicalSalesChannelId || key.salesChannelId || shipping.salesChannelId || null;
+    consistency.canonicalSalesChannelId ||
+    key.salesChannelId ||
+    shipping.salesChannelId ||
+    null;
   const salesChannel =
     (liveSalesChannel.salesChannelId
-      ? salesChannels.find((channel) => idOf(channel) === liveSalesChannel.salesChannelId)
+      ? salesChannels.find(
+          (channel) => idOf(channel) === liveSalesChannel.salesChannelId,
+        )
       : null) ||
     salesChannels.find((channel) => idOf(channel) === fallbackSalesChannelId) ||
-    salesChannels.find((channel) => channel.name === DEFAULT_SALES_CHANNEL_NAME) ||
+    salesChannels.find(
+      (channel) => channel.name === DEFAULT_SALES_CHANNEL_NAME,
+    ) ||
     salesChannels.find((channel) => channel.is_default === true) ||
     salesChannels[0] ||
     null;
@@ -312,7 +365,9 @@ async function resolveContext(container: ExecArgs["container"], query: any) {
     "type",
   ]);
   const shippingProfile =
-    shippingProfiles.find((profile) => idOf(profile) === shipping.shippingProfileId) ||
+    shippingProfiles.find(
+      (profile) => idOf(profile) === shipping.shippingProfileId,
+    ) ||
     shippingProfiles.find(
       (profile) => profile.name === DEFAULT_SHIPPING_PROFILE_NAME,
     ) ||
@@ -326,9 +381,15 @@ async function resolveContext(container: ExecArgs["container"], query: any) {
     "sales_channels.id",
   ]);
   const stockLocation =
-    stockLocations.find((location) => idOf(location) === consistency.stockLocationId) ||
-    stockLocations.find((location) => idOf(location) === shipping.stockLocationId) ||
-    stockLocations.find((location) => location.name === DEFAULT_STOCK_LOCATION_NAME) ||
+    stockLocations.find(
+      (location) => idOf(location) === consistency.stockLocationId,
+    ) ||
+    stockLocations.find(
+      (location) => idOf(location) === shipping.stockLocationId,
+    ) ||
+    stockLocations.find(
+      (location) => location.name === DEFAULT_STOCK_LOCATION_NAME,
+    ) ||
     stockLocations.find((location) =>
       asArray<GraphRecord>(location.sales_channels).some(
         (channel) => idOf(channel) === salesChannelId,
@@ -338,28 +399,49 @@ async function resolveContext(container: ExecArgs["container"], query: any) {
     null;
 
   const blockers: string[] = [];
-  for (const blocker of [
-    ...key.blockers,
-    ...shipping.blockers,
-    ...consistency.blockers,
-  ]) {
+  const warnings: string[] = [];
+  const liveSalesChannelResolved = Boolean(liveSalesChannel.salesChannelId);
+  for (const blocker of [...key.blockers, ...shipping.blockers]) {
+    pushUnique(blockers, blocker);
+  }
+  for (const blocker of consistency.blockers) {
+    if (liveSalesChannelResolved && CANONICAL_ONLY_BLOCKERS.has(blocker)) {
+      pushUnique(warnings, blocker);
+      continue;
+    }
     pushUnique(blockers, blocker);
   }
   if (!salesChannelId) pushUnique(blockers, "sales_channel_missing");
   if (!liveSalesChannel.salesChannelId) {
-    pushUnique(blockers, "live_storefront_publishable_key_sales_channel_missing");
+    pushUnique(
+      blockers,
+      "live_storefront_publishable_key_sales_channel_missing",
+    );
+  }
+  if (
+    liveSalesChannel.salesChannelId &&
+    consistency.canonicalSalesChannelId &&
+    consistency.canonicalSalesChannelId !== liveSalesChannel.salesChannelId
+  ) {
+    pushUnique(
+      warnings,
+      "canonical_sales_channel_differs_from_live_publishable_key_channel",
+    );
   }
   if (!idOf(shippingProfile)) pushUnique(blockers, "shipping_profile_missing");
   if (!idOf(stockLocation)) pushUnique(blockers, "stock_location_missing");
 
   return {
     blockers,
+    warnings,
     salesChannelId,
     salesChannelSource,
     shippingProfileId: idOf(shippingProfile),
     stockLocationId: idOf(stockLocation),
-    publishableKeyTitle: LIVE_STOREFRONT_KEY_TITLE,
+    publishableKeyTitleUsed: liveSalesChannel.publishableKeyTitleUsed,
+    publishableKeyTitle: liveSalesChannel.publishableKeyTitleUsed,
     ensuredPublishableKeyTitle: KEY_TITLE,
+    canonicalSalesChannelId: consistency.canonicalSalesChannelId,
   };
 }
 
@@ -402,7 +484,9 @@ async function createOrUpdateProduct(
   let variant =
     asArray<GraphRecord>(existing?.variants).find(
       (item) => item.sku === product.sku,
-    ) || asArray<GraphRecord>(existing?.variants)[0] || null;
+    ) ||
+    asArray<GraphRecord>(existing?.variants)[0] ||
+    null;
   const metadata = metadataFor(product);
   if (variant?.id) {
     await updateProductVariantsWorkflow(container).run({
@@ -446,7 +530,9 @@ async function createOrUpdateProduct(
   variant =
     asArray<GraphRecord>(existing?.variants).find(
       (item) => item.sku === product.sku,
-    ) || asArray<GraphRecord>(existing?.variants)[0] || variant;
+    ) ||
+    asArray<GraphRecord>(existing?.variants)[0] ||
+    variant;
   return { action, product: existing, variant, blockers: [] };
 }
 
@@ -458,16 +544,23 @@ function validateSeededProduct(
   sourceProduct: ManualCjCuratedProduct,
 ) {
   const blockers: string[] = [];
-  const metadata = isRecord(productRecord?.metadata) ? productRecord.metadata : {};
+  const metadata = isRecord(productRecord?.metadata)
+    ? productRecord.metadata
+    : {};
   const variantMetadata = isRecord(variant?.metadata) ? variant.metadata : {};
   const prices = asArray<GraphRecord>(variant?.prices);
   const images = asArray<GraphRecord>(productRecord?.images);
   const salesChannels = asArray<GraphRecord>(productRecord?.sales_channels);
-  const supplier = String(metadata.supplier || variantMetadata.supplier || "").toLowerCase();
-  const supplierSku = String(metadata.supplierSku || variantMetadata.supplierSku || variant?.sku || "");
+  const supplier = String(
+    metadata.supplier || variantMetadata.supplier || "",
+  ).toLowerCase();
+  const supplierSku = String(
+    metadata.supplierSku || variantMetadata.supplierSku || variant?.sku || "",
+  );
 
   if (!idOf(productRecord)) pushUnique(blockers, "product_missing_after_seed");
-  if (productRecord?.status !== "published") pushUnique(blockers, "product_not_published_after_seed");
+  if (productRecord?.status !== "published")
+    pushUnique(blockers, "product_not_published_after_seed");
   if (!idOf(variant)) pushUnique(blockers, "variant_missing_after_seed");
   if (
     !prices.some(
@@ -478,8 +571,12 @@ function validateSeededProduct(
   ) {
     pushUnique(blockers, "usd_price_missing_after_seed");
   }
-  if (!inventoryReady) pushUnique(blockers, "inventory_level_missing_after_seed");
-  if (!productRecord?.thumbnail && !images.some((image) => Boolean(image.url))) {
+  if (!inventoryReady)
+    pushUnique(blockers, "inventory_level_missing_after_seed");
+  if (
+    !productRecord?.thumbnail &&
+    !images.some((image) => Boolean(image.url))
+  ) {
     pushUnique(blockers, "product_image_missing_after_seed");
   }
   if (!salesChannels.some((channel) => idOf(channel) === salesChannelId)) {
@@ -544,17 +641,87 @@ async function syncInventory(
   return true;
 }
 
-export default async function seedManualCjCuratedProducts({ container }: ExecArgs) {
+async function proveStoreApiProductVisibility(products: ProductResult[]) {
+  const token = medusaPublishableKey();
+  if (!token) {
+    return {
+      storeApiProofReady: false,
+      storeApiProofSkippedReason:
+        "publishable_key_not_available_to_seed_runtime",
+      blocker: null,
+    };
+  }
+  const baseUrl = medusaBaseUrl();
+  if (!baseUrl) {
+    return {
+      storeApiProofReady: false,
+      storeApiProofSkippedReason: null,
+      blocker: "medusa_base_url_not_available_to_seed_runtime",
+    };
+  }
+  const firstSeeded = products.find(
+    (product) => product.buyable && product.productId && product.handle,
+  );
+  if (!firstSeeded) {
+    return {
+      storeApiProofReady: false,
+      storeApiProofSkippedReason: null,
+      blocker: "store_api_product_visibility_no_seeded_product_to_check",
+    };
+  }
+  try {
+    const response = await fetch(
+      `${baseUrl}/store/products?handle=${encodeURIComponent(firstSeeded.handle)}&limit=1`,
+      {
+        headers: { "x-publishable-api-key": token, accept: "application/json" },
+      },
+    );
+    if (!response.ok) {
+      return {
+        storeApiProofReady: false,
+        storeApiProofSkippedReason: null,
+        blocker: "store_api_product_visibility_check_failed",
+      };
+    }
+    const json = await response.json();
+    const storeProducts = asArray<GraphRecord>(json, ["products"]);
+    const visible = storeProducts.some(
+      (product) =>
+        product.handle === firstSeeded.handle ||
+        idOf(product) === firstSeeded.productId,
+    );
+    return {
+      storeApiProofReady: visible,
+      storeApiProofSkippedReason: null,
+      blocker: visible ? null : "store_api_product_visibility_missing",
+    };
+  } catch {
+    return {
+      storeApiProofReady: false,
+      storeApiProofSkippedReason: null,
+      blocker: "store_api_product_visibility_check_failed",
+    };
+  }
+}
+
+export default async function seedManualCjCuratedProducts({
+  container,
+}: ExecArgs) {
   const dryRun = process.env.DRY_RUN !== "false";
   const includeDrafts = process.env.DBX_INCLUDE_MANUAL_CJ_DRAFTS === "true";
   const totalInput = manualCjCuratedProducts.length;
-  const buyableProducts = manualCjCuratedProducts.filter((product) => product.buyable);
-  const draftProducts = manualCjCuratedProducts.filter((product) => !product.buyable);
+  const buyableProducts = manualCjCuratedProducts.filter(
+    (product) => product.buyable,
+  );
+  const draftProducts = manualCjCuratedProducts.filter(
+    (product) => !product.buyable,
+  );
   const selectedProducts = includeDrafts
     ? manualCjCuratedProducts
     : buyableProducts;
   const products: ProductResult[] = [];
   const blockers: string[] = [];
+  const warnings: string[] = [];
 
   if (process.env[CONFIRM_ENV] !== "true") {
     pushUnique(blockers, `${CONFIRM_ENV}_required`);
@@ -572,6 +739,11 @@ export default async function seedManualCjCuratedProducts({ container }: ExecArg
         totalBlocked: 1,
         salesChannelId: null,
         salesChannelSource: null,
+        publishableKeyTitleUsed: null,
+        salesChannelLinked: false,
+        storeApiProofReady: false,
+        storeApiProofSkippedReason: null,
+        warnings,
         tagMode: TAG_MODE,
         productResults: [],
         products: [],
@@ -636,9 +808,15 @@ export default async function seedManualCjCuratedProducts({ container }: ExecArg
       totalSeeded: 0,
       totalUpdated: 0,
       totalSkipped: draftProducts.length,
-      totalBlocked: dryRunProducts.filter((product) => product.blockers.length).length,
+      totalBlocked: dryRunProducts.filter((product) => product.blockers.length)
+        .length,
       salesChannelId: null,
       salesChannelSource: null,
+      publishableKeyTitleUsed: null,
+      salesChannelLinked: false,
+      storeApiProofReady: false,
+      storeApiProofSkippedReason: null,
+      warnings,
       tagMode: TAG_MODE,
       productResults: [...products, ...dryRunProducts],
       products: [...products, ...dryRunProducts],
@@ -662,9 +840,15 @@ export default async function seedManualCjCuratedProducts({ container }: ExecArg
         totalSeeded: 0,
         totalUpdated: 0,
         totalSkipped: draftProducts.length,
-        totalBlocked: products.filter((product) => product.action === "blocked").length,
+        totalBlocked: products.filter((product) => product.action === "blocked")
+          .length,
         salesChannelId: null,
         salesChannelSource: null,
+        publishableKeyTitleUsed: null,
+        salesChannelLinked: false,
+        storeApiProofReady: false,
+        storeApiProofSkippedReason: null,
+        warnings,
         tagMode: TAG_MODE,
         productResults: products,
         products,
@@ -679,7 +863,12 @@ export default async function seedManualCjCuratedProducts({ container }: ExecArg
   const query = container.resolve<any>(ContainerRegistrationKeys.QUERY);
   const context = await resolveContext(container, query);
   for (const blocker of context.blockers) pushUnique(blockers, blocker);
-  if (!context.salesChannelId || !context.shippingProfileId || !context.stockLocationId) {
+  for (const warning of context.warnings) pushUnique(warnings, warning);
+  if (
+    !context.salesChannelId ||
+    !context.shippingProfileId ||
+    !context.stockLocationId
+  ) {
     emit(
       {
         success: false,
@@ -694,11 +883,15 @@ export default async function seedManualCjCuratedProducts({ container }: ExecArg
         totalBlocked: 1,
         salesChannelId: context.salesChannelId,
         salesChannelSource: context.salesChannelSource,
+        publishableKeyTitleUsed: context.publishableKeyTitleUsed,
+        salesChannelLinked: false,
+        storeApiProofReady: false,
+        storeApiProofSkippedReason: null,
+        warnings,
         tagMode: TAG_MODE,
         productResults: products,
         products,
         blockers,
-        publishableKeyTitle: context.publishableKeyTitle,
         nextManualStep:
           "Run Medusa commerce prerequisite repair, then rerun the manual CJ curated seed.",
       },
@@ -762,7 +955,30 @@ export default async function seedManualCjCuratedProducts({ container }: ExecArg
     });
   }
 
-  const success = blockers.length === 0 && totalBlocked === 0;
+  const salesChannelLinked = buyableProducts.every((sourceProduct) => {
+    const result = products.find(
+      (product) => product.buyable && product.sku === sourceProduct.sku,
+    );
+    return (
+      Boolean(result?.productId) &&
+      !result?.blockers.includes("live_sales_channel_link_missing_after_seed")
+    );
+  });
+  if (!salesChannelLinked)
+    pushUnique(blockers, "live_sales_channel_link_missing_after_seed");
+
+  const storeApiProof = await proveStoreApiProductVisibility(products);
+  if (storeApiProof.blocker) pushUnique(blockers, storeApiProof.blocker);
+
+  const hasSeededOrUpdatedProducts = totalSeeded + totalUpdated > 0;
+  const success =
+    blockers.length === 0 &&
+    totalBlocked === 0 &&
+    salesChannelLinked &&
+    hasSeededOrUpdatedProducts &&
+    (storeApiProof.storeApiProofReady ||
+      storeApiProof.storeApiProofSkippedReason ===
+        "publishable_key_not_available_to_seed_runtime");
   emit(
     {
       success,
@@ -777,16 +993,20 @@ export default async function seedManualCjCuratedProducts({ container }: ExecArg
       totalBlocked,
       salesChannelId: context.salesChannelId,
       salesChannelSource: context.salesChannelSource,
+      publishableKeyTitleUsed: context.publishableKeyTitleUsed,
+      salesChannelLinked,
+      storeApiProofReady: storeApiProof.storeApiProofReady,
+      storeApiProofSkippedReason: storeApiProof.storeApiProofSkippedReason,
+      warnings,
       tagMode: TAG_MODE,
       productResults: products,
       products,
       blockers,
       stockLocationId: context.stockLocationId,
-      publishableKeyTitle: context.publishableKeyTitle,
       ensuredPublishableKeyTitle: context.ensuredPublishableKeyTitle,
       nextManualStep: success
         ? "Run the manual curated products smoke and first-sale readiness. The draft humidifier remains non-buyable until completed."
-        : "Resolve blockers, then rerun this manual curated seed. Do not mark blocked products buyable.",
+        : "Resolve fatal blockers, then rerun this manual curated seed. Warnings do not block deploy, but do not mark blocked products buyable.",
     },
     success ? 0 : 1,
   );
