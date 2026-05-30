@@ -63,7 +63,8 @@ function unwrapBackendResponse(data: unknown) {
 function safeErrorMessage(code: string, fallback?: string) {
   const messages: Record<string, string> = {
     ai_provider_missing: "AI story generation is not configured yet. Please contact support.",
-    ai_provider_failed: "The AI provider could not generate the story. Please revise the prompt or try again.",
+    provider_failed: "The AI provider could not generate the story. Please revise the prompt or try again.",
+    fastapi_route_missing: "The AI Stories generation route is not deployed yet. Please contact support.",
     fastapi_unavailable: "The generation service is unavailable. Please try again shortly.",
     validation_failed: "Please check the prompt, length, and tone before trying again.",
     rate_limited: "Story generation is rate limited. Please wait a moment and try again.",
@@ -115,7 +116,8 @@ export async function POST(request: NextRequest) {
 
     const backend = unwrapBackendResponse(await response.json().catch(() => null));
     if (!backend || backend.success === false || !response.ok) {
-      const code = typeof backend?.code === "string" ? backend.code : response.status === 422 ? "validation_failed" : "fastapi_unavailable";
+      const rawCode = typeof backend?.code === "string" ? backend.code : response.status === 422 ? "validation_failed" : response.status === 404 ? "fastapi_route_missing" : "fastapi_unavailable";
+      const code = rawCode === "ai_provider_failed" ? "provider_failed" : rawCode;
       return NextResponse.json(
         {
           success: false,

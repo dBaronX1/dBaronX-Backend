@@ -5,6 +5,8 @@ type StoreCartResult = {
   success?: boolean;
   cart?: unknown;
   cartId?: string;
+  subtotal?: number;
+  lineItemCount?: number;
   message: string;
 };
 
@@ -34,6 +36,18 @@ function extractCartId(cart: unknown) {
   return cart && typeof cart === "object" && typeof (cart as Record<string, unknown>).id === "string" ? String((cart as Record<string, unknown>).id) : "";
 }
 
+function extractCartSubtotal(cart: unknown) {
+  if (!cart || typeof cart !== "object") return 0;
+  const record = cart as Record<string, unknown>;
+  return Number(record.subtotal ?? record.item_total ?? record.total ?? 0) || 0;
+}
+
+function extractLineItemCount(cart: unknown) {
+  if (!cart || typeof cart !== "object") return 0;
+  const items = (cart as Record<string, unknown>).items;
+  return Array.isArray(items) ? items.length : 0;
+}
+
 export async function createMedusaCart(input: { regionId?: string; email?: string } = {}): Promise<StoreCartResult> {
   const { backendUrl, publishableKey } = storeConfig();
   if (!backendUrl || !publishableKey) return { configured: false, success: false, message: "Checkout is temporarily unavailable. Please try again shortly or contact support." };
@@ -47,7 +61,7 @@ export async function createMedusaCart(input: { regionId?: string; email?: strin
   const payload = await response.json().catch(() => null);
   if (!response.ok) return { configured: true, success: false, message: "Checkout is temporarily unavailable. Please try again shortly or contact support." };
   const cart = extractCart(payload);
-  return { configured: true, success: true, cart, cartId: extractCartId(cart), message: "Cart created." };
+  return { configured: true, success: true, cart, cartId: extractCartId(cart), subtotal: extractCartSubtotal(cart), lineItemCount: extractLineItemCount(cart), message: "Cart created." };
 }
 
 export async function addMedusaCartLineItem(input: { cartId: string; variantId: string; quantity?: number }): Promise<StoreCartResult> {
@@ -65,7 +79,12 @@ export async function addMedusaCartLineItem(input: { cartId: string; variantId: 
   const payload = await response.json().catch(() => null);
   if (!response.ok) return { configured: true, success: false, message: "Checkout is temporarily unavailable. Please try again shortly or contact support." };
   const cart = extractCart(payload);
-  return { configured: true, success: true, cart, cartId: extractCartId(cart) || input.cartId, message: "Cart updated." };
+  const subtotal = extractCartSubtotal(cart);
+  const lineItemCount = extractLineItemCount(cart);
+  if (lineItemCount < 1 || subtotal <= 0) {
+    return { configured: true, success: false, cart, cartId: extractCartId(cart) || input.cartId, subtotal, lineItemCount, message: "Checkout is temporarily unavailable. Please try again shortly or contact support." };
+  }
+  return { configured: true, success: true, cart, cartId: extractCartId(cart) || input.cartId, subtotal, lineItemCount, message: "Cart updated." };
 }
 
 export async function createCartWithLineItem(input: { variantId: string; quantity?: number; regionId?: string; email?: string }) {

@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 
-import { nestApiRequest } from "@/server/api/nest-api.client";
+import { fetchSupabaseStorefrontProductCache } from "@/lib/store-products-supabase-fallback";
+import { extractStoreProducts, getMedusaStoreServerConfig, normalizeServerStoreProduct } from "@/lib/store-products-server";
 
 type StorefrontProductsPayload = {
   success?: boolean;
@@ -10,10 +11,11 @@ type StorefrontProductsPayload = {
   message?: string;
 };
 
-function safeFailure(status = 200, handle?: string) {
+function safeFailure(status = 200, handle?: string, code = "products_unavailable") {
   return NextResponse.json(
     {
       success: false,
+      code,
       product: handle ? null : undefined,
       products: [],
       message: handle
@@ -27,33 +29,17 @@ function safeFailure(status = 200, handle?: string) {
   );
 }
 
-function storefrontPath(handle: string, limit: string) {
-  const params = new URLSearchParams();
-  params.set("limit", limit || (handle ? "5" : "20"));
-
-  if (handle) {
-    return `/api/storefront/products/${encodeURIComponent(handle)}?${params.toString()}`;
+export async function storeProductsResponse({ handle = "", limit = "20", category = "" }: { handle?: string; limit?: string; category?: string } = {}) {
+  const { backendUrl, publishableKey } = getMedusaStoreServerConfig();
+  if (!backendUrl || !publishableKey) {
+    console.error("[store-products] Medusa Store API configuration is missing", { hasBackendUrl: Boolean(backendUrl), hasPublishableKey: Boolean(publishableKey) });
+    return productsFallbackOrSafeFailure(200, handle, limit);
   }
 
-  return `/api/storefront/products?${params.toString()}`;
-}
-
-function normalizePayload(payload: StorefrontProductsPayload | null, handle?: string): StorefrontProductsPayload {
-  const products = Array.isArray(payload?.products) ? payload.products : [];
-  const product = handle ? payload?.product ?? products[0] ?? null : undefined;
-
-  return {
-    success: handle ? Boolean(product) : payload?.success !== false,
-    source: payload?.source || "nestjs_storefront_products",
-    ...(handle ? { product } : {}),
-    products: handle && product ? [product] : products,
-    ...(payload?.message ? { message: payload.message } : {}),
-  };
-}
-
-export async function storeProductsResponse({ handle = "", limit = "20" }: { handle?: string; limit?: string } = {}) {
-  const cleanHandle = handle.trim();
-  const cleanLimit = String(Number(limit || (cleanHandle ? 5 : 20)) || (cleanHandle ? 5 : 20));
+  const url = new URL(`${backendUrl}/store/products`);
+  url.searchParams.set("limit", limit || "20");
+  if (handle) url.searchParams.set("handle", handle);
+  if (category) url.searchParams.set("category_id", category);
 
   try {
     const response = await nestApiRequest<StorefrontProductsPayload>({
@@ -61,23 +47,31 @@ export async function storeProductsResponse({ handle = "", limit = "20" }: { han
     });
 
     if (!response.ok) {
-      console.error("[store-products] NestJS storefront products request failed", {
+      console.error("[store-products] Medusa Store API product request failed", {
         status: response.status,
         handle: cleanHandle || undefined,
       });
-      return safeFailure(200, cleanHandle);
+      return safeFailure(200, handle, "medusa_store_products_http_error");
     }
 
-    const payload = normalizePayload(response.data, cleanHandle);
-    if ((cleanHandle && !payload.product) || (!cleanHandle && !payload.products?.length && payload.success === false)) {
-      return safeFailure(200, cleanHandle);
+    const products = extractStoreProducts(payload).map(normalizeServerStoreProduct);
+    const product = handle ? products.find((item) => item.handle === handle) || null : undefined;
+    if ((handle && !product) || (!handle && products.length === 0)) {
+      console.warn("[store-products] Medusa returned no visible products", { handle: handle || undefined });
+      return safeFailure(200, handle, handle ? "medusa_store_product_handle_missing" : "medusa_store_products_empty");
     }
 
-    return NextResponse.json(payload, {
-      headers: { "cache-control": "no-store, max-age=0" },
-    });
+    return NextResponse.json(
+      {
+        success: handle ? Boolean(product) : true,
+        source: "medusa_store_api",
+        ...(handle ? { product } : {}),
+        products: handle && product ? [product] : products,
+      },
+      { headers: { "cache-control": "no-store, max-age=0" } },
+    );
   } catch (error) {
-    console.error("[store-products] NestJS storefront products request unreachable", error);
-    return safeFailure(200, cleanHandle);
+    console.error("[store-products] Medusa Store API product request unreachable", error);
+    return safeFailure(200, handle, "medusa_store_products_unreachable");
   }
 }

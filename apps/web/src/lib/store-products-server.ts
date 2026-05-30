@@ -6,12 +6,16 @@ import {
   type MedusaStoreProduct,
 } from "@/lib/api/medusa-store-client";
 
-type StorefrontProductsPayload = {
-  success?: boolean;
-  product?: unknown;
-  products?: unknown[];
-  message?: string;
-};
+function cleanBaseUrl(value: string | undefined) {
+  return (value || "").trim().replace(/\/+$/, "");
+}
+
+export function getMedusaStoreServerConfig() {
+  return {
+    backendUrl: cleanBaseUrl(process.env.MEDUSA_BASE_URL || process.env.MEDUSA_BACKEND_URL || process.env.NEXT_PUBLIC_MEDUSA_BASE_URL || process.env.NEXT_PUBLIC_MEDUSA_BACKEND_URL),
+    publishableKey: (process.env.MEDUSA_PUBLISHABLE_KEY || process.env.NEXT_PUBLIC_MEDUSA_PUBLISHABLE_KEY || "").trim(),
+  };
+}
 
 export function extractStoreProducts(payload: unknown): MedusaStoreProduct[] {
   const root = payload && typeof payload === "object" ? (payload as Record<string, unknown>) : {};
@@ -92,6 +96,13 @@ export async function fetchRocketStoreProducts(options: { limit?: number; handle
   } catch {
     return fetchServerStoreProducts(options);
   }
+
+  const medusa = await fetchServerStoreProducts(options);
+  if (medusa.products.length > 0 || medusa.reason === null) return medusa;
+
+  const supabase = await fetchSupabaseStorefrontProducts(options);
+  if (supabase.products.length > 0) return supabase;
+  return medusa.reason ? medusa : supabase;
 }
 
 export function productCardProofAttributes(product: MedusaStoreProduct) {

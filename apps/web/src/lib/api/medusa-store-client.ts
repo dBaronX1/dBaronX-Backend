@@ -1,3 +1,6 @@
+import { getPublicEnv } from "@/lib/env";
+import { firstMedusaPriceMinor, firstMedusaVariantId } from "@/lib/medusa-product-utils";
+
 export type StoreProductVariant = Record<string, unknown> & {
   id?: string;
   title?: string;
@@ -110,9 +113,7 @@ export function productDisplayPrice(product: MedusaStoreProduct | null | undefin
 
 export function productPrimaryVariantId(product: MedusaStoreProduct | null | undefined) {
   if (product?.checkoutEnabled === false) return "";
-  if (typeof product?.defaultVariantId === "string" && product.defaultVariantId) return product.defaultVariantId;
-  const variant = Array.isArray(product?.variants) ? product?.variants?.[0] : null;
-  return typeof variant?.id === "string" ? variant.id : "";
+  return firstMedusaVariantId(product);
 }
 
 export function productPrimaryImage(product: MedusaStoreProduct | null | undefined) {
@@ -200,19 +201,10 @@ function normalizeVariants(variants: StoreProductVariant[]): StoreProductVariant
 }
 
 function resolvePriceInfo(product: MedusaStoreProduct) {
-  const variant = Array.isArray(product.variants) ? product.variants[0] : null;
-  const calculated = variant?.calculated_price;
-  if (calculated && typeof calculated === "object") {
-    const amount = Number((calculated as Record<string, unknown>).calculated_amount ?? (calculated as Record<string, unknown>).amount);
-    const currency = String((calculated as Record<string, unknown>).currency_code ?? (calculated as Record<string, unknown>).currency ?? "usd").toLowerCase();
-    if (amount > 0) return { price: amount / 100, priceMinor: amount, priceFormatted: formatMinor(amount, currency), currencyCode: currency.toUpperCase() };
-  }
-  const price = Array.isArray(variant?.prices) ? variant.prices.find((item) => Number(item?.amount) > 0) : null;
-  const amount = Number(price?.amount ?? 0);
-  const currency = String(price?.currency_code || "usd").toLowerCase();
-  return amount > 0
-    ? { price: amount / 100, priceMinor: amount, priceFormatted: formatMinor(amount, currency), currencyCode: currency.toUpperCase() }
-    : { price: undefined, priceMinor: undefined, priceFormatted: "Price shown at checkout", currencyCode: currency.toUpperCase() };
+  const resolved = firstMedusaPriceMinor(product);
+  return resolved.amount
+    ? { price: resolved.amount / 100, priceMinor: resolved.amount, priceFormatted: formatMinor(resolved.amount, resolved.currencyCode), currencyCode: resolved.currencyCode.toUpperCase() }
+    : { price: undefined, priceMinor: undefined, priceFormatted: "Price shown at checkout", currencyCode: resolved.currencyCode.toUpperCase() };
 }
 
 function resolveInventoryQuantity(product: MedusaStoreProduct) {
