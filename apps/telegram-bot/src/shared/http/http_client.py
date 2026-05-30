@@ -67,7 +67,7 @@ class InternalHttpClient:
         self._timeout = httpx.Timeout(settings.REQUEST_TIMEOUT_SECONDS)
         self._retries = settings.REQUEST_RETRY_COUNT
 
-    def _headers(self, *, actor_id: str | None = None, request_id: str | None = None, internal: bool = True) -> dict[str, str]:
+    def _headers(self, *, actor_id: str | None = None, request_id: str | None = None, internal: bool = True, extra_headers: dict[str, str] | None = None) -> dict[str, str]:
         settings = get_settings()
         headers = {
             "x-caller-service": "dbaronx-telegram-bot",
@@ -83,6 +83,10 @@ class InternalHttpClient:
             headers["x-actor-id"] = actor_id
         if request_id:
             headers["x-request-id"] = request_id
+        if extra_headers:
+            for key, value in extra_headers.items():
+                if key and value:
+                    headers[str(key)] = str(value)
         return headers
 
 
@@ -108,13 +112,14 @@ class InternalHttpClient:
         request_id: str | None = None,
         params: dict[str, Any] | None = None,
         internal: bool = True,
+        extra_headers: dict[str, str] | None = None,
     ) -> dict[str, Any]:
         attempts = max(1, self._retries + 1)
         last_error: Exception | None = None
         for attempt in range(attempts):
             try:
                 async with httpx.AsyncClient(timeout=self._timeout, base_url=base_url) as client:
-                    response = await client.get(path, headers=self._headers(actor_id=actor_id, request_id=request_id, internal=internal), params=params)
+                    response = await client.get(path, headers=self._headers(actor_id=actor_id, request_id=request_id, internal=internal, extra_headers=extra_headers), params=params)
                     payload = response.json() if response.content else {}
                     if response.status_code >= 500 and attempt + 1 < attempts:
                         await asyncio.sleep(0.2 * (attempt + 1))
