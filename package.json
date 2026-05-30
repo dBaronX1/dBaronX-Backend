@@ -44,7 +44,8 @@
     "cj:operator:onboard": "pnpm --filter dbaronx-api run cj:operator:onboard",
     "cj:operator:readiness": "pnpm --filter dbaronx-api run cj:operator:readiness",
     "first-product:visible-checkout": "node scripts/e2e-first-cj-product-visible-checkout-smoke.mjs",
-    "medusa:publishable-key:ensure": "pnpm --filter @dbaronx/medusa run publishable-key:ensure"
+    "medusa:publishable-key:ensure": "pnpm --filter @dbaronx/medusa run publishable-key:ensure",
+    "medusa:manual-cj-products:seed": "pnpm --filter @dbaronx/medusa run manual-cj-products:seed"
   },
   "pnpm": {
     "onlyBuiltDependencies": [

@@ -53,6 +53,29 @@ curl -H "x-publishable-api-key: <key>" https://dbaronx-medusa-xrwh.onrender.com/
 
 The legacy manual fallback is `DBX_CONFIRM_PRINT_MEDUSA_PUBLISHABLE_KEY=true pnpm --filter @dbaronx/medusa run publishable-key:print`, but prefer the workflow because it does not require Medusa Admin UI `/app` and writes the one-time full token only to the private artifact. Medusa Admin `/app` may be unavailable because the admin build is disabled, and `/` or `/app` returning `Cannot GET` is not a Store API blocker. Do not use a deleted/old DB key. Then run the one controlled CJ shirt seed through the `Medusa First Product Seed` GitHub Action, a Render one-off job, or Render shell command. Keep the normal command above in the Web Service and run the smokes with the new key before sending a customer to checkout.
 
+
+## Manual curated CJ product batch
+
+Use **Medusa Manual CJ Curated Products** when the operator has manually verified a small CJ product list and needs real customer-buyable catalog items while automatic CJ onboarding continues separately. This path does not call the CJ API and does not add products to Rocket directly; it writes buyable products to Medusa only when `MEDUSA_DATABASE_URL` points to the Medusa database and the workflow confirmation is explicit.
+
+Recommended first run:
+
+```text
+confirmSeed=true
+dryRun=true
+includeDrafts=false
+```
+
+Actual seed run after reviewing the dry-run artifact:
+
+```text
+confirmSeed=true
+dryRun=false
+includeDrafts=false
+```
+
+The batch contains seven buyable `manual_verified_for_checkout` CJ products and one incomplete draft humidifier. The draft remains non-buyable until image, inventory, supplier price, shipping cost, total cost, and selling price are completed. Supplier cost and shipping cost stay in Medusa internal metadata and must not be shown by Rocket or Telegram customer flows. Automatic CJ onboarding remains separate: preview → import → approve-safe → publish-approved/full-safe, one category at a time after cooldown when rate-limited.
+
 ## Render environment checklist
 
 ### NestJS/API Render service only
