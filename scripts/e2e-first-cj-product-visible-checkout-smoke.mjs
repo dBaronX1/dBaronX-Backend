@@ -118,7 +118,7 @@ const result = {
   productIsNotDemo: CHECK_LIVE ? isNotDemo(product) : null,
   realSupplierProduct: CHECK_LIVE ? metadataOf(product).realSupplierProduct === true : null,
   productImageExists: CHECK_LIVE ? hasImage(product) : null,
-  productPriceExists: CHECK_LIVE ? firstPriceAmount(variant) > 0 : null,
+  productPriceExists: CHECK_LIVE ? firstPriceAmount(variant, product) > 0 : null,
   productVariantExists: CHECK_LIVE ? Boolean(variant?.id) : null,
   productStockInventoryExists: CHECK_LIVE ? hasStock(product, variant) : null,
   publicProductUrl: `${WEB_BASE_URL}/products/${clean(product?.handle || EXPECTED.handle)}`,
@@ -151,23 +151,19 @@ function buildLiveReadiness(currentProduct, currentVariant, store, web) {
   if (metadataOf(currentProduct).realSupplierProduct !== true) liveBlockers.push('first_cj_product_real_supplier_flag_missing');
   if (!hasImage(currentProduct)) liveBlockers.push('first_cj_product_image_missing');
   if (!currentVariant?.id) liveBlockers.push('first_cj_product_variant_missing');
-  if (firstPriceAmount(currentVariant) <= 0) liveBlockers.push('first_cj_product_price_missing');
+  if (firstPriceAmount(currentVariant, product) <= 0) liveBlockers.push('first_cj_product_price_missing');
   if (!hasStock(currentProduct, currentVariant)) liveBlockers.push('first_cj_product_stock_inventory_missing');
   return { blockers: liveBlockers };
 }
 
-function isCheckoutCandidate(product) { const variant = firstVariant(product); return Boolean(product && isNotDemo(product) && supplierSignal(product) && hasImage(product) && variant?.id && firstPriceAmount(variant) > 0 && hasStock(product, variant)); }
-function isManualCuratedBuyableCjProduct(product) { const metadata = metadataOf(product); return Boolean(isCheckoutCandidate(product) && clean(metadata.supplier).toLowerCase() === 'cj' && metadata.manualCurated === true && metadata.buyable === true && metadata.supplierVerificationStatus === 'manual_verified_for_checkout'); }
+function isCheckoutCandidate(product) { const variant = firstVariant(product); return Boolean(product && isNotDemo(product) && supplierSignal(product) && hasImage(product) && variant?.id && firstPriceAmount(variant, product) > 0 && hasStock(product, variant)); }
+function isManualCuratedBuyableCjProduct(product) { const metadata = metadataOf(product); const variantMetadata = metadataOf(firstVariant(product)); return Boolean(isCheckoutCandidate(product) && clean(metadata.supplier || variantMetadata.supplier).toLowerCase() === 'cj' && metadata.manualCurated === true && metadata.buyable === true && ['manual_verified_for_checkout', 'verified_for_checkout'].includes(metadata.supplierVerificationStatus)); }
 function isExactCjProduct(product) {
   const metadata = metadataOf(product);
   const variantMetadata = metadataOf(firstVariant(product));
-  return Boolean(
-    product &&
-      clean(product.handle) === EXPECTED.handle &&
-      clean(metadata.supplier || variantMetadata.supplier).toLowerCase() === EXPECTED.supplier &&
-      clean(metadata.supplierProductId || metadata.supplier_product_id || variantMetadata.supplierProductId || variantMetadata.supplier_product_id) === EXPECTED.supplierProductId &&
-      clean(metadata.supplierSku || metadata.supplier_sku || variantMetadata.supplierSku || variantMetadata.supplier_sku || firstVariant(product)?.sku) === EXPECTED.supplierSku,
-  );
+  const supplierProductSignal = clean(metadata.supplierProductId || metadata.supplier_product_id || variantMetadata.supplierProductId || variantMetadata.supplier_product_id || metadata.productUrl || metadata.sourceUrl);
+  const skuSignal = clean(metadata.supplierSku || metadata.supplier_sku || variantMetadata.supplierSku || variantMetadata.supplier_sku || firstVariant(product)?.sku);
+  return Boolean(product && clean(product.handle) === EXPECTED.handle && (!clean(metadata.supplier || variantMetadata.supplier) || clean(metadata.supplier || variantMetadata.supplier).toLowerCase() === EXPECTED.supplier) && (!supplierProductSignal || supplierProductSignal.includes(EXPECTED.supplierProductId) || supplierProductSignal === EXPECTED.supplierSku) && (!skuSignal || skuSignal === EXPECTED.supplierSku));
 }
 
 function isNotDemo(product) {
@@ -176,29 +172,35 @@ function isNotDemo(product) {
 }
 
 function hasImage(product) {
-  return Boolean(clean(product?.thumbnail) || clean(product?.image) || clean(product?.image_url) || (Array.isArray(product?.images) && product.images.some((image) => clean(image?.url))));
+  const metadata = metadataOf(product);
+  return Boolean(clean(product?.thumbnail) || clean(product?.image) || clean(product?.image_url) || clean(metadata.imageUrl) || clean(metadata.image_url) || (Array.isArray(product?.images) && product.images.some((image) => clean(image?.url))));
 }
 
 function hasStock(product, variant) {
   if (!variant) return false;
   if (variant.manage_inventory === false) return true;
-  return [product?.inventoryQuantity, variant.inventory_quantity, variant.stocked_quantity, variant.available_quantity].some((value) => Number(value) > 0);
+  const metadata = metadataOf(product);
+  const variantMetadata = metadataOf(variant);
+  return [product?.inventoryQuantity, product?.inventory_quantity, metadata.stockQty, metadata.inventory, metadata.inventoryQuantity, variant.inventory_quantity, variant.stocked_quantity, variant.available_quantity, variantMetadata.stockQty, variantMetadata.inventory].some((value) => Number(value) > 0);
 }
 
-function firstPriceAmount(variant) {
-  if (!variant) return 0;
-  const calculated = variant.calculated_price;
+function firstPriceAmount(variant, product = null) {
+  if (!variant && !product) return 0;
+  const calculated = variant?.calculated_price;
   if (calculated && typeof calculated === 'object') {
-    const amount = Number(calculated.calculated_amount ?? calculated.amount ?? 0);
-    if (Number.isSafeInteger(amount) && amount > 0) return amount;
+    const nested = calculated.calculated_price && typeof calculated.calculated_price === 'object' ? calculated.calculated_price : {};
+    const priceObj = calculated.price && typeof calculated.price === 'object' ? calculated.price : {};
+    const amount = Number(calculated.calculated_amount ?? calculated.amount ?? calculated.original_amount ?? nested.amount ?? priceObj.amount ?? 0);
+    if (Number.isFinite(amount) && amount > 0) return amount;
   }
-  if (Array.isArray(variant.prices)) {
+  if (Array.isArray(variant?.prices)) {
     const price = variant.prices.find((item) => Number(item?.amount) > 0);
     const amount = Number(price?.amount || 0);
-    if (Number.isSafeInteger(amount) && amount > 0) return amount;
+    if (Number.isFinite(amount) && amount > 0) return amount;
   }
-  if (Number(variant.price) > 0) return Number(variant.price);
-  return 0;
+  if (Number(variant?.price) > 0) return Number(variant.price);
+  if (Number(product?.priceMinor) > 0) return Number(product.priceMinor);
+  return Number(product?.price || 0);
 }
 
 function firstVariant(product) {

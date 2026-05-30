@@ -21,7 +21,8 @@ type StorySuccess = {
 
 type StoryFailureCode =
   | "ai_provider_missing"
-  | "ai_provider_failed"
+  | "provider_failed"
+  | "fastapi_route_missing"
   | "fastapi_unavailable"
   | "validation_failed"
   | "rate_limited"
@@ -191,14 +192,18 @@ export class AiStoriesGenerationService {
 
         const rawCode = this.extractErrorCode(data);
         lastCode = rawCode;
+        if (response.status === 404) {
+          return { ok: false, failure: this.failure("fastapi_route_missing", "The FastAPI AI Stories route is not deployed yet.", { fastapiStatus: response.status, fastapiCode: rawCode }) };
+        }
         if (response.status === 422) {
           return { ok: false, failure: this.failure("validation_failed", "Please check the story details and try again.", { fastapiStatus: response.status, fastapiCode: rawCode }) };
         }
         if (response.status === 429) {
           return { ok: false, failure: this.failure("rate_limited", "Story generation is rate limited. Please wait a moment and try again.", { fastapiStatus: response.status }) };
         }
-        if (["ai_provider_missing", "ai_provider_failed", "persistence_failed"].includes(rawCode)) {
-          return { ok: false, failure: this.failure(rawCode as StoryFailureCode, this.safeMessage(rawCode as StoryFailureCode), { fastapiStatus: response.status, fastapiCode: rawCode, fastapiDiagnostics: this.safeDiagnostics(data) }) };
+        const normalizedCode = rawCode === "ai_provider_failed" ? "provider_failed" : rawCode;
+        if (["ai_provider_missing", "provider_failed", "persistence_failed"].includes(normalizedCode)) {
+          return { ok: false, failure: this.failure(normalizedCode as StoryFailureCode, this.safeMessage(normalizedCode as StoryFailureCode), { fastapiStatus: response.status, fastapiCode: rawCode, fastapiDiagnostics: this.safeDiagnostics(data) }) };
         }
       } catch {
         lastCode = "fastapi_unavailable";
@@ -211,13 +216,14 @@ export class AiStoriesGenerationService {
   private normalizeSuccess(data: unknown): StoryResponse {
     const record = data && typeof data === "object" ? (data as Record<string, unknown>) : {};
     if (record.success === false) {
-      const code = this.extractErrorCode(record) as StoryFailureCode;
+      const rawCode = this.extractErrorCode(record);
+      const code = (rawCode === "ai_provider_failed" ? "provider_failed" : rawCode) as StoryFailureCode;
       return this.failure(code, this.safeMessage(code), { fastapiDiagnostics: this.safeDiagnostics(record) });
     }
 
     const content = String(record.content || "").trim();
     if (!content) {
-      return this.failure("ai_provider_failed", "The AI provider did not return usable story text.", { emptyContent: true });
+      return this.failure("provider_failed", "The AI provider did not return usable story text.", { emptyContent: true });
     }
 
     const wordCount = Number(record.wordCount || record.word_count || content.split(/\s+/).filter(Boolean).length);
@@ -272,7 +278,7 @@ export class AiStoriesGenerationService {
   }
 
   private fastapiBaseUrl(): string {
-    return String(this.config.get<string>("FASTAPI_BASE_URL") || process.env.FASTAPI_BASE_URL || "").trim().replace(/\/+$/, "");
+    return String(this.config.get<string>("FASTAPI_BASE_URL") || process.env.FASTAPI_BASE_URL || process.env.NEXT_PUBLIC_FASTAPI_BASE_URL || "").trim().replace(/\/+$/, "");
   }
 
   private fastapiHeaders(): Record<string, string> {
@@ -300,13 +306,14 @@ export class AiStoriesGenerationService {
   private safeMessage(code: StoryFailureCode): string {
     const messages: Record<StoryFailureCode, string> = {
       ai_provider_missing: "AI story generation is not configured yet. Please contact support.",
-      ai_provider_failed: "The AI provider could not generate the story. Please revise the prompt or try again.",
+      provider_failed: "The AI provider could not generate the story. Please revise the prompt or try again.",
+      fastapi_route_missing: "The FastAPI AI Stories route is not deployed yet.",
       fastapi_unavailable: "The story generation service is unavailable. Please try again shortly.",
       validation_failed: "Please check the story details and try again.",
       rate_limited: "Story generation is rate limited. Please wait a moment and try again.",
       persistence_failed: "The story was generated, but saving it failed. Please copy the story before leaving this page.",
     };
-    return messages[code] || messages.ai_provider_failed;
+    return messages[code] || messages.provider_failed;
   }
 
   private failure(code: StoryFailureCode, message: string, diagnostics: Record<string, unknown>): StoryFailure {

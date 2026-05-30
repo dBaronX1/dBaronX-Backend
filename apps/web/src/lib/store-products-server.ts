@@ -12,7 +12,7 @@ function cleanBaseUrl(value: string | undefined) {
 
 export function getMedusaStoreServerConfig() {
   return {
-    backendUrl: cleanBaseUrl(process.env.MEDUSA_BACKEND_URL || process.env.NEXT_PUBLIC_MEDUSA_BACKEND_URL),
+    backendUrl: cleanBaseUrl(process.env.MEDUSA_BASE_URL || process.env.MEDUSA_BACKEND_URL || process.env.NEXT_PUBLIC_MEDUSA_BASE_URL || process.env.NEXT_PUBLIC_MEDUSA_BACKEND_URL),
     publishableKey: (process.env.MEDUSA_PUBLISHABLE_KEY || process.env.NEXT_PUBLIC_MEDUSA_PUBLISHABLE_KEY || "").trim(),
   };
 }
@@ -81,9 +81,6 @@ function rocketStoreProductsUrl(options: { limit?: number; handle?: string } = {
 }
 
 export async function fetchRocketStoreProducts(options: { limit?: number; handle?: string } = {}): Promise<MedusaProductResult> {
-  const supabase = await fetchSupabaseStorefrontProducts(options);
-  if (supabase.products.length > 0 || supabase.reason === null) return supabase;
-
   const url = rocketStoreProductsUrl(options);
   if (url) {
     try {
@@ -102,7 +99,12 @@ export async function fetchRocketStoreProducts(options: { limit?: number; handle
     }
   }
 
-  return fetchServerStoreProducts(options);
+  const medusa = await fetchServerStoreProducts(options);
+  if (medusa.products.length > 0 || medusa.reason === null) return medusa;
+
+  const supabase = await fetchSupabaseStorefrontProducts(options);
+  if (supabase.products.length > 0) return supabase;
+  return medusa.reason ? medusa : supabase;
 }
 
 export function productCardProofAttributes(product: MedusaStoreProduct) {
