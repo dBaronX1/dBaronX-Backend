@@ -46,7 +46,9 @@ const SNIPPET_LIMIT = 900;
 const CANONICAL_STRIPE_WEBHOOK_URL =
   "https://dbaronx-api-unified-qo2j.onrender.com/api/checkout/stripe/webhook";
 const STRIPE_WEBHOOK_URL_EXPECTED = `${API_BASE_URL}/api/checkout/stripe/webhook`;
-const ALLOW_LIVE_STRIPE_SMOKE =
+const DBX_ALLOW_LIVE_CHECKOUT = String(process.env.DBX_ALLOW_LIVE_CHECKOUT || "").trim().toLowerCase() === "true";
+const DBX_ALLOW_LIVE_STRIPE_SMOKE = String(process.env.DBX_ALLOW_LIVE_STRIPE_SMOKE || "").trim().toLowerCase() === "true";
+const ALLOW_LIVE_STRIPE_SMOKE = (DBX_ALLOW_LIVE_CHECKOUT && DBX_ALLOW_LIVE_STRIPE_SMOKE) ||
   String(process.env.ALLOW_LIVE_STRIPE_SMOKE || "")
     .trim()
     .toLowerCase() === "true";
@@ -137,14 +139,40 @@ function cartFrom(data) {
 
 function firstProductWithVariant(products) {
   return (
-    array(products).find((product) => product?.handle === EXPECTED_CJ_HANDLE && verifiedRealSupplierProduct(product) && array(product?.variants).length > 0) ||
+    array(products).find((product) => product?.handle === EXPECTED_CJ_HANDLE && verifiedRealSupplierProduct(product) && firstVariant(product)?.id && firstPriceAmount(firstVariant(product), product) > 0) ||
     null
   );
 }
 
+function firstVariant(product) {
+  return array(product?.variants).find((variant) => variant && typeof variant === "object" && variant.id) || array(product?.variants)[0] || null;
+}
+
+function metadataOf(item) {
+  return item && typeof item.metadata === "object" && item.metadata ? item.metadata : {};
+}
+
 function verifiedRealSupplierProduct(product) {
-  const metadata = product && typeof product.metadata === "object" && product.metadata ? product.metadata : {};
-  return metadata.realSupplierProduct === true && metadata.demo === false && metadata.supplierVerificationStatus === "verified_for_checkout";
+  const metadata = metadataOf(product);
+  return metadata.realSupplierProduct === true && metadata.demo === false && ["verified_for_checkout", "manual_verified_for_checkout"].includes(String(metadata.supplierVerificationStatus || ""));
+}
+
+function firstPriceAmount(variant, product = null) {
+  if (!variant && !product) return 0;
+  const calculated = variant?.calculated_price;
+  if (calculated && typeof calculated === "object") {
+    const nested = calculated.calculated_price && typeof calculated.calculated_price === "object" ? calculated.calculated_price : {};
+    const priceObj = calculated.price && typeof calculated.price === "object" ? calculated.price : {};
+    const amount = Number(calculated.calculated_amount ?? calculated.amount ?? calculated.original_amount ?? nested.amount ?? priceObj.amount ?? 0);
+    if (Number.isFinite(amount) && amount > 0) return amount;
+  }
+  if (Array.isArray(variant?.prices)) {
+    const price = variant.prices.find((item) => Number(item?.amount) > 0);
+    if (price) return Number(price.amount);
+  }
+  if (Number(variant?.price) > 0) return Number(variant.price);
+  if (Number(product?.priceMinor) > 0) return Number(product.priceMinor);
+  return Number(product?.price || 0);
 }
 
 function medusaDatabaseNotReady(probe) {
@@ -224,7 +252,7 @@ function stripeSessionModeFromId(sessionId) {
 }
 
 function liveSessionTestModeWarning() {
-  return "Do not open/pay this live session for test-card validation. Configure STRIPE_SECRET_KEY to a test-mode sk_test_* value and STRIPE_WEBHOOK_SECRET from a test webhook endpoint, redeploy, and rerun. Only set ALLOW_LIVE_STRIPE_SMOKE=true for an explicitly approved live smoke.";
+  return "Do not open/pay this live session for test-card validation. Configure STRIPE_SECRET_KEY to a test-mode sk_test_* value and STRIPE_WEBHOOK_SECRET from a test webhook endpoint, redeploy, and rerun. Only set DBX_ALLOW_LIVE_CHECKOUT=true and DBX_ALLOW_LIVE_STRIPE_SMOKE=true for an explicitly approved live smoke.";
 }
 
 function normalizeStripeKeyMode(value) {
@@ -450,8 +478,11 @@ const out = {
   canonicalStripeWebhookUrl: CANONICAL_STRIPE_WEBHOOK_URL,
   supabaseWebhookWarning:
     "Do not configure a Supabase URL as the direct Stripe webhook destination unless an intentional Supabase relay is built; Stripe should post directly to the API webhook URL.",
-  liveCheckoutExplicitlyAllowed: false,
+  liveCheckoutExplicitlyAllowed: DBX_ALLOW_LIVE_CHECKOUT,
   liveStripeSmokeExplicitlyAllowed: ALLOW_LIVE_STRIPE_SMOKE,
+  dbxAllowLiveCheckout: DBX_ALLOW_LIVE_CHECKOUT,
+  dbxAllowLiveStripeSmoke: DBX_ALLOW_LIVE_STRIPE_SMOKE,
+  liveStripeOperatorGuidance: "For controlled smoke, use Stripe test keys in API env. For intentional live checkout only, set DBX_ALLOW_LIVE_CHECKOUT=true and DBX_ALLOW_LIVE_STRIPE_SMOKE=true. Do not create live checkout by accident.",
   createNewTestCheckout: DBX_CREATE_NEW_TEST_CHECKOUT,
   suppliedSessionIdUsed: Boolean(POST_PAYMENT_SESSION_ID),
   suppliedSessionOpenUnpaid: false,
@@ -655,7 +686,7 @@ if (handleProductsProbe.ok && array(handleProductsProbe.data?.products).length =
 if (handleProductsProbe.ok && !handleProduct) addBlocker("product_not_visible_by_exact_handle");
 if (productsProbe.ok && !listProduct) addBlocker("first_cj_product_not_seeded");
 out.productId = product?.id || null;
-out.variantId = product?.variants?.[0]?.id || null;
+out.variantId = firstVariant(product)?.id || null;
 if (!out.productId) addBlocker(product ? "product_id_missing" : "store_api_visible_product_missing_check_sales_channel_mismatch");
 if (!out.variantId) addBlocker(product ? "variant_id_missing" : "variant_missing_because_product_not_store_api_visible");
 

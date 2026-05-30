@@ -14,12 +14,13 @@ const storyConcepts = [
 ] as const;
 
 const errorMessages: Record<string, string> = {
-  ai_provider_missing: "Provider not configured. Please contact support so AI generation can be enabled.",
-  ai_provider_failed: "The AI provider could not generate this story. Try a clearer prompt or retry.",
-  fastapi_unavailable: "Generation service unavailable. Please retry in a moment.",
-  validation_failed: "Request validation failed. Please check the prompt, length, and tone.",
+  ai_provider_missing: "ai_provider_missing: Provider not configured. Please contact support so AI generation can be enabled.",
+  provider_failed: "provider_failed: The AI provider could not generate this story. Try a clearer prompt or retry.",
+  fastapi_route_missing: "fastapi_route_missing: The AI Stories generation route is not deployed yet. Please contact support.",
+  fastapi_unavailable: "fastapi_unavailable: Generation service unavailable. Please retry in a moment.",
+  validation_failed: "validation_failed: Request validation failed. Please check the prompt, length, and tone.",
   rate_limited: "Generation is rate limited. Please wait a moment and retry.",
-  persistence_failed: "Persistence failed but the story may have generated. Copy any visible story before leaving.",
+  persistence_failed: "persistence_failed: Persistence failed but the story may have generated. Copy any visible story before leaving.",
 };
 
 export function AiStoryGeneratorPanel({ compact = false }: { compact?: boolean }) {
