@@ -29,6 +29,9 @@ import {
 
 const CONFIRM_ENV = "DBX_CONFIRM_MANUAL_CJ_CURATED_SEED";
 const OUTPUT_PATH_ENV = "DBX_MANUAL_CJ_CURATED_PRODUCTS_OUTPUT_PATH";
+const LEGACY_OUTPUT_PATH_ENV = "MANUAL_CJ_CURATED_PRODUCTS_OUTPUT_PATH";
+const LIVE_STOREFRONT_KEY_TITLE = "dBaronX Live Storefront Publishable Key";
+const TAG_MODE = "metadata_only";
 
 type GraphRecord = Record<string, unknown>;
 type ProductResult = {
@@ -67,7 +70,9 @@ function pushUnique(values: string[], value: string | null | undefined) {
 
 function emit(result: Record<string, unknown>, exitCode = 0): never {
   const json = JSON.stringify(result, null, 2);
-  const outputPath = String(process.env[OUTPUT_PATH_ENV] || "").trim();
+  const outputPath = String(
+    process.env[OUTPUT_PATH_ENV] || process.env[LEGACY_OUTPUT_PATH_ENV] || "",
+  ).trim();
   if (outputPath) {
     mkdirSync(dirname(outputPath), { recursive: true });
     writeFileSync(outputPath, `${json}\n`, { encoding: "utf8" });
@@ -92,11 +97,21 @@ async function graph(
   return asArray<GraphRecord>(result, [entity, `${entity}s`]);
 }
 
-function tagsFor(product: ManualCjCuratedProduct) {
-  const tags = new Set<string>([product.category]);
+function tagValuesFor(product: ManualCjCuratedProduct) {
+  const tags = new Set<string>([product.category, product.label]);
   if (product.category === "headphones") tags.add("electronics");
   if (product.category === "humidifier") tags.add("home-living");
-  return Array.from(tags).map((value) => ({ value }));
+  if (product.category === "apparel") tags.add("menswear");
+  return Array.from(tags)
+    .map((value) => value.trim().toLowerCase())
+    .filter(Boolean);
+}
+
+
+function definedTagIds(tags: Array<{ id?: string | null }> = []) {
+  return tags
+    .map((tag) => tag.id)
+    .filter((id): id is string => typeof id === "string" && id.length > 0);
 }
 
 function publicDescription(product: ManualCjCuratedProduct) {
@@ -124,10 +139,12 @@ function metadataFor(product: ManualCjCuratedProduct) {
     totalCostMinorUsd: product.totalCostMinorUsd,
     shippingWarehouse: product.shippingWarehouse,
     shippingDestination: product.shippingDestination,
-    shippingCountries: ["AE"],
+    shippingCountries: product.shippingCountries,
     deliveryEstimate: product.deliveryEstimate || null,
     label: product.label,
     category: product.category,
+    searchTags: tagValuesFor(product),
+    tagMode: TAG_MODE,
     realSupplierProduct: product.realSupplierProduct,
     demo: product.demo,
     manualCurated: product.manualCurated,
@@ -151,7 +168,6 @@ function productInput(
     status: "published" as const,
     thumbnail: product.imageUrl,
     images: [{ url: product.imageUrl }],
-    tags: tagsFor(product),
     metadata,
     sales_channels: [{ id: salesChannelId }],
     shipping_profile_id: shippingProfileId,
@@ -181,7 +197,7 @@ function validateBuyable(product: ManualCjCuratedProduct): string[] {
   if (!product.imageUrl) blockers.push("missing_image");
   if (product.inventory <= 0) blockers.push("missing_inventory");
   if (product.supplierPriceMinorUsd <= 0) blockers.push("missing_supplier_price");
-  if (product.shippingCostMinorUsd <= 0) blockers.push("missing_shipping_cost");
+  if (product.shippingCostMinorUsd < 0) blockers.push("invalid_shipping_cost");
   if (product.sellingPriceMinorUsd <= 0) blockers.push("missing_selling_price");
   if (product.sellingPriceMinorUsd <= product.totalCostMinorUsd)
     blockers.push("selling_price_must_exceed_total_cost");
@@ -205,8 +221,7 @@ function sameManualCjProduct(
   return candidates.some(
     (metadata) =>
       String(metadata.supplier || "").toLowerCase() === "cj" &&
-      String(metadata.supplierSku || "") === product.sku &&
-      metadata.manualCurated === true,
+      String(metadata.supplierSku || "") === product.sku,
   );
 }
 
@@ -222,6 +237,15 @@ async function findProductByHandle(query: any, handle: string) {
       "variants.id",
       "variants.sku",
       "variants.metadata",
+      "variants.prices.id",
+      "variants.prices.amount",
+      "variants.prices.currency_code",
+      "variants.manage_inventory",
+      "variants.inventory_quantity",
+      "thumbnail",
+      "images.url",
+      "sales_channels.id",
+      "status",
     ],
     { handle },
     1,
@@ -229,23 +253,58 @@ async function findProductByHandle(query: any, handle: string) {
   return products[0] || null;
 }
 
+async function resolveLiveStorefrontSalesChannel(query: any) {
+  const keys = await graph(
+    query,
+    "api_key",
+    ["id", "title", "type", "sales_channels.id"],
+    { type: "publishable" },
+    100,
+  );
+  const liveKey = keys.find((candidate) => candidate.title === LIVE_STOREFRONT_KEY_TITLE);
+  const liveSalesChannelId = asArray<GraphRecord>(liveKey?.sales_channels)
+    .map(idOf)
+    .find((id): id is string => Boolean(id));
+  if (liveSalesChannelId) {
+    return {
+      salesChannelId: liveSalesChannelId,
+      salesChannelSource: "live_publishable_key_title",
+    };
+  }
+  return { salesChannelId: null, salesChannelSource: "live_publishable_key_missing" };
+}
+
 async function resolveContext(container: ExecArgs["container"], query: any) {
   const key = await ensurePublishableApiKey(container);
   const shipping = await ensureShippingReadiness(container, { repair: true });
   const consistency = await ensureLaunchSalesChannelConsistency(container);
+  const liveSalesChannel = await resolveLiveStorefrontSalesChannel(query);
   const salesChannels = await graph(
     query,
     "sales_channel",
     ["id", "name", "is_default"],
   );
-  const canonicalSalesChannelId =
-    consistency.canonicalSalesChannelId || key.salesChannelId || null;
+  const fallbackSalesChannelId =
+    consistency.canonicalSalesChannelId || key.salesChannelId || shipping.salesChannelId || null;
   const salesChannel =
-    salesChannels.find((channel) => idOf(channel) === canonicalSalesChannelId) ||
+    (liveSalesChannel.salesChannelId
+      ? salesChannels.find((channel) => idOf(channel) === liveSalesChannel.salesChannelId)
+      : null) ||
+    salesChannels.find((channel) => idOf(channel) === fallbackSalesChannelId) ||
     salesChannels.find((channel) => channel.name === DEFAULT_SALES_CHANNEL_NAME) ||
     salesChannels.find((channel) => channel.is_default === true) ||
     salesChannels[0] ||
     null;
+  const salesChannelId = idOf(salesChannel);
+  const salesChannelSource = liveSalesChannel.salesChannelId
+    ? liveSalesChannel.salesChannelSource
+    : salesChannelId === fallbackSalesChannelId
+      ? "canonical_or_publishable_fallback"
+      : salesChannel?.name === DEFAULT_SALES_CHANNEL_NAME
+        ? "default_named_sales_channel_fallback"
+        : salesChannel?.is_default === true
+          ? "default_flag_sales_channel_fallback"
+          : "first_sales_channel_fallback";
 
   const shippingProfiles = await graph(query, "shipping_profile", [
     "id",
@@ -266,7 +325,6 @@ async function resolveContext(container: ExecArgs["container"], query: any) {
     "name",
     "sales_channels.id",
   ]);
-  const salesChannelId = idOf(salesChannel);
   const stockLocation =
     stockLocations.find((location) => idOf(location) === consistency.stockLocationId) ||
     stockLocations.find((location) => idOf(location) === shipping.stockLocationId) ||
@@ -288,15 +346,20 @@ async function resolveContext(container: ExecArgs["container"], query: any) {
     pushUnique(blockers, blocker);
   }
   if (!salesChannelId) pushUnique(blockers, "sales_channel_missing");
+  if (!liveSalesChannel.salesChannelId) {
+    pushUnique(blockers, "live_storefront_publishable_key_sales_channel_missing");
+  }
   if (!idOf(shippingProfile)) pushUnique(blockers, "shipping_profile_missing");
   if (!idOf(stockLocation)) pushUnique(blockers, "stock_location_missing");
 
   return {
     blockers,
     salesChannelId,
+    salesChannelSource,
     shippingProfileId: idOf(shippingProfile),
     stockLocationId: idOf(stockLocation),
-    publishableKeyTitle: KEY_TITLE,
+    publishableKeyTitle: LIVE_STOREFRONT_KEY_TITLE,
+    ensuredPublishableKeyTitle: KEY_TITLE,
   };
 }
 
@@ -387,6 +450,53 @@ async function createOrUpdateProduct(
   return { action, product: existing, variant, blockers: [] };
 }
 
+function validateSeededProduct(
+  productRecord: GraphRecord | null,
+  variant: GraphRecord | null,
+  inventoryReady: boolean,
+  salesChannelId: string,
+  sourceProduct: ManualCjCuratedProduct,
+) {
+  const blockers: string[] = [];
+  const metadata = isRecord(productRecord?.metadata) ? productRecord.metadata : {};
+  const variantMetadata = isRecord(variant?.metadata) ? variant.metadata : {};
+  const prices = asArray<GraphRecord>(variant?.prices);
+  const images = asArray<GraphRecord>(productRecord?.images);
+  const salesChannels = asArray<GraphRecord>(productRecord?.sales_channels);
+  const supplier = String(metadata.supplier || variantMetadata.supplier || "").toLowerCase();
+  const supplierSku = String(metadata.supplierSku || variantMetadata.supplierSku || variant?.sku || "");
+
+  if (!idOf(productRecord)) pushUnique(blockers, "product_missing_after_seed");
+  if (productRecord?.status !== "published") pushUnique(blockers, "product_not_published_after_seed");
+  if (!idOf(variant)) pushUnique(blockers, "variant_missing_after_seed");
+  if (
+    !prices.some(
+      (price) =>
+        Number(price.amount || 0) > 0 &&
+        String(price.currency_code || "").toLowerCase() === "usd",
+    )
+  ) {
+    pushUnique(blockers, "usd_price_missing_after_seed");
+  }
+  if (!inventoryReady) pushUnique(blockers, "inventory_level_missing_after_seed");
+  if (!productRecord?.thumbnail && !images.some((image) => Boolean(image.url))) {
+    pushUnique(blockers, "product_image_missing_after_seed");
+  }
+  if (!salesChannels.some((channel) => idOf(channel) === salesChannelId)) {
+    pushUnique(blockers, "live_sales_channel_link_missing_after_seed");
+  }
+  if (
+    supplier !== "cj" ||
+    supplierSku !== sourceProduct.sku ||
+    metadata.realSupplierProduct !== true ||
+    metadata.manualCurated !== true ||
+    metadata.buyable !== true
+  ) {
+    pushUnique(blockers, "supplier_metadata_missing_after_seed");
+  }
+  return blockers;
+}
+
 async function syncInventory(
   container: ExecArgs["container"],
   query: any,
@@ -460,6 +570,10 @@ export default async function seedManualCjCuratedProducts({ container }: ExecArg
         totalUpdated: 0,
         totalSkipped: 0,
         totalBlocked: 1,
+        salesChannelId: null,
+        salesChannelSource: null,
+        tagMode: TAG_MODE,
+        productResults: [],
         products: [],
         blockers,
         nextManualStep: `Rerun with ${CONFIRM_ENV}=true after confirming these manually curated CJ products should be seeded to Medusa.`,
@@ -523,11 +637,15 @@ export default async function seedManualCjCuratedProducts({ container }: ExecArg
       totalUpdated: 0,
       totalSkipped: draftProducts.length,
       totalBlocked: dryRunProducts.filter((product) => product.blockers.length).length,
+      salesChannelId: null,
+      salesChannelSource: null,
+      tagMode: TAG_MODE,
+      productResults: [...products, ...dryRunProducts],
       products: [...products, ...dryRunProducts],
       blockers,
       nextManualStep:
         blockers.length === 0
-          ? "Dry run passed. Rerun with dryRun=false to seed the 7 manually verified CJ products; the incomplete draft remains non-buyable."
+          ? "Dry run passed. Rerun with dryRun=false to seed the manually verified CJ products; the incomplete draft remains non-buyable."
           : "Resolve manual curated product blockers before running the real seed.",
     });
   }
@@ -545,6 +663,10 @@ export default async function seedManualCjCuratedProducts({ container }: ExecArg
         totalUpdated: 0,
         totalSkipped: draftProducts.length,
         totalBlocked: products.filter((product) => product.action === "blocked").length,
+        salesChannelId: null,
+        salesChannelSource: null,
+        tagMode: TAG_MODE,
+        productResults: products,
         products,
         blockers,
         nextManualStep:
@@ -570,6 +692,10 @@ export default async function seedManualCjCuratedProducts({ container }: ExecArg
         totalUpdated: 0,
         totalSkipped: draftProducts.length,
         totalBlocked: 1,
+        salesChannelId: context.salesChannelId,
+        salesChannelSource: context.salesChannelSource,
+        tagMode: TAG_MODE,
+        productResults: products,
         products,
         blockers,
         publishableKeyTitle: context.publishableKeyTitle,
@@ -613,10 +739,13 @@ export default async function seedManualCjCuratedProducts({ container }: ExecArg
       context.stockLocationId,
       product.inventory,
     );
-    const productBlockers: string[] = [];
-    if (!idOf(upsert.product)) pushUnique(productBlockers, "product_missing_after_seed");
-    if (!idOf(upsert.variant)) pushUnique(productBlockers, "variant_missing_after_seed");
-    if (!inventoryReady) pushUnique(productBlockers, "inventory_level_missing_after_seed");
+    const productBlockers = validateSeededProduct(
+      upsert.product,
+      upsert.variant,
+      inventoryReady,
+      context.salesChannelId,
+      product,
+    );
     if (upsert.action === "seeded") totalSeeded += 1;
     if (upsert.action === "updated") totalUpdated += 1;
     if (productBlockers.length) totalBlocked += 1;
@@ -646,11 +775,15 @@ export default async function seedManualCjCuratedProducts({ container }: ExecArg
       totalUpdated,
       totalSkipped: draftProducts.length,
       totalBlocked,
+      salesChannelId: context.salesChannelId,
+      salesChannelSource: context.salesChannelSource,
+      tagMode: TAG_MODE,
+      productResults: products,
       products,
       blockers,
-      salesChannelId: context.salesChannelId,
       stockLocationId: context.stockLocationId,
       publishableKeyTitle: context.publishableKeyTitle,
+      ensuredPublishableKeyTitle: context.ensuredPublishableKeyTitle,
       nextManualStep: success
         ? "Run the manual curated products smoke and first-sale readiness. The draft humidifier remains non-buyable until completed."
         : "Resolve blockers, then rerun this manual curated seed. Do not mark blocked products buyable.",
