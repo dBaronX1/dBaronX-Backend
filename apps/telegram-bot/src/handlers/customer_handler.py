@@ -27,6 +27,7 @@ class CustomerCommandService:
         self.api_base_url = settings.api_base_url
         self.medusa_base_url = settings.medusa_base_url
         self.web_base_url = settings.web_base_url
+        self.medusa_publishable_key = settings.MEDUSA_PUBLISHABLE_KEY.strip()
 
     async def handle(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         command = _command_name(update)
@@ -271,7 +272,8 @@ class CustomerCommandService:
     async def _medusa_get(self, path: str, *, actor_id: str, params: dict[str, Any] | None = None) -> dict[str, Any]:
         if not self.medusa_base_url:
             return {"success": False, "data": {}, "blockers": ["MEDUSA_BASE_URL_missing"], "statusCode": 0, "message": "MEDUSA_BASE_URL missing"}
-        return await self.http.get(self.medusa_base_url, path, actor_id=actor_id, params=params, internal=False)
+        headers = {"x-publishable-api-key": self.medusa_publishable_key} if self.medusa_publishable_key else None
+        return await self.http.get(self.medusa_base_url, path, actor_id=actor_id, params=params, internal=False, extra_headers=headers)
 
 
 def _command_name(update: Update) -> str:
