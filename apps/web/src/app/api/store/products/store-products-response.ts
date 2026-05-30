@@ -3,23 +3,13 @@ import { NextResponse } from "next/server";
 import { fetchSupabaseStorefrontProductCache } from "@/lib/store-products-supabase-fallback";
 import { extractStoreProducts, getMedusaStoreServerConfig, normalizeServerStoreProduct } from "@/lib/store-products-server";
 
-async function productsFallbackOrSafeFailure(status = 200, handle?: string, limit?: string) {
-  const fallback = await fetchSupabaseStorefrontProductCache({ handle, limit: Number(limit || 20) || 20 });
-  const product = handle ? fallback.products.find((item) => item.handle === handle) || fallback.products[0] || null : undefined;
-  if ((handle && product) || (!handle && fallback.products.length > 0)) {
-    return NextResponse.json(
-      {
-        success: true,
-        source: "supabase_storefront_product_cache_fallback",
-        message: "Products are showing from a storefront cache. Checkout still requires Medusa availability.",
-        ...(handle ? { product } : {}),
-        products: handle && product ? [product] : fallback.products,
-      },
-      { headers: { "cache-control": "no-store, max-age=0" } },
-    );
-  }
-  return safeFailure(status, handle);
-}
+type StorefrontProductsPayload = {
+  success?: boolean;
+  source?: string;
+  product?: unknown;
+  products?: unknown[];
+  message?: string;
+};
 
 function safeFailure(status = 200, handle?: string, code = "products_unavailable") {
   return NextResponse.json(
@@ -52,19 +42,14 @@ export async function storeProductsResponse({ handle = "", limit = "20", categor
   if (category) url.searchParams.set("category_id", category);
 
   try {
-    const response = await fetch(url, {
-      headers: {
-        accept: "application/json",
-        "x-publishable-api-key": publishableKey,
-      },
-      cache: "no-store",
+    const response = await nestApiRequest<StorefrontProductsPayload>({
+      path: storefrontPath(cleanHandle, cleanLimit),
     });
-    const payload = await response.json().catch(() => null);
+
     if (!response.ok) {
       console.error("[store-products] Medusa Store API product request failed", {
         status: response.status,
-        statusText: response.statusText,
-        payloadShape: payload && typeof payload === "object" ? Object.keys(payload as Record<string, unknown>) : typeof payload,
+        handle: cleanHandle || undefined,
       });
       return safeFailure(200, handle, "medusa_store_products_http_error");
     }

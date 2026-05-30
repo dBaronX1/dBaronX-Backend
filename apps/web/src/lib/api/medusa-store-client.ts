@@ -49,75 +49,29 @@ export type MedusaProductResult = {
 
 const SECRET_FIELD_PATTERN = /(secret|token|password|api[_-]?key|publishable[_-]?key|service[_-]?role|webhook|database[_-]?url|admin)/i;
 
-function config() {
-  const env = getPublicEnv();
-  return {
-    backendUrl: env.medusaBackendUrl,
-    publishableKey: env.medusaPublishableKey,
-  };
-}
-
-function medusaHeaders(): Record<string, string> {
-  const { publishableKey } = config();
-  return publishableKey ? { "x-publishable-api-key": publishableKey } : {};
-}
-
-function medusaStoreUrl(path: string, params?: Record<string, string | number>) {
-  const { backendUrl } = config();
-  if (!backendUrl) return null;
-  const url = new URL(`${backendUrl}${path.startsWith("/") ? path : `/${path}`}`);
-  Object.entries(params || {}).forEach(([key, value]) => url.searchParams.set(key, String(value)));
-  return url;
+function storeProductsPath(options: { limit?: number; handle?: string } = {}) {
+  const params = new URLSearchParams();
+  params.set("limit", String(options.limit || (options.handle ? 5 : 20)));
+  if (options.handle) params.set("handle", options.handle);
+  return options.handle ? `/api/store/products/${encodeURIComponent(options.handle)}?${params}` : `/api/store/products?${params}`;
 }
 
 export async function fetchMedusaStoreProducts(options: { limit?: number; handle?: string } = {}): Promise<MedusaProductResult> {
-  const internal = await fetchInternalStoreProducts(options);
-  if (internal.products.length > 0 || internal.reason === null) return internal;
-
-  const { backendUrl, publishableKey } = config();
-  if (!backendUrl || !publishableKey) {
-    return { products: [], reason: "products_unavailable", attemptedEndpoint: options.handle ? `/api/store/products/${encodeURIComponent(options.handle)}` : "/api/store/products" };
-  }
-  const url = medusaStoreUrl("/store/products", {
-    limit: options.limit || 20,
-    ...(options.handle ? { handle: options.handle } : {}),
-  });
-  if (!url) return { products: [], reason: "products_unavailable", attemptedEndpoint: options.handle ? `/api/store/products/${encodeURIComponent(options.handle)}` : "/api/store/products" };
+  const attemptedEndpoint = storeProductsPath(options);
 
   try {
-    const response = await fetch(url, {
-      headers: medusaHeaders(),
-      cache: "no-store",
-    });
-    const payload = await response.json().catch(() => null);
-    if (!response.ok) {
-      return { products: [], reason: "products_unavailable", status: response.status, attemptedEndpoint: url.toString() };
-    }
-    return { products: extractProducts(payload).map(normalizeStoreProduct), reason: null, status: response.status, attemptedEndpoint: url.toString() };
-  } catch {
-    return { products: [], reason: "products_unavailable", attemptedEndpoint: url.toString() };
-  }
-}
-
-async function fetchInternalStoreProducts(options: { limit?: number; handle?: string }): Promise<MedusaProductResult> {
-  if (typeof window === "undefined") return { products: [], reason: "products_unavailable" };
-  const params = new URLSearchParams();
-  params.set("limit", String(options.limit || 20));
-  if (options.handle) params.set("handle", options.handle);
-  const path = options.handle ? `/api/store/products/${encodeURIComponent(options.handle)}?${params}` : `/api/store/products?${params}`;
-  try {
-    const attemptedEndpoint = path;
-    const response = await fetch(path, {
+    const response = await fetch(attemptedEndpoint, {
       headers: { accept: "application/json" },
       cache: "no-store",
     });
     const payload = await response.json().catch(() => null);
-    const products = extractProducts(payload).map(normalizeStoreProduct).slice(0, options.limit || 20);
+    const products = extractProducts(payload).map(normalizeStoreProduct).slice(0, options.limit || (options.handle ? 5 : 20));
     if (!response.ok) return { products: [], reason: "products_unavailable", status: response.status, attemptedEndpoint };
+
     const ok = payload && typeof payload === "object" ? (payload as Record<string, unknown>).success !== false : true;
     return { products, reason: ok ? null : "products_unavailable", status: response.status, attemptedEndpoint };
   } catch {
-    return { products: [], reason: "products_unavailable", attemptedEndpoint: path };
+    return { products: [], reason: "products_unavailable", attemptedEndpoint };
   }
 }
 

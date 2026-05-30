@@ -45,7 +45,8 @@
     "cj:operator:readiness": "pnpm --filter dbaronx-api run cj:operator:readiness",
     "first-product:visible-checkout": "node scripts/e2e-first-cj-product-visible-checkout-smoke.mjs",
     "medusa:publishable-key:ensure": "pnpm --filter @dbaronx/medusa run publishable-key:ensure",
-    "medusa:manual-cj-products:seed": "pnpm --filter @dbaronx/medusa run manual-cj-products:seed"
+    "medusa:manual-cj-products:seed": "pnpm --filter @dbaronx/medusa run manual-cj-products:seed",
+    "web:rocket-nest-boundary": "node scripts/e2e-rocket-nest-api-boundary-smoke.mjs"
   },
   "pnpm": {
     "onlyBuiltDependencies": [
