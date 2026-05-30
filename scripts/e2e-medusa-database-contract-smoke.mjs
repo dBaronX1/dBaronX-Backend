@@ -26,6 +26,12 @@ const result = {
   success: false,
   medusaDatabaseUrlPresent: false,
   databaseUrlPresent: false,
+  usingMedusaDatabaseSecret: true,
+  usingGenericDatabaseSecret: false,
+  databaseUrlEqualsMedusaDatabaseUrl: false,
+  secretSourceHint: "MEDUSA_DATABASE_URL",
+  medusaWorkflowDatabaseContract:
+    "DATABASE_URL_AND_MEDUSA_DATABASE_URL_BOTH_FROM_MEDUSA_DATABASE_URL_SECRET",
   medusaDatabaseConnected: false,
   medusaCoreTablesReady: false,
   missingMedusaTables: [],
@@ -87,11 +93,16 @@ const genericDatabaseUrl = String(process.env.DATABASE_URL || "").trim();
 const databaseUrl = medusaDatabaseUrl;
 result.medusaDatabaseUrlPresent = Boolean(medusaDatabaseUrl);
 result.databaseUrlPresent = Boolean(genericDatabaseUrl);
+result.databaseUrlEqualsMedusaDatabaseUrl = Boolean(
+  medusaDatabaseUrl &&
+    genericDatabaseUrl &&
+    medusaDatabaseUrl === genericDatabaseUrl,
+);
 
 if (!medusaDatabaseUrl) {
   result.errorCode = "medusa_database_url_missing";
   result.nextAction =
-    "Create the MEDUSA_DATABASE_URL GitHub secret with the real Medusa database URL, then rerun Medusa First Product Seed.";
+    "Create the GitHub repository secret MEDUSA_DATABASE_URL with the real Medusa database URL, update any GitHub Environment secret MEDUSA_DATABASE_URL if this workflow uses an Environment, then rerun the Medusa workflow.";
   emit(1);
 }
 const Client = loadPgClient();
@@ -157,7 +168,7 @@ try {
     result.errorCode = "medusa_database_auth_failed";
     result.connectionFailureKind = "auth_failed";
     result.nextAction =
-      "Update GitHub Actions MEDUSA_DATABASE_URL with the current Render Postgres External Database URL after any password rotation. Do not use API Supabase DATABASE_URL.";
+      "Postgres rejected the MEDUSA_DATABASE_URL credentials. Re-copy the full current Render Postgres External Database URL using the Render copy button. Update GitHub repository secret MEDUSA_DATABASE_URL and any GitHub Environment secret MEDUSA_DATABASE_URL, especially Production. If the Render DB password was rotated, old URLs will fail.";
   } else {
     result.errorCode = "medusa_database_connection_failed";
     result.connectionFailureKind = "connection_failed";

@@ -30,6 +30,8 @@ env:
   MEDUSA_PUBLISHABLE_KEY_OUTPUT_PATH: artifacts/medusa-publishable-key-output.json
   MEDUSA_PUBLISHABLE_KEY_MODE: ${{ inputs.mode }}
   DBX_CONFIRM_CREATE_PUBLISHABLE_KEY: ${{ inputs.confirmCreate }}
+  # Medusa-only database contract: both variables intentionally come from MEDUSA_DATABASE_URL.
+  # If this workflow uses a GitHub Environment, update the Environment secret too.
   DATABASE_URL: ${{ secrets.MEDUSA_DATABASE_URL }}
   MEDUSA_DATABASE_URL: ${{ secrets.MEDUSA_DATABASE_URL }}
   JWT_SECRET: ${{ secrets.JWT_SECRET }}
@@ -47,7 +49,7 @@ jobs:
           mkdir -p artifacts
           if [ -z "${MEDUSA_DATABASE_URL:-}" ]; then
             echo "medusa_database_url_missing" >&2
-            printf '%s\n' '{"success":false,"blockers":["medusa_database_url_missing"],"nextManualStep":"Set the MEDUSA_DATABASE_URL GitHub secret to the real Medusa database URL; do not use the API DATABASE_URL."}' > artifacts/medusa-publishable-key-output.json
+            printf '%s\n' '{"success":false,"blockers":["medusa_database_url_missing"],"usingMedusaDatabaseSecret":true,"usingGenericDatabaseSecret":false,"databaseUrlEqualsMedusaDatabaseUrl":true,"secretSourceHint":"MEDUSA_DATABASE_URL","medusaWorkflowDatabaseContract":"DATABASE_URL_AND_MEDUSA_DATABASE_URL_BOTH_FROM_MEDUSA_DATABASE_URL_SECRET","nextManualStep":"Set the GitHub repository secret MEDUSA_DATABASE_URL to the real Medusa database URL and update any GitHub Environment secret MEDUSA_DATABASE_URL if this workflow uses an Environment; do not use the API DATABASE_URL."}' > artifacts/medusa-publishable-key-output.json
             exit 1
           fi
           if [ "${{ inputs.mode }}" = "ensure" ] && [ "${{ inputs.confirmCreate }}" != "true" ]; then
