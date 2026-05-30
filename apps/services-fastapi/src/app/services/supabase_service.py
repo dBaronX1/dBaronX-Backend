@@ -93,3 +93,44 @@ class SupabaseService:
                 "Failed to upsert device record",
                 extra={"error": str(exc)},
             )
+
+    async def insert_one(self, table: str, payload: dict[str, Any]) -> dict[str, Any]:
+        response = (
+            self.client()
+            .schema("app_public")
+            .table(table)
+            .insert(payload)
+            .execute()
+        )
+        rows = response.data or []
+        return dict(rows[0]) if rows else {}
+
+    async def update_one(self, table: str, *, match: dict[str, Any], values: dict[str, Any]) -> dict[str, Any]:
+        query = self.client().schema("app_public").table(table).update(values)
+        for key, value in match.items():
+            query = query.eq(key, value)
+        response = query.execute()
+        rows = response.data or []
+        return dict(rows[0]) if rows else {}
+
+    async def insert_ai_story(self, payload: dict[str, Any]) -> dict[str, Any]:
+        safe_payload = dict(payload)
+        metadata = dict(safe_payload.get("metadata") or {})
+        for secret_key in (
+            "OPENAI_API_KEY",
+            "GEMINI_API_KEY",
+            "GOOGLE_GENERATIVE_AI_API_KEY",
+            "ANTHROPIC_API_KEY",
+            "SUPABASE_SERVICE_ROLE_KEY",
+            "INTERNAL_SERVICE_TOKEN",
+        ):
+            metadata.pop(secret_key, None)
+        safe_payload["metadata"] = metadata
+        return await self.insert_one("ai_stories", safe_payload)
+
+    async def ai_stories_ready(self) -> bool:
+        try:
+            self.client().schema("app_public").table("ai_stories").select("id").limit(1).execute()
+            return True
+        except Exception:
+            return False

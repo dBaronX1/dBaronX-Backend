@@ -41,7 +41,7 @@ APP_ROUTE_MANIFEST: tuple[AppRouteManifestEntry, ...] = (
     ),
     AppRouteManifestEntry(
         module_path="app.api.routes.ai_generation",
-        prefix="/ai",
+        prefix="",
         tags=("ai",),
         strength="optional",
     ),
