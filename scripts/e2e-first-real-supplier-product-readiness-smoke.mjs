@@ -74,17 +74,22 @@ if (productCount === 0 && productsResponse.ok) addBlocker('first_cj_product_not_
 const draftProduct =
   products.find((product) => isDraftSupplierProduct(product)) || null;
 const exactCjProduct = selectExactCjProduct(products);
-const verifiedProduct =
-  (exactCjProduct && isVerifiedSupplierProduct(exactCjProduct)
-    ? exactCjProduct
-    : null) || products.find((product) => isExactVerifiedCjProduct(product)) || null;
+const manualCuratedCandidates = products.filter((product) => isManualCuratedVerifiedCjProduct(product));
+const productCandidates = [
+  ...(exactCjProduct && isVerifiedSupplierProduct(exactCjProduct) ? [exactCjProduct] : []),
+  ...manualCuratedCandidates,
+  ...products.filter((product) => isExactVerifiedCjProduct(product)),
+].filter((product, index, arr) => arr.findIndex((item) => (item?.id || item?.handle) === (product?.id || product?.handle)) === index);
+const verifiedProduct = productCandidates[0] || null;
 const realProduct = verifiedProduct;
 const verifiedSupplierProductPresent = Boolean(verifiedProduct);
 const exactCjProductPresent = Boolean(exactCjProduct);
+const manualCuratedBuyableCount = manualCuratedCandidates.length;
+const manualCuratedCjProductsPresent = manualCuratedBuyableCount > 0;
 const demoProducts = products.filter((product) => isOldDemoProduct(product));
 const demoProductsPresent = demoProducts.length > 0;
 if (!verifiedProduct) addBlocker('real_supplier_product_missing');
-if (!exactCjProductPresent) addBlocker('real_supplier_product_missing');
+if (!exactCjProductPresent && !manualCuratedCjProductsPresent) addBlocker('real_supplier_product_missing');
 
 const draftMetadata = metadataOf(draftProduct);
 const verifiedMetadata = metadataOf(verifiedProduct);
@@ -156,7 +161,9 @@ const sourceUrlPresent = Boolean(sourceUrl);
 const sourceUrlValid = isHttpUrl(sourceUrl);
 const variantReady = Boolean(variantId && supplierSkuPresent);
 const sellingPriceAmount = variant ? firstPriceAmount(variant) : 0;
-const priceReady = sellingPriceAmount === EXPECTED_CJ_PRICE_USD_MINOR;
+const priceReady = exactCjProductPresent && cleanHandle(realProduct) === EXPECTED_CJ_HANDLE
+  ? sellingPriceAmount === EXPECTED_CJ_PRICE_USD_MINOR
+  : sellingPriceAmount > 0;
 const stockReady = Boolean(variant && hasAvailabilityProof(variant));
 const productImageReady = Boolean(realProduct && hasProductImage(realProduct));
 const productUrl = productUrlFor(realProduct);
@@ -182,16 +189,16 @@ if (EXPECT_SUPPLIER === 'cj' && !supplierCostPresent)
   addBlocker('supplier_cost_missing');
 if (supplier && supplier.toLowerCase() !== EXPECTED_CJ_SUPPLIER)
   addBlocker('exact_cj_supplier_mismatch');
-if (!supplierProductIdMatchesExpected) addBlocker('exact_cj_supplier_product_id_missing_or_mismatch');
-if (!supplierSkuMatchesExpected) addBlocker('exact_cj_supplier_sku_missing_or_mismatch');
-if (sourceUrlPresent && !sourceUrlMatchesExpected)
+if (exactCjProductPresent && cleanHandle(realProduct) === EXPECTED_CJ_HANDLE && !supplierProductIdMatchesExpected) addBlocker('exact_cj_supplier_product_id_missing_or_mismatch');
+if (exactCjProductPresent && cleanHandle(realProduct) === EXPECTED_CJ_HANDLE && !supplierSkuMatchesExpected) addBlocker('exact_cj_supplier_sku_missing_or_mismatch');
+if (exactCjProductPresent && cleanHandle(realProduct) === EXPECTED_CJ_HANDLE && sourceUrlPresent && !sourceUrlMatchesExpected)
   addBlocker('exact_cj_source_url_mismatch');
 if (!supplierProductIdPresent) addBlocker('supplier_product_id_missing');
 if (!supplierSkuPresent) addBlocker('supplier_sku_missing');
 if (!sourceUrlPresent) addBlocker('source_url_missing');
 if (sourceUrlPresent && !sourceUrlValid)
   addBlocker('source_url_not_http_or_https');
-if (!priceReady) addBlocker(sellingPriceAmount > 0 ? 'price_mismatch_expected_1999_usd_minor' : 'price_missing');
+if (!priceReady) addBlocker(exactCjProductPresent && cleanHandle(realProduct) === EXPECTED_CJ_HANDLE && sellingPriceAmount > 0 ? 'price_mismatch_expected_1999_usd_minor' : 'price_missing');
 if (!stockReady) addBlocker('stock_or_availability_proof_missing');
 if (!productImageReady) addBlocker('product_image_missing');
 if (!productUrlReady) addBlocker('product_url_missing');
@@ -263,6 +270,16 @@ const result = {
   verifiedSupplierProductPresent,
   realSupplierProductPresent,
   exactCjProductPresent,
+  manualCuratedCjProductsPresent,
+  manualCuratedBuyableCount,
+  productCandidates: productCandidates.map((product) => ({
+    id: product?.id || null,
+    handle: product?.handle || null,
+    title: product?.title || product?.name || null,
+    supplier: metadataOf(product).supplier || metadataOf(firstVariant(product)).supplier || null,
+    supplierSku: supplierSkuOf(product),
+    manualCurated: metadataOf(product).manualCurated === true,
+  })),
   demoProductsPresent,
   supplierVerificationStatus: supplierVerificationStatus || null,
   supplierVerificationBlockers,
@@ -367,7 +384,7 @@ function isExplicitReal(product) {
   return (
     metadata.realSupplierProduct === true &&
     metadata.demo === false &&
-    metadata.supplierVerificationStatus === 'verified_for_checkout'
+    ['verified_for_checkout', 'manual_verified_for_checkout'].includes(metadata.supplierVerificationStatus)
   );
 }
 function isDraftSupplierProduct(product) {
@@ -376,7 +393,7 @@ function isDraftSupplierProduct(product) {
     product &&
     metadata.demo === false &&
     metadata.realSupplierProduct === false &&
-    metadata.supplierVerificationStatus === 'draft_pending_verification' &&
+    ['draft_pending_verification', 'manual_draft_incomplete'].includes(metadata.supplierVerificationStatus) &&
     hasSupplierSignal(product),
   );
 }
@@ -386,6 +403,26 @@ function isVerifiedSupplierProduct(product) {
     !isDemoProduct(product) &&
     isExplicitReal(product) &&
     hasSupplierSignal(product),
+  );
+}
+
+function isManualCuratedVerifiedCjProduct(product) {
+  const metadata = metadataOf(product);
+  const variant = firstVariant(product);
+  const variantMetadata = metadataOf(variant);
+  return Boolean(
+    product &&
+      metadata.supplier === 'cj' &&
+      metadata.realSupplierProduct === true &&
+      metadata.demo === false &&
+      metadata.manualCurated === true &&
+      metadata.buyable === true &&
+      metadata.supplierVerificationStatus === 'manual_verified_for_checkout' &&
+      hasSupplierSignal(product) &&
+      firstPriceAmount(variant) > 0 &&
+      hasAvailabilityProof(variant) &&
+      hasProductImage(product) &&
+      safeString(metadata.supplierSku || variantMetadata.supplierSku || variant?.sku)
   );
 }
 function selectExactCjProduct(items) {

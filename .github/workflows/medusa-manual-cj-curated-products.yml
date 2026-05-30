@@ -1,0 +1,128 @@
+name: Medusa Manual CJ Curated Products
+
+on:
+  workflow_dispatch:
+    inputs:
+      confirmSeed:
+        description: "Set true to authorize seeding the manually curated CJ product batch."
+        required: true
+        type: choice
+        default: "false"
+        options:
+          - "false"
+          - "true"
+      dryRun:
+        description: "Keep true for validation only; set false to write products to Medusa."
+        required: true
+        type: choice
+        default: "true"
+        options:
+          - "true"
+          - "false"
+      includeDrafts:
+        description: "Log incomplete draft products, but never seed them as buyable."
+        required: true
+        type: choice
+        default: "false"
+        options:
+          - "false"
+          - "true"
+
+permissions:
+  contents: read
+
+env:
+  NODE_VERSION: "20"
+  MEDUSA_BASE_URL: https://dbaronx-medusa-xrwh.onrender.com
+  DBX_MEDUSA_DB_CONTRACT_OUTPUT_PATH: artifacts/medusa-db-contract.json
+  DBX_MANUAL_CJ_CURATED_PRODUCTS_OUTPUT_PATH: artifacts/medusa-manual-cj-curated-products-output.json
+  DATABASE_URL: ${{ secrets.MEDUSA_DATABASE_URL }}
+  MEDUSA_DATABASE_URL: ${{ secrets.MEDUSA_DATABASE_URL }}
+
+jobs:
+  seed:
+    name: Seed manual curated CJ products
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    steps:
+      - name: Prepare artifacts and require Medusa database secret
+        run: |
+          set -euo pipefail
+          mkdir -p artifacts
+          if [ -z "${MEDUSA_DATABASE_URL:-}" ]; then
+            echo "medusa_database_url_missing" >&2
+            printf '%s\n' '{"success":false,"blockers":["medusa_database_url_missing"],"nextManualStep":"Set the MEDUSA_DATABASE_URL GitHub secret to the real Medusa database URL; do not use the API Supabase DATABASE_URL."}' > artifacts/medusa-db-contract.json
+            exit 1
+          fi
+          echo "Medusa database secret is present; value intentionally not printed."
+
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Enable pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 10.0.0
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Build Medusa
+        run: pnpm --filter @dbaronx/medusa build
+
+      - name: Run Medusa DB contract preflight
+        id: medusa_db_contract
+        continue-on-error: true
+        run: node scripts/e2e-medusa-database-contract-smoke.mjs
+
+      - name: Stop before seed when Medusa DB preflight fails
+        if: steps.medusa_db_contract.outcome == 'failure'
+        run: |
+          echo "medusa_db_contract_failed_before_manual_cj_curated_seed" >&2
+          test -f artifacts/medusa-db-contract.json && cat artifacts/medusa-db-contract.json >&2
+          exit 1
+
+      - name: Require explicit seed confirmation
+        if: inputs.confirmSeed != 'true'
+        run: |
+          set -euo pipefail
+          printf '%s\n' '{"success":false,"blockers":["confirm_seed_required"],"nextManualStep":"Rerun workflow_dispatch with confirmSeed=true after reviewing the curated CJ batch."}' > artifacts/medusa-manual-cj-curated-products-output.json
+          echo "confirm_seed_required" >&2
+          exit 1
+
+      - name: Run manual curated CJ product seed
+        env:
+          DBX_CONFIRM_MANUAL_CJ_CURATED_SEED: "true"
+          DRY_RUN: ${{ inputs.dryRun }}
+          DBX_INCLUDE_MANUAL_CJ_DRAFTS: ${{ inputs.includeDrafts }}
+        run: pnpm --filter @dbaronx/medusa run manual-cj-products:seed
+
+      - name: Validate manual curated seed artifact
+        run: |
+          set -euo pipefail
+          test -s artifacts/medusa-manual-cj-curated-products-output.json
+          node - <<'NODE'
+          const fs = require('node:fs');
+          const output = JSON.parse(fs.readFileSync('artifacts/medusa-manual-cj-curated-products-output.json', 'utf8'));
+          const required = ['success', 'mode', 'dryRun', 'totalInput', 'totalBuyableInput', 'totalDraftInput', 'totalSeeded', 'totalUpdated', 'totalSkipped', 'totalBlocked', 'products', 'blockers', 'nextManualStep'];
+          const missing = required.filter((key) => !(key in output));
+          if (missing.length) throw new Error(`Manual curated seed output missing keys: ${missing.join(', ')}`);
+          if (output.success !== true) throw new Error(`Manual curated seed failed: ${JSON.stringify(output.blockers || [])}`);
+          console.log(JSON.stringify({ success: true, dryRun: output.dryRun, totalBuyableInput: output.totalBuyableInput, totalDraftInput: output.totalDraftInput, totalSeeded: output.totalSeeded, totalUpdated: output.totalUpdated }, null, 2));
+          NODE
+
+      - name: Upload manual curated CJ seed artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: medusa-manual-cj-curated-products-artifacts
+          path: |
+            artifacts/medusa-manual-cj-curated-products-output.json
+            artifacts/medusa-db-contract.json
+          if-no-files-found: warn

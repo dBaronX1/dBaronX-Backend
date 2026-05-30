@@ -405,7 +405,7 @@ def _safe_public_value(value: Any) -> str:
 
 def _is_demo_product(product: dict[str, Any]) -> bool:
     metadata = product.get("metadata") if isinstance(product.get("metadata"), dict) else {}
-    if metadata.get("realSupplierProduct") is True and metadata.get("demo") is False and metadata.get("supplierVerificationStatus") == "verified_for_checkout":
+    if metadata.get("realSupplierProduct") is True and metadata.get("demo") is False and metadata.get("supplierVerificationStatus") in ("verified_for_checkout", "manual_verified_for_checkout"):
         return False
     if metadata.get("demo") is True or metadata.get("realSupplierProduct") is False:
         return True
@@ -424,12 +424,25 @@ def _has_supplier_signal(product: dict[str, Any]) -> bool:
 
 def _is_supplier_draft(product: dict[str, Any]) -> bool:
     metadata = product.get("metadata") if isinstance(product.get("metadata"), dict) else {}
-    return bool(metadata.get("demo") is False and metadata.get("realSupplierProduct") is False and metadata.get("supplierVerificationStatus") == "draft_pending_verification" and _has_supplier_signal(product))
+    return bool(metadata.get("demo") is False and metadata.get("realSupplierProduct") is False and metadata.get("supplierVerificationStatus") in ("draft_pending_verification", "manual_draft_incomplete") and _has_supplier_signal(product))
 
 
 def _is_verified_checkout_product(product: dict[str, Any]) -> bool:
     metadata = product.get("metadata") if isinstance(product.get("metadata"), dict) else {}
-    return bool(metadata.get("demo") is False and metadata.get("realSupplierProduct") is True and metadata.get("supplierVerificationStatus") == "verified_for_checkout" and _has_supplier_signal(product))
+    status = metadata.get("supplierVerificationStatus")
+    manual_curated_ready = bool(
+        metadata.get("supplier") == "cj"
+        and metadata.get("manualCurated") is True
+        and metadata.get("buyable") is True
+        and status == "manual_verified_for_checkout"
+    )
+    legacy_verified_ready = status == "verified_for_checkout"
+    return bool(
+        metadata.get("demo") is False
+        and metadata.get("realSupplierProduct") is True
+        and (legacy_verified_ready or manual_curated_ready)
+        and _has_supplier_signal(product)
+    )
 
 
 def _supplier_verification_blockers(product: dict[str, Any]) -> list[str]:

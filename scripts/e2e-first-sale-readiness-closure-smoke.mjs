@@ -30,7 +30,7 @@ if (FASTAPI_BASE_URL !== EXPECTED.fastapiBaseUrl) addBlocker('fastapi_live_url_i
 if (BOT_BASE_URL !== EXPECTED.botBaseUrl) addBlocker('telegram_live_url_incorrect');
 if (!MEDUSA_PUBLISHABLE_KEY) addBlocker('medusa_publishable_key_missing');
 
-const productsUrl = `${MEDUSA_BASE_URL}/store/products?handle=${encodeURIComponent(EXPECTED.handle)}&limit=5`;
+const productsUrl = `${MEDUSA_BASE_URL}/store/products?limit=100`;
 attemptedEndpoints.push(productsUrl);
 const productsResponse = await getJson(productsUrl, 'medusaProductsByHandle', medusaHeaders());
 if (!productsResponse.ok) {
@@ -39,9 +39,13 @@ if (!productsResponse.ok) {
 }
 const products = extractProducts(productsResponse.json);
 if (productsResponse.ok && products.length === 0) addBlocker('first_cj_product_not_seeded');
-const product = products.find(isExpectedProduct) || products[0] || null;
+const productCandidates = products.filter(isCheckoutCandidate);
+const manualCuratedCandidates = productCandidates.filter(isManualCuratedCjProduct);
+const product = products.find(isExpectedProduct) || manualCuratedCandidates[0] || productCandidates[0] || null;
+const manualCuratedCjProductsPresent = manualCuratedCandidates.length > 0;
+const manualCuratedBuyableCount = manualCuratedCandidates.length;
 if (!product) addBlocker('first_cj_product_missing');
-if (product && !isExpectedProduct(product)) addBlocker('first_cj_product_identity_mismatch');
+if (product && !isExpectedProduct(product) && !isManualCuratedCjProduct(product)) addBlocker('first_cj_product_identity_mismatch');
 
 const metadata = metadataOf(product);
 const variant = firstVariant(product);
@@ -52,10 +56,11 @@ const variantExists = Boolean(variant?.id);
 const priceExists = firstPriceAmount(variant) > 0;
 const stockExists = stockReady(product, variant);
 const imageReady = Boolean(clean(product?.thumbnail) || (Array.isArray(product?.images) && product.images.some((image) => clean(image?.url))));
-const productUrl = WEB_BASE_URL ? `${WEB_BASE_URL}/products/${encodeURIComponent(EXPECTED.handle)}` : '';
+const selectedHandle = clean(product?.handle || EXPECTED.handle);
+const productUrl = WEB_BASE_URL && selectedHandle ? `${WEB_BASE_URL}/products/${encodeURIComponent(selectedHandle)}` : '';
 const productUrlReady = Boolean(productUrl);
-const telegramDiscoveryReady = Boolean(product && realSupplierProduct && notDemo && metadata.supplierVerificationStatus === 'verified_for_checkout' && supplierSignal(product));
-const stripeCheckoutCandidateReady = Boolean(product && variantExists && priceExists && stockExists && realSupplierProduct && notDemo);
+const telegramDiscoveryReady = Boolean(product && realSupplierProduct && notDemo && ['verified_for_checkout', 'manual_verified_for_checkout'].includes(metadata.supplierVerificationStatus) && supplierSignal(product));
+const stripeCheckoutCandidateReady = Boolean(product && variantExists && priceExists && stockExists && imageReady && realSupplierProduct && notDemo && supplierSignal(product));
 
 if (product && !realSupplierProduct) addBlocker('first_cj_product_real_supplier_flag_missing');
 if (product && !notDemo) addBlocker('first_cj_product_demo_or_not_real');
@@ -122,6 +127,9 @@ const result = {
   botBaseUrl: BOT_BASE_URL,
   liveUrlsCorrect: MEDUSA_BASE_URL === EXPECTED.medusaBaseUrl && API_BASE_URL === EXPECTED.apiBaseUrl && FASTAPI_BASE_URL === EXPECTED.fastapiBaseUrl && BOT_BASE_URL === EXPECTED.botBaseUrl,
   firstCjProductExists: Boolean(product),
+  manualCuratedCjProductsPresent,
+  manualCuratedBuyableCount,
+  productCandidates: productCandidates.map((item) => ({ handle: item?.handle || null, title: item?.title || item?.name || null, manualCurated: metadataOf(item).manualCurated === true, supplierSku: metadataOf(item).supplierSku || metadataOf(firstVariant(item)).supplierSku || firstVariant(item)?.sku || null })),
   realSupplierProduct,
   notDemo,
   productId: product?.id || null,
@@ -154,6 +162,8 @@ function medusaHeaders() { return MEDUSA_PUBLISHABLE_KEY ? { headers: { accept: 
 function metadataOf(item) { return item && typeof item.metadata === 'object' && item.metadata ? item.metadata : {}; }
 function firstVariant(item) { return Array.isArray(item?.variants) ? item.variants.find((variant) => variant && typeof variant === 'object') || null : null; }
 function supplierSignal(item) { const metadata = metadataOf(item); const variantMetadata = metadataOf(firstVariant(item)); return Boolean(clean(metadata.supplier || variantMetadata.supplier) || clean(metadata.supplierProductId || variantMetadata.supplierProductId) || clean(metadata.supplierSku || variantMetadata.supplierSku)); }
+function isCheckoutCandidate(item) { const variant = firstVariant(item); const metadata = metadataOf(item); return Boolean(item && metadata.realSupplierProduct === true && metadata.demo === false && supplierSignal(item) && firstPriceAmount(variant) > 0 && stockReady(item, variant)); }
+function isManualCuratedCjProduct(item) { const metadata = metadataOf(item); return Boolean(isCheckoutCandidate(item) && clean(metadata.supplier).toLowerCase() === 'cj' && metadata.manualCurated === true && metadata.buyable === true && metadata.supplierVerificationStatus === 'manual_verified_for_checkout'); }
 function isExpectedProduct(item) { const metadata = metadataOf(item); const variant = firstVariant(item); const variantMetadata = metadataOf(variant); return Boolean(clean(item?.handle) === EXPECTED.handle && clean(metadata.supplier || variantMetadata.supplier).toLowerCase() === EXPECTED.supplier && clean(metadata.supplierProductId || metadata.supplier_product_id || variantMetadata.supplierProductId || variantMetadata.supplier_product_id) === EXPECTED.supplierProductId && clean(metadata.supplierSku || metadata.supplier_sku || variantMetadata.supplierSku || variantMetadata.supplier_sku || variant?.sku) === EXPECTED.supplierSku); }
 function isDemoProduct(item) { const metadata = metadataOf(item); if (metadata.realSupplierProduct === true && metadata.demo === false) return false; const joined = [item?.title, item?.handle, metadata.source, metadata.environment, metadata.type].map((value) => String(value || '')).join(' '); return metadata.demo === true || /\b(demo|sample|mock|test)\b/i.test(joined); }
 function firstPriceAmount(variant) { if (!variant) return 0; const calculated = variant.calculated_price; if (calculated && typeof calculated === 'object') { const amount = Number(calculated.calculated_amount ?? calculated.amount ?? 0); if (Number.isSafeInteger(amount) && amount > 0) return amount; } if (Array.isArray(variant.prices)) { const price = variant.prices.find((item) => Number(item?.amount) > 0); if (price) return Number(price.amount); } return Number(variant.price || 0); }

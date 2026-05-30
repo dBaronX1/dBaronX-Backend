@@ -94,13 +94,13 @@ let variant = null;
 let live = null;
 if (CHECK_LIVE) {
   if (!MEDUSA_PUBLISHABLE_KEY) blockers.push('medusa_publishable_key_missing_for_live_check');
-  const store = await getJson(`${MEDUSA_BASE_URL}/store/products?handle=${encodeURIComponent(EXPECTED.handle)}&limit=5`, 'medusaStoreProductsByHandle', medusaHeaders());
+  const store = await getJson(`${MEDUSA_BASE_URL}/store/products?limit=100`, 'medusaStoreProducts', medusaHeaders());
   if (!store.ok && medusaDatabaseNotReady(store)) blockers.push('medusa_database_not_ready');
   const storeProducts = extractProducts(store.json);
   if (store.ok && storeProducts.length === 0) blockers.push('first_cj_product_not_seeded');
-  const web = await getJson(`${WEB_BASE_URL}/api/store/products/${encodeURIComponent(EXPECTED.handle)}?limit=5`, 'rocketStoreProductByHandle');
+  const web = await getJson(`${WEB_BASE_URL}/api/store/products?limit=100`, 'rocketStoreProducts');
   const candidates = [...storeProducts, ...extractProducts(web.json)];
-  product = candidates.find(isExactCjProduct) || candidates.find((item) => clean(item?.handle) === EXPECTED.handle) || null;
+  product = candidates.find(isExactCjProduct) || candidates.find(isManualCuratedBuyableCjProduct) || candidates.find(isCheckoutCandidate) || null;
   variant = firstVariant(product);
   live = buildLiveReadiness(product, variant, store, web);
   for (const blocker of live.blockers) blockers.push(blocker);
@@ -113,6 +113,7 @@ const result = {
   blockers,
   warnings,
   exactCjProductPresent: CHECK_LIVE ? Boolean(product && isExactCjProduct(product)) : null,
+  manualCuratedCjProductSelected: CHECK_LIVE ? Boolean(product && isManualCuratedBuyableCjProduct(product)) : null,
   metadataContractStaticPresent: staticContract.seedContainsExactHandle && staticContract.seedContainsExactSupplierProductId && staticContract.seedContainsExactSupplierSku && staticContract.seedOutputContractPresent,
   productIsNotDemo: CHECK_LIVE ? isNotDemo(product) : null,
   realSupplierProduct: CHECK_LIVE ? metadataOf(product).realSupplierProduct === true : null,
@@ -120,20 +121,20 @@ const result = {
   productPriceExists: CHECK_LIVE ? firstPriceAmount(variant) > 0 : null,
   productVariantExists: CHECK_LIVE ? Boolean(variant?.id) : null,
   productStockInventoryExists: CHECK_LIVE ? hasStock(product, variant) : null,
-  publicProductUrl: `${WEB_BASE_URL}/products/${EXPECTED.handle}`,
+  publicProductUrl: `${WEB_BASE_URL}/products/${clean(product?.handle || EXPECTED.handle)}`,
   publicProductUrlReady: Boolean(WEB_BASE_URL && EXPECTED.handle),
-  checkoutPathCanIdentifyVariant: CHECK_LIVE ? Boolean(variant?.id && clean(product?.handle) === EXPECTED.handle) : null,
+  checkoutPathCanIdentifyVariant: CHECK_LIVE ? Boolean(variant?.id && clean(product?.handle)) : null,
   telegramDiscoveryClassifiesReal: staticContract.telegramClassifiesReal,
   noUnsafeTelegramWrites: unsafeTelegramWrites.length === 0,
   noSecretsPrinted: secretLeaks.length === 0,
   unsafeTelegramWrites,
   secretLeakMarkers: secretLeaks,
-  attemptedEndpoints: CHECK_LIVE ? [`${MEDUSA_BASE_URL}/store/products?handle=${EXPECTED.handle}&limit=5`, `${WEB_BASE_URL}/api/store/products/${EXPECTED.handle}?limit=5`] : [],
+  attemptedEndpoints: CHECK_LIVE ? [`${MEDUSA_BASE_URL}/store/products?limit=100`, `${WEB_BASE_URL}/api/store/products?limit=100`] : [],
   responseSnippets,
   nextManualStep: blockers.length
     ? `Resolve blockers before checkout testing: ${blockers.join(', ')}.`
     : CHECK_LIVE
-      ? 'Open Rocket /products and /products/mens-cotton-linen-long-sleeve-casual-shirt, then run the Stripe test checkout smoke.'
+      ? `Open Rocket /products and /products/${clean(product?.handle || EXPECTED.handle)}, then run the Stripe test checkout smoke.`
       : 'Static checks passed. Rerun with DBX_FIRST_CJ_VISIBLE_SMOKE_LIVE=true plus deployed MEDUSA/WEB URLs and publishable key for runtime visibility proof.',
 };
 
@@ -145,7 +146,7 @@ function buildLiveReadiness(currentProduct, currentVariant, store, web) {
   if (!store.ok) liveBlockers.push('medusa_store_product_endpoint_unreachable');
   if (!web.ok) liveBlockers.push('rocket_store_product_endpoint_unreachable');
   if (!currentProduct) liveBlockers.push('first_cj_product_missing_from_public_catalog');
-  if (currentProduct && !isExactCjProduct(currentProduct)) liveBlockers.push('first_cj_product_metadata_mismatch');
+  if (currentProduct && !isExactCjProduct(currentProduct) && !isManualCuratedBuyableCjProduct(currentProduct)) liveBlockers.push('first_cj_product_metadata_mismatch');
   if (!isNotDemo(currentProduct)) liveBlockers.push('first_cj_product_demo_or_not_real');
   if (metadataOf(currentProduct).realSupplierProduct !== true) liveBlockers.push('first_cj_product_real_supplier_flag_missing');
   if (!hasImage(currentProduct)) liveBlockers.push('first_cj_product_image_missing');
@@ -155,6 +156,8 @@ function buildLiveReadiness(currentProduct, currentVariant, store, web) {
   return { blockers: liveBlockers };
 }
 
+function isCheckoutCandidate(product) { const variant = firstVariant(product); return Boolean(product && isNotDemo(product) && supplierSignal(product) && hasImage(product) && variant?.id && firstPriceAmount(variant) > 0 && hasStock(product, variant)); }
+function isManualCuratedBuyableCjProduct(product) { const metadata = metadataOf(product); return Boolean(isCheckoutCandidate(product) && clean(metadata.supplier).toLowerCase() === 'cj' && metadata.manualCurated === true && metadata.buyable === true && metadata.supplierVerificationStatus === 'manual_verified_for_checkout'); }
 function isExactCjProduct(product) {
   const metadata = metadataOf(product);
   const variantMetadata = metadataOf(firstVariant(product));
@@ -169,7 +172,7 @@ function isExactCjProduct(product) {
 
 function isNotDemo(product) {
   const metadata = metadataOf(product);
-  return Boolean(product && metadata.demo === false && metadata.supplierVerificationStatus === 'verified_for_checkout');
+  return Boolean(product && metadata.demo === false && ['verified_for_checkout', 'manual_verified_for_checkout'].includes(metadata.supplierVerificationStatus));
 }
 
 function hasImage(product) {

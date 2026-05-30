@@ -50,7 +50,8 @@
     "publishable-key:print": "pnpm exec medusa exec ./src/scripts/print-medusa-publishable-api-key.ts",
     "launch-sales-channel:ensure": "pnpm exec medusa exec ./src/scripts/ensure-launch-sales-channel-consistency.ts",
     "first-product:reseed:canonical": "pnpm exec medusa exec ./src/scripts/reseed-cj-first-product-canonical.ts",
-    "first-products:seed:cj-batch": "pnpm exec medusa exec ./src/scripts/seed-cj-verified-product-batch.ts"
+    "first-products:seed:cj-batch": "pnpm exec medusa exec ./src/scripts/seed-cj-verified-product-batch.ts",
+    "manual-cj-products:seed": "pnpm exec medusa exec ./src/scripts/seed-manual-cj-curated-products.ts"
   },
   "dependencies": {
     "@medusajs/admin-sdk": "2.13.6",
