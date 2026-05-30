@@ -110,7 +110,7 @@ jobs:
           node - <<'NODE'
           const fs = require('node:fs');
           const output = JSON.parse(fs.readFileSync('artifacts/medusa-manual-cj-curated-products-output.json', 'utf8'));
-          const required = ['success', 'mode', 'dryRun', 'totalInput', 'totalBuyableInput', 'totalDraftInput', 'totalSeeded', 'totalUpdated', 'totalSkipped', 'totalBlocked', 'products', 'blockers', 'nextManualStep'];
+          const required = ['success', 'mode', 'dryRun', 'totalInput', 'totalBuyableInput', 'totalDraftInput', 'totalSeeded', 'totalUpdated', 'totalSkipped', 'totalBlocked', 'salesChannelId', 'salesChannelSource', 'tagMode', 'productResults', 'blockers', 'nextManualStep'];
           const missing = required.filter((key) => !(key in output));
           if (missing.length) throw new Error(`Manual curated seed output missing keys: ${missing.join(', ')}`);
           if (output.success !== true) throw new Error(`Manual curated seed failed: ${JSON.stringify(output.blockers || [])}`);

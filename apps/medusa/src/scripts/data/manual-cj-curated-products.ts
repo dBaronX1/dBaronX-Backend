@@ -6,7 +6,7 @@ export type ManualCjCuratedProduct = {
   imageUrl: string;
   videoUrl: string;
   label: string;
-  category: "headphones" | "humidifier";
+  category: "headphones" | "humidifier" | "apparel";
   inventory: number;
   supplierPriceMinorUsd: number;
   shippingCostMinorUsd: number;
@@ -14,6 +14,7 @@ export type ManualCjCuratedProduct = {
   sellingPriceMinorUsd: number;
   shippingWarehouse: string;
   shippingDestination: string;
+  shippingCountries: string[];
   deliveryEstimate: string;
   supplier: "cj";
   realSupplierProduct: true;
@@ -35,10 +36,32 @@ const BUYABLE_DEFAULTS = {
   buyable: true,
   shippingWarehouse: "china",
   shippingDestination: "U.A.E",
+  shippingCountries: ["AE"],
   deliveryEstimate: "12-15 days",
 };
 
 export const manualCjCuratedProducts: ManualCjCuratedProduct[] = [
+  {
+    ...BUYABLE_DEFAULTS,
+    sku: "CJDS212420104DW",
+    title: "Men's Cotton Linen Long Sleeve Casual Shirt",
+    handle: "mens-cotton-linen-long-sleeve-casual-shirt",
+    productUrl:
+      "https://cjdropshipping.com/product/new-mens-casual-blouse-cotton-linen-shirt-loose-tops-long-sleeve-tee-shirt-spring-autumn-casual-handsome-mens-shirts-p-2408300732091605000.html",
+    imageUrl:
+      "https://oss-cf.cjdropshipping.com/product/2024/08/30/07/ada82fd9-6efb-4629-86e8-1112d16a7a35.jpg?x-oss-process=image%2Fformat%2Cwebp",
+    videoUrl: "",
+    label: "Long Sleeve Shirt",
+    category: "apparel",
+    inventory: 32,
+    supplierPriceMinorUsd: 419,
+    shippingCostMinorUsd: 0,
+    totalCostMinorUsd: 419,
+    sellingPriceMinorUsd: 1999,
+    shippingDestination: "United States",
+    shippingCountries: ["US"],
+    deliveryEstimate: "7-15 business days",
+  },
   {
     ...BUYABLE_DEFAULTS,
     sku: "CJXFBXEJ00515",
@@ -185,6 +208,7 @@ export const manualCjCuratedProducts: ManualCjCuratedProduct[] = [
     sellingPriceMinorUsd: 0,
     shippingWarehouse: "china",
     shippingDestination: "U.A.E",
+    shippingCountries: ["AE"],
     deliveryEstimate: "",
     supplier: "cj",
     realSupplierProduct: true,

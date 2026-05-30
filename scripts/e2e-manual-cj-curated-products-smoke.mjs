@@ -29,8 +29,8 @@ const buyableProducts = products.filter((product) => product.buyable === true);
 const draftProducts = products.filter((product) => product.buyable === false);
 const draft = draftProducts[0] || null;
 
-if (products.length !== 8) blockers.push(`manual_curated_product_count_expected_8_actual_${products.length}`);
-if (buyableProducts.length !== 7) blockers.push(`buyable_product_count_expected_7_actual_${buyableProducts.length}`);
+if (products.length !== 9) blockers.push(`manual_curated_product_count_expected_9_actual_${products.length}`);
+if (buyableProducts.length !== 8) blockers.push(`buyable_product_count_expected_8_actual_${buyableProducts.length}`);
 if (draftProducts.length !== 1) blockers.push(`draft_product_count_expected_1_actual_${draftProducts.length}`);
 
 for (const product of buyableProducts) {
@@ -39,6 +39,7 @@ for (const product of buyableProducts) {
   if (!isHttpUrl(product.productUrl)) blockers.push(`buyable_${product.sku}_missing_product_url`);
   if (!isHttpUrl(product.imageUrl)) blockers.push(`buyable_${product.sku}_missing_image_url`);
   if (!(Number(product.inventory) > 0)) blockers.push(`buyable_${product.sku}_inventory_not_positive`);
+  if (Number(product.shippingCostMinorUsd) < 0) blockers.push(`buyable_${product.sku}_shipping_cost_negative`);
   if (!(Number(product.sellingPriceMinorUsd) > Number(product.totalCostMinorUsd))) blockers.push(`buyable_${product.sku}_selling_price_not_above_total_cost`);
   if (!product.deliveryEstimate) blockers.push(`buyable_${product.sku}_missing_delivery_estimate`);
   if (product.supplierVerificationStatus !== 'manual_verified_for_checkout') blockers.push(`buyable_${product.sku}_not_manual_verified_for_checkout`);
@@ -53,6 +54,9 @@ const requiredDraftBlockers = [
   'missing_shipping_cost',
   'missing_selling_price',
 ];
+if (!buyableProducts.some((product) => product.sku === 'CJDS212420104DW' && product.handle === 'mens-cotton-linen-long-sleeve-casual-shirt')) blockers.push('first_seed_long_sleeve_product_missing_from_manual_curated_set');
+if (buyableProducts.filter((product) => product.sku !== 'CJDS212420104DW').length !== 7) blockers.push('original_7_buyable_products_not_intact');
+
 if (!draft) {
   blockers.push('draft_product_missing');
 } else {
@@ -77,6 +81,13 @@ if (!seedSource.includes('DBX_CONFIRM_MANUAL_CJ_CURATED_SEED') || !/!==\s*"true"
 if (/cjdropshipping\.com\/api|CJ_ACCESS_TOKEN|CJ_API_KEY|axios\.get\(|fetch\(/.test(seedSource)) blockers.push('seed_appears_to_call_cj_api_or_use_cj_secret');
 if (!seedSource.includes('DRY_RUN')) blockers.push('seed_dry_run_support_missing');
 if (!seedSource.includes('manualCjCuratedProducts')) blockers.push('seed_data_module_import_missing');
+if (/tags:\s*\[/.test(seedSource)) blockers.push('seed_product_input_still_passes_tags_array');
+if (/id:\s*undefined/.test(seedSource)) blockers.push('seed_contains_undefined_tag_id_literal');
+if (!seedSource.includes('TAG_MODE') || !seedSource.includes('metadata_only')) blockers.push('seed_tag_mode_metadata_only_missing');
+if (!/function\s+definedTagIds[\s\S]*filter/.test(seedSource)) blockers.push('seed_undefined_tag_id_filter_missing');
+if (!seedSource.includes('LIVE_STOREFRONT_KEY_TITLE') || !seedSource.includes('dBaronX Live Storefront Publishable Key')) blockers.push('seed_live_storefront_key_title_preference_missing');
+if (!seedSource.includes('salesChannelSource')) blockers.push('seed_sales_channel_source_output_missing');
+if (!seedSource.includes('productResults')) blockers.push('seed_product_results_output_missing');
 
 for (const product of products) {
   const hardcodedSignals = [product.sku, product.productUrl].filter(Boolean);
@@ -145,6 +156,7 @@ function parseProducts(source) {
       sellingPriceMinorUsd: numberField(block, 'sellingPriceMinorUsd'),
       shippingWarehouse: stringField(block, 'shippingWarehouse') || (block.includes('...BUYABLE_DEFAULTS') ? 'china' : ''),
       shippingDestination: stringField(block, 'shippingDestination') || (block.includes('...BUYABLE_DEFAULTS') ? 'U.A.E' : ''),
+      shippingCountries: arrayField(block, 'shippingCountries').length ? arrayField(block, 'shippingCountries') : (block.includes('...BUYABLE_DEFAULTS') ? ['AE'] : []),
       deliveryEstimate: stringField(block, 'deliveryEstimate') || (block.includes('...BUYABLE_DEFAULTS') ? '12-15 days' : ''),
       supplier: stringField(block, 'supplier') || (block.includes('...BUYABLE_DEFAULTS') ? 'cj' : ''),
       realSupplierProduct: booleanField(block, 'realSupplierProduct', block.includes('...BUYABLE_DEFAULTS') ? true : undefined),
