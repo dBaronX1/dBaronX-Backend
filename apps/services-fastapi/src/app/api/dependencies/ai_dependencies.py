@@ -55,13 +55,9 @@ def story_repository_dep() -> StoryRepository:
 
 
 def story_generation_service_dep() -> StoryGenerationService:
-    return StoryGenerationService(
-        prompt_policy_service=PromptPolicyService(),
-        llm_orchestrator_service=llm_orchestrator_service_dep(),
-        story_metadata_service=StoryMetadataService(),
-        content_moderation_service=ContentModerationService(),
-        recommendation_signal_service=RecommendationSignalService(),
-    )
+    from app.services.service_registry import get_story_generation_service
+
+    return get_story_generation_service()
 
 
 def story_rewrite_service_dep() -> StoryRewriteService:

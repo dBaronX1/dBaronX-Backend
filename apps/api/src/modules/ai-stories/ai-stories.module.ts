@@ -20,6 +20,8 @@ import { IntelligenceAuditPipelineService } from "../../shared/services/intellig
 import { LaunchReadinessPersistenceService } from "../../shared/services/launch-readiness-persistence.service";
 import { SupabaseService } from "../../shared/services/supabase.service";
 import { AiStoriesAdminService } from "./ai-stories-admin.service";
+import { AiStoriesGenerationController } from "./ai-stories-generation.controller";
+import { AiStoriesGenerationService } from "./ai-stories-generation.service";
 
 @Module({
   imports: [ConfigModule, WalletModule],
@@ -29,6 +31,7 @@ import { AiStoriesAdminService } from "./ai-stories-admin.service";
     AiStoryCampaignsController,
     AiStoryCampaignLifecycleController,
     AiStoryCampaignSchedulerController,
+    AiStoriesGenerationController,
   ],
   providers: [
     InternalRequestHeadersService,
@@ -45,6 +48,7 @@ import { AiStoriesAdminService } from "./ai-stories-admin.service";
     AiStoryCampaignOrchestrationService,
     AiStoryCampaignLifecycleService,
     AiStoryCampaignSchedulerService,
+    AiStoriesGenerationService,
   ],
   exports: [
     AiStoryIntelligenceService,
@@ -53,6 +57,7 @@ import { AiStoriesAdminService } from "./ai-stories-admin.service";
     AiStoryCampaignOrchestrationService,
     AiStoryCampaignLifecycleService,
     AiStoryCampaignSchedulerService,
+    AiStoriesGenerationService,
   ],
 })
 export class AiStoriesModule {}

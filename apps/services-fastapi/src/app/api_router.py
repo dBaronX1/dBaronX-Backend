@@ -91,7 +91,7 @@ ROUTE_MOUNTS: tuple[RouteMount, ...] = (
     ),
     RouteMount(
         module_path="app.api.routes.ai_generation",
-        prefix="/ai",
+        prefix="",
         tags=("ai",),
         required=False,
     ),

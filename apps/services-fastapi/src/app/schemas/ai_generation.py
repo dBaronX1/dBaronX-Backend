@@ -42,6 +42,11 @@ class StoryGenerationRequest(DBXModel):
         max_length=128,
         validation_alias=AliasChoices("user_id", "userId"),
     )
+    concept_id: str | None = Field(
+        default=None,
+        max_length=128,
+        validation_alias=AliasChoices("concept_id", "conceptId"),
+    )
     request_id: str | None = Field(
         default=None,
         max_length=128,
@@ -57,8 +62,10 @@ class StoryGenerationRequest(DBXModel):
         max_length=12000,
         validation_alias=AliasChoices("prompt", "text", "input", "query"),
     )
-    genre: str = Field(min_length=2, max_length=80)
-    tone: str = Field(min_length=2, max_length=80)
+    genre: str = Field(default="brand", min_length=2, max_length=80)
+    tone: str = Field(min_length=2, max_length=120)
+    length: str = Field(default="medium", pattern="^(short|medium|long)$")
+    audience: str | None = Field(default=None, max_length=120)
     language: str = Field(min_length=2, max_length=32, default="en")
     max_output_tokens: int = Field(
         default=1400,
@@ -173,13 +180,37 @@ class StoryRewriteRequest(DBXModel):
 
 class StoryGenerationResult(DBXModel):
     success: bool
-    provider: str
-    model: str
-    title: str
-    content: str
-    excerpt: str
+    storyId: str | None = None
+    title: str = ""
+    content: str = ""
+    provider: str = ""
+    model: str = ""
+    wordCount: int = 0
+    estimatedReadingMinutes: int = 0
+    saved: bool = False
+    fallbackUsed: bool = False
+    warnings: list[str] = Field(default_factory=list)
+    code: str | None = None
+    message: str | None = None
+    diagnostics: dict = Field(default_factory=dict)
+    metadata: dict = Field(default_factory=dict)
+    excerpt: str = ""
     tags: list[str] = Field(default_factory=list)
-    moderation_passed: bool
-    quality_score: float = Field(ge=0, le=1)
+    moderation_passed: bool = True
+    quality_score: float = Field(default=0.0, ge=0, le=1)
     request_id: str | None = None
     usage: dict = Field(default_factory=dict)
+
+    @classmethod
+    def failure(cls, *, code: str, message: str, diagnostics: dict | None = None) -> "StoryGenerationResult":
+        return cls(
+            success=False,
+            code=code,
+            message=message,
+            diagnostics=diagnostics or {},
+            provider="",
+            model="",
+            title="",
+            content="",
+            moderation_passed=False,
+        )

@@ -125,3 +125,16 @@ begin
       for each row execute function app_public.set_updated_at();
   end if;
 end $$;
+
+-- Production AI Stories generation path additions (idempotent and additive).
+alter table app_public.ai_stories add column if not exists concept_id text;
+alter table app_public.ai_stories add column if not exists model text;
+alter table app_public.ai_stories add column if not exists length text;
+alter table app_public.ai_stories add column if not exists audience text;
+alter table app_public.ai_stories add column if not exists word_count integer;
+
+do $$ begin
+  if exists (select 1 from information_schema.columns where table_schema='app_public' and table_name='ai_stories' and column_name='concept_id') then
+    execute 'create index if not exists idx_ai_stories_concept_id on app_public.ai_stories (concept_id)';
+  end if;
+end $$;
