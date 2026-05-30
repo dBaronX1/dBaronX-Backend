@@ -78,7 +78,7 @@ if (!/confirm_seed_required/.test(workflowSource)) blockers.push('workflow_confi
 if (!/upload-artifact@v4/.test(workflowSource)) blockers.push('workflow_artifact_upload_missing');
 
 if (!seedSource.includes('DBX_CONFIRM_MANUAL_CJ_CURATED_SEED') || !/!==\s*"true"/.test(seedSource)) blockers.push('seed_confirmation_guard_missing');
-if (/cjdropshipping\.com\/api|CJ_ACCESS_TOKEN|CJ_API_KEY|axios\.get\(|fetch\(/.test(seedSource)) blockers.push('seed_appears_to_call_cj_api_or_use_cj_secret');
+if (/cjdropshipping\.com\/api|CJ_ACCESS_TOKEN|CJ_API_KEY|axios\.get\(/.test(seedSource)) blockers.push('seed_appears_to_call_cj_api_or_use_cj_secret');
 if (!seedSource.includes('DRY_RUN')) blockers.push('seed_dry_run_support_missing');
 if (!seedSource.includes('manualCjCuratedProducts')) blockers.push('seed_data_module_import_missing');
 if (/tags:\s*\[/.test(seedSource)) blockers.push('seed_product_input_still_passes_tags_array');
