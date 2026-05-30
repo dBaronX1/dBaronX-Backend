@@ -16,7 +16,11 @@ const seedWorkflow = readFileSync(
   ".github/workflows/medusa-first-product-seed.yml",
   "utf8",
 );
-const combined = `${smoke}\n${publishableWorkflow}\n${seedWorkflow}`;
+const manualWorkflow = readFileSync(
+  ".github/workflows/medusa-manual-cj-curated-products.yml",
+  "utf8",
+);
+const combined = `${smoke}\n${publishableWorkflow}\n${seedWorkflow}\n${manualWorkflow}`;
 
 assert(smoke.includes(`safeCode === "28000"`), "SQLSTATE 28000 branch missing");
 assert(
@@ -29,9 +33,9 @@ assert(
 );
 assert(
   smoke.includes(
-    "Update GitHub Actions MEDUSA_DATABASE_URL with the current Render Postgres External Database URL after any password rotation. Do not use API Supabase DATABASE_URL.",
+    "Postgres rejected the MEDUSA_DATABASE_URL credentials. Re-copy the full current Render Postgres External Database URL using the Render copy button. Update GitHub repository secret MEDUSA_DATABASE_URL and any GitHub Environment secret MEDUSA_DATABASE_URL, especially Production. If the Render DB password was rotated, old URLs will fail.",
   ),
-  "auth nextAction must mention MEDUSA_DATABASE_URL and Render Postgres External Database URL",
+  "auth nextAction must mention MEDUSA_DATABASE_URL, repository secret, Environment secret, and Render copy button",
 );
 assert(
   smoke.includes("result.missingMedusaTables = []") &&

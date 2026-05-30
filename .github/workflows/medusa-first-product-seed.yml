@@ -42,6 +42,8 @@ env:
   DBX_COMMERCE_ENSURE_OUTPUT_PATH: artifacts/medusa-commerce-ensure-output.json
   MEDUSA_ADMIN_API_KEY: ${{ secrets.MEDUSA_ADMIN_API_KEY }}
   MEDUSA_API_KEY: ${{ secrets.MEDUSA_API_KEY }}
+  # Medusa-only database contract: both variables intentionally come from MEDUSA_DATABASE_URL.
+  # If this workflow uses a GitHub Environment, update the Environment secret too.
   DATABASE_URL: ${{ secrets.MEDUSA_DATABASE_URL }}
   MEDUSA_DATABASE_URL: ${{ secrets.MEDUSA_DATABASE_URL }}
 
@@ -57,7 +59,7 @@ jobs:
           mkdir -p artifacts
           if [ -z "${MEDUSA_DATABASE_URL:-}" ]; then
             echo "medusa_database_url_missing" >&2
-            printf '%s\n' '{"success":false,"errorCode":"medusa_database_url_missing","nextAction":"Set the MEDUSA_DATABASE_URL GitHub secret to the real Medusa database URL; do not use the API Supabase DATABASE_URL."}' > artifacts/medusa-db-contract.json
+            printf '%s\n' '{"success":false,"errorCode":"medusa_database_url_missing","usingMedusaDatabaseSecret":true,"usingGenericDatabaseSecret":false,"databaseUrlEqualsMedusaDatabaseUrl":true,"secretSourceHint":"MEDUSA_DATABASE_URL","medusaWorkflowDatabaseContract":"DATABASE_URL_AND_MEDUSA_DATABASE_URL_BOTH_FROM_MEDUSA_DATABASE_URL_SECRET","nextAction":"Set the GitHub repository secret MEDUSA_DATABASE_URL to the real Medusa database URL and update any GitHub Environment secret MEDUSA_DATABASE_URL if this workflow uses an Environment; do not use the API Supabase DATABASE_URL."}' > artifacts/medusa-db-contract.json
             exit 1
           fi
           if [ "${{ inputs.confirmSeed }}" != "true" ]; then
