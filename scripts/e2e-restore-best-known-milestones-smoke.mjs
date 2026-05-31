@@ -1,0 +1,20 @@
+#!/usr/bin/env node
+import { readFileSync, existsSync } from "node:fs";
+const checks=[]; const check=(name,pass)=>checks.push({name,pass:Boolean(pass)}); const file=(p)=>existsSync(p)?readFileSync(p,"utf8"):"";
+const auth=file("apps/api/src/modules/auth/auth.service.ts");
+const authController=file("apps/api/src/modules/auth/auth.controller.ts");
+const checkout=file("apps/api/src/modules/payments/checkout-session.controller.ts");
+const stripe=file("apps/api/src/modules/payments/stripe-checkout.service.ts");
+const paystack=file("apps/api/src/modules/payments/paystack-checkout.service.ts");
+const ai=file("apps/api/src/modules/ai-stories/ai-stories-generation.service.ts");
+const catalog=file("apps/api/src/modules/catalog/catalog.service.ts");
+const combined=`${auth}\n${authController}\n${checkout}\n${stripe}\n${paystack}\n${ai}\n${catalog}`;
+check("auth best-known register/login contracts are present", /auth\.admin\.createUser/.test(auth) && /email_confirm:\s*true/.test(auth) && /signInWithPassword/.test(auth));
+check("owner bootstrap recovery is present and guarded", /bootstrapOwner/.test(authController) && /DBX_ENABLE_OWNER_BOOTSTRAP/.test(auth) && /INTERNAL_SERVICE_TOKEN/.test(auth));
+check("checkout best-known hosted Stripe path is present", /checkout\.sessions\.create/.test(stripe) && /line_items:\s*payload\.lineItems\.map/.test(stripe));
+check("Paystack hosted initialization path is present", /transaction\/initialize/.test(paystack) && /paystackWebhookSigningSecret/.test(paystack));
+check("multi-line checkout and selected lineItems are preserved", /lineItems/.test(stripe) && /lineItems/.test(paystack) && !/Multi-item checkout is not supported yet/.test(combined));
+check("AI Stories gateway calls FastAPI", /\/ai\/stories\/readiness/.test(ai) && /\/ai\/stories\/generate/.test(ai));
+check("catalog gateway normalization is preserved", /CatalogService/.test(catalog) && /variantId/.test(catalog) && /buyable/.test(catalog));
+check("public responses avoid known raw internals", !/errorCode:\s*["'](?:auth_service_unavailable|supabase_error|database_error|internal_service_error|service_role_missing|jwt_error|unexpected_error|failed_to_fetch)["']/.test(combined));
+const failed=checks.filter((c)=>!c.pass); for (const c of checks) console.log(`${c.pass?"ok":"not ok"} - ${c.name}`); if(failed.length) process.exit(1);

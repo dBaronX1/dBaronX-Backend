@@ -747,14 +747,8 @@ export class StripeCheckoutService {
         sessionId: null,
         blocker: "stripe_session_failed",
         blockers: ["stripe_session_failed"],
-        code: "checkout_payload_invalid",
-        details: {
-          missingFields: [],
-          amountMatches: true,
-          productReady: true,
-          shippingReady: true,
-        },
-        message: "Payment provider is temporarily unavailable. Please try again.",
+        code: "checkout_session_failed",
+        message: "Checkout is temporarily unavailable. Please try again.",
       };
     }
   }

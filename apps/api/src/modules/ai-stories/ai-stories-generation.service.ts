@@ -128,7 +128,7 @@ export class AiStoriesGenerationService {
     let persistenceReady = false;
 
     if (!fastapiBaseUrl) {
-      blockers.push("FASTAPI_BASE_URL missing");
+      blockers.push("fastapi_unavailable");
     } else {
       try {
         const controller = new AbortController();
@@ -143,20 +143,20 @@ export class AiStoriesGenerationService {
         if (response.status === 404) {
           blockers.push("fastapi_route_missing");
         } else if (!response.ok) {
-          blockers.push("FastAPI readiness route unreachable");
+          blockers.push("fastapi_unavailable");
         } else {
           providerConfigured = Boolean(data?.providerConfigured || data?.provider_configured);
           generationEndpointReady = Boolean(data?.generationEndpointReady || data?.generation_endpoint_ready);
-          if (!providerConfigured) blockers.push("No FastAPI AI provider key configured");
+          if (!providerConfigured) blockers.push("ai_provider_missing");
         }
       } catch {
-        blockers.push("FastAPI readiness route unreachable");
+        blockers.push("fastapi_unavailable");
       }
     }
 
     const supabaseHealth = await this.supabase.health();
     persistenceReady = supabaseHealth.ok;
-    if (!persistenceReady) blockers.push("Supabase persistence health check failed");
+    if (!persistenceReady) blockers.push("persistence_failed");
 
     return {
       fastapiReachable,

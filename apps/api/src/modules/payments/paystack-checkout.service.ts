@@ -1,6 +1,6 @@
 import { Injectable, Logger } from "@nestjs/common";
 import { ConfigService } from "@nestjs/config";
-import { randomUUID } from "crypto";
+import { createHmac, randomUUID, timingSafeEqual } from "crypto";
 import { CreateCheckoutSessionDto } from "./dto/create-checkout-session.dto";
 
 @Injectable()
@@ -107,9 +107,11 @@ export class PaystackCheckoutService {
   }
 
   async handleWebhook(signature?: string, payload?: unknown) {
-    const expected = this.value("PAYSTACK_WEBHOOK_SECRET");
-    if (!expected) return { success: false, accepted: false, blocker: "paystack_webhook_secret_missing" };
-    if (!signature || signature !== expected) return { success: false, accepted: false, blocker: "paystack_webhook_signature_invalid" };
+    const signingSecret = this.paystackWebhookSigningSecret();
+    if (!signingSecret) return { success: false, accepted: false, blocker: "paystack_webhook_secret_missing" };
+    if (!signature || !this.isValidPaystackSignature(signature, payload, signingSecret)) {
+      return { success: false, accepted: false, blocker: "paystack_webhook_signature_invalid" };
+    }
     return { success: true, accepted: true, verified: true, event: (payload as any)?.event || "unknown" };
   }
 
@@ -124,8 +126,20 @@ export class PaystackCheckoutService {
   readiness() {
     return {
       paystackReady: Boolean(this.value("PAYSTACK_SECRET_KEY")),
-      webhookReady: Boolean(this.value("PAYSTACK_WEBHOOK_SECRET")),
+      webhookReady: Boolean(this.paystackWebhookSigningSecret()),
+      webhookSecretSource: this.value("PAYSTACK_WEBHOOK_SECRET") ? "PAYSTACK_WEBHOOK_SECRET" : this.value("PAYSTACK_SECRET_KEY") ? "PAYSTACK_SECRET_KEY" : null,
     };
+  }
+
+  private paystackWebhookSigningSecret() { return this.value("PAYSTACK_WEBHOOK_SECRET") || this.value("PAYSTACK_SECRET_KEY"); }
+
+  private isValidPaystackSignature(signature: string, payload: unknown, signingSecret: string): boolean {
+    const normalizedSignature = signature.trim().toLowerCase();
+    const serializedPayload = typeof payload === "string" || Buffer.isBuffer(payload) ? payload : JSON.stringify(payload || {});
+    const expected = createHmac("sha512", signingSecret).update(serializedPayload).digest("hex");
+    const left = Buffer.from(normalizedSignature, "hex");
+    const right = Buffer.from(expected, "hex");
+    return left.length === right.length && timingSafeEqual(left, right);
   }
 
   private baseUrl() { return this.value("PAYSTACK_API_BASE_URL") || "https://api.paystack.co"; }
