@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react";
 
-import { fetchMedusaStoreProducts, type MedusaStoreProduct } from "@/lib/api/medusa-store-client";
+import { fetchApiCatalogProducts, type MedusaStoreProduct } from "@/lib/api/medusa-store-client";
 
 export function useMedusaProducts(options: { limit?: number; handle?: string; initialProducts?: MedusaStoreProduct[] } = {}) {
   const [products, setProducts] = useState<MedusaStoreProduct[]>(options.initialProducts || []);
@@ -12,7 +12,7 @@ export function useMedusaProducts(options: { limit?: number; handle?: string; in
   useEffect(() => {
     let mounted = true;
     setLoading(!options.initialProducts?.length);
-    fetchMedusaStoreProducts(options)
+    fetchApiCatalogProducts(options)
       .then((result) => {
         if (!mounted) return;
         if (result.products.length > 0 || !options.initialProducts?.length) setProducts(result.products);
