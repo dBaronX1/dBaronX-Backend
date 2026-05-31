@@ -4,6 +4,7 @@ import { ChangeEvent, useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 
 import { useAuthSession } from "@/lib/hooks/useAuthSession";
+import { logoutWithApi } from "@/lib/auth/nest-auth-client";
 import { getSupabaseRuntimeBrowserClient } from "@/lib/supabase/runtime-client";
 import { DbxCard, dbxButtonStyle } from "@/components/dbx/DbxVisualShell";
 
@@ -161,8 +162,7 @@ export function CustomerAccountPanel({ mode = "account" }: { mode?: "account" | 
   async function signOut() {
     setStatus("Signing out…");
     try {
-      const supabase = await getSupabaseRuntimeBrowserClient();
-      await supabase.auth.signOut();
+      await logoutWithApi();
       window.location.href = "/home";
     } catch {
       setStatus("We could not sign you out. Please try again or contact support.");

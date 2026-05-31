@@ -10,6 +10,7 @@ import { SystemFinalizationModule } from "./modules/system/system-finalization.m
 import { DbxPaymentsModule } from "./modules/dbx-payments/dbx-payments.module";
 import { FirstOwnerBootstrapModule } from "./modules/bootstrap/bootstrap.module";
 import { HealthController } from "./health.controller";
+import { AuthModule } from "./modules/auth/auth.module";
 
 @Module({
   controllers: [HealthController],
@@ -21,6 +22,7 @@ import { HealthController } from "./health.controller";
     }),
     SharedModule,
     BootstrapModule,
+    AuthModule,
     PlatformModule,
     SystemModule,
     SystemFinalizationModule,
