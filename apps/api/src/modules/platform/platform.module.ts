@@ -11,6 +11,7 @@ import { WalletModule } from "../wallet/wallet.module";
 import { PayoutsModule } from "../payouts/payouts.module";
 import { SuppliersModule } from "../suppliers/suppliers.module";
 import { AdsModule } from "../ads/ads.module";
+import { AuthModule } from "../auth/auth.module";
 import { PlatformAdminPackController } from "./platform-admin-pack.controller";
 import { PlatformAdminPackService } from "./platform-admin-pack.service";
 import { PlatformShellController } from "./platform-shell.controller";
@@ -29,6 +30,7 @@ import { PlatformShellService } from "./platform-shell.service";
     PayoutsModule,
     SuppliersModule,
     AdsModule,
+    AuthModule,
   ],
   controllers: [PlatformShellController, PlatformAdminPackController],
   providers: [
@@ -50,6 +52,7 @@ import { PlatformShellService } from "./platform-shell.service";
     PayoutsModule,
     SuppliersModule,
     AdsModule,
+    AuthModule,
   ],
 })
 export class PlatformModule {}

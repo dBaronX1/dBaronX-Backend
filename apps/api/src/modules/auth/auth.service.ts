@@ -1,6 +1,6 @@
 import { Injectable, Logger } from "@nestjs/common";
 import { ConfigService } from "@nestjs/config";
-import type { AuthTokenResponsePassword, User } from "@supabase/supabase-js";
+import type { AuthTokenResponsePassword, Session, User } from "@supabase/supabase-js";
 
 import { SupabaseService } from "../../shared/services/supabase.service";
 import { AuthJwtService } from "../../shared/services/auth.jwt.service";
@@ -15,9 +15,23 @@ export type SafeAuthUser = {
 };
 
 type AuthResult<T> = { ok: true; value: T } | { ok: false; error: PublicAuthError };
+type ProfileTableName = "profiles" | "user_profiles";
+
+type AuthReadiness = {
+  success: boolean;
+  supabaseConfigured: boolean;
+  authProviderReachable: boolean;
+  profilePersistenceReady: boolean;
+  requiredTables: {
+    profiles: boolean;
+  };
+  blockers: string[];
+};
 
 const EMAIL_PATTERN = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 const PASSWORD_PATTERN = /^(?=.*[A-Za-z])(?=.*\d).{8,}$/;
+const PROFILE_TABLE_CANDIDATES: ProfileTableName[] = ["profiles", "user_profiles"];
+const PASSWORD_RESET_MESSAGE = "If an account exists, reset instructions will be sent.";
 
 @Injectable()
 export class AuthService {
@@ -33,8 +47,15 @@ export class AuthService {
     const normalized = this.validateRegister(input);
     if (normalized.ok === false) return { ok: false, error: normalized.error };
 
+    const serviceReady = this.ensureAuthOperationsConfigured();
+    if (serviceReady.ok === false) return serviceReady;
+
     const { email, password, referralCode, fullName } = normalized.value;
     try {
+      const existingUser = await this.findExistingAuthUser(email);
+      if (existingUser.ok === false) return { ok: false, error: existingUser.error };
+      if (existingUser.value) return { ok: false, error: publicAuthError("EMAIL_ALREADY_REGISTERED", 409) };
+
       const { data, error } = await this.supabase.client.auth.admin.createUser({
         email,
         password,
@@ -43,7 +64,6 @@ export class AuthService {
           full_name: fullName || undefined,
           display_name: fullName || undefined,
           referral_code: referralCode || undefined,
-          source: "rocket_web",
         },
       });
 
@@ -61,10 +81,7 @@ export class AuthService {
         ok: true,
         value: {
           user: profile.value,
-          session: {
-            accessToken: token,
-            tokenType: "Bearer",
-          },
+          session: this.safeSessionContract({ apiAccessToken: token }),
         },
       };
     } catch (error) {
@@ -76,6 +93,9 @@ export class AuthService {
   async login(input: LoginAuthDto): Promise<AuthResult<{ user: SafeAuthUser; session: Record<string, unknown> }>> {
     const normalized = this.validateLogin(input);
     if (normalized.ok === false) return { ok: false, error: normalized.error };
+
+    const serviceReady = this.ensureAuthOperationsConfigured();
+    if (serviceReady.ok === false) return serviceReady;
 
     try {
       const response: AuthTokenResponsePassword = await this.supabase.client.auth.signInWithPassword(normalized.value);
@@ -93,13 +113,7 @@ export class AuthService {
         ok: true,
         value: {
           user: profile.value,
-          session: {
-            accessToken: apiToken,
-            supabaseAccessToken: data.session.access_token,
-            refreshToken: data.session.refresh_token,
-            expiresAt: data.session.expires_at,
-            tokenType: data.session.token_type || "Bearer",
-          },
+          session: this.safeSessionContract({ apiAccessToken: apiToken, supabaseSession: data.session }),
         },
       };
     } catch (error) {
@@ -118,6 +132,8 @@ export class AuthService {
       if (profile.ok === false) return { ok: false, error: profile.error };
       return { ok: true, value: { user: profile.value } };
     } catch {
+      const serviceReady = this.ensureSupabaseConfigured();
+      if (serviceReady.ok === false) return serviceReady;
       try {
         const { data, error } = await this.supabase.client.auth.getUser(token);
         if (error || !data.user) return { ok: false, error: publicAuthError("SESSION_EXPIRED", 401) };
@@ -135,13 +151,24 @@ export class AuthService {
     return { ok: true, value: { signedOut: true } };
   }
 
-  async requestPasswordReset(input: PasswordResetRequestDto): Promise<AuthResult<{ requested: true }>> {
+  async requestPasswordReset(input: PasswordResetRequestDto): Promise<AuthResult<{ requested: true; message: string }>> {
     const email = String(input.email || "").trim().toLowerCase();
     if (!EMAIL_PATTERN.test(email)) return { ok: false, error: publicAuthError("INVALID_EMAIL") };
-    const redirectTo = String(this.config.get<string>("AUTH_PASSWORD_RESET_REDIRECT_URL") || process.env.AUTH_PASSWORD_RESET_REDIRECT_URL || "").trim() || undefined;
-    const { error } = await this.supabase.client.auth.resetPasswordForEmail(email, { redirectTo });
-    if (error) return { ok: false, error: mapSupabaseAuthError(error, "AUTH_TEMPORARILY_UNAVAILABLE") };
-    return { ok: true, value: { requested: true } };
+
+    if (!this.supabase.isConfigured()) {
+      this.logger.warn(JSON.stringify({ event: "auth_password_reset_skipped_unconfigured" }));
+      return { ok: true, value: { requested: true, message: PASSWORD_RESET_MESSAGE } };
+    }
+
+    try {
+      const redirectTo = String(this.config.get<string>("AUTH_PASSWORD_RESET_REDIRECT_URL") || process.env.AUTH_PASSWORD_RESET_REDIRECT_URL || "").trim() || undefined;
+      const { error } = await this.supabase.client.auth.resetPasswordForEmail(email, { redirectTo });
+      if (error) this.logger.warn(JSON.stringify({ event: "auth_password_reset_provider_failed", code: error.code, status: error.status }));
+    } catch (error) {
+      this.logger.warn(JSON.stringify({ event: "auth_password_reset_unexpected_failed" }));
+    }
+
+    return { ok: true, value: { requested: true, message: PASSWORD_RESET_MESSAGE } };
   }
 
   async confirmPasswordReset(input: PasswordResetConfirmDto): Promise<AuthResult<{ updated: true }>> {
@@ -149,6 +176,10 @@ export class AuthService {
     if (!token) return { ok: false, error: publicAuthError("SESSION_EXPIRED", 401) };
     if (!input.password || !PASSWORD_PATTERN.test(input.password)) return { ok: false, error: publicAuthError("WEAK_PASSWORD") };
     if (input.password !== input.confirmPassword) return { ok: false, error: publicAuthError("PASSWORD_MISMATCH") };
+
+    const serviceReady = this.ensureAuthOperationsConfigured();
+    if (serviceReady.ok === false) return serviceReady;
+
     const { data, error } = await this.supabase.client.auth.getUser(token);
     if (error || !data.user) return { ok: false, error: publicAuthError("SESSION_EXPIRED", 401) };
     const updated = await this.supabase.client.auth.admin.updateUserById(data.user.id, { password: input.password });
@@ -156,19 +187,31 @@ export class AuthService {
     return { ok: true, value: { updated: true } };
   }
 
-  async readiness() {
+  async readiness(): Promise<AuthReadiness> {
     const blockers: string[] = [];
-    const supabaseConfigured = Boolean(process.env.SUPABASE_URL && process.env.SUPABASE_SERVICE_ROLE_KEY);
-    if (!supabaseConfigured) blockers.push("supabase_configuration_missing");
+    const supabaseUrlConfigured = this.hasEnv("SUPABASE_URL");
+    const supabaseServiceRoleConfigured = this.hasEnv("SUPABASE_SERVICE_ROLE_KEY");
+    const jwtSecretConfigured = this.hasEnv("JWT_SECRET");
+    const supabaseConfigured = supabaseUrlConfigured && supabaseServiceRoleConfigured;
+
+    if (!supabaseUrlConfigured) blockers.push("supabase_url_missing");
+    if (!supabaseServiceRoleConfigured) blockers.push("supabase_service_role_missing");
+    if (!jwtSecretConfigured) blockers.push("jwt_secret_missing");
+
     const health = supabaseConfigured ? await this.supabase.health() : { ok: false };
-    const profilePersistenceReady = await this.profilePersistenceReady();
-    if (!health.ok) blockers.push("auth_provider_unreachable");
-    if (!profilePersistenceReady) blockers.push("profile_persistence_unavailable");
+    const profilePersistence = supabaseConfigured ? await this.profilePersistenceStatus() : { ready: false, table: null };
+
+    if (supabaseConfigured && !health.ok) blockers.push("auth_provider_unreachable");
+    if (supabaseConfigured && !profilePersistence.ready) blockers.push("profiles_table_unavailable");
+
     return {
       success: blockers.length === 0,
       supabaseConfigured,
       authProviderReachable: Boolean(health.ok),
-      profilePersistenceReady,
+      profilePersistenceReady: profilePersistence.ready,
+      requiredTables: {
+        profiles: profilePersistence.ready,
+      },
       blockers,
     };
   }
@@ -193,21 +236,23 @@ export class AuthService {
   }
 
   private async upsertProfile(user: User, input: { fullName: string; referralCode: string }): Promise<AuthResult<SafeAuthUser>> {
+    const table = await this.resolveProfileTable();
+    if (!table) return { ok: false, error: publicAuthError("PROFILE_CREATION_FAILED", 503) };
+
     const payload = {
       user_id: user.id,
       email: user.email || null,
       full_name: input.fullName || null,
-      display_name: input.fullName || null,
       referral_code: input.referralCode || null,
     };
     const { data, error } = await this.supabase.client
       .schema("app_public")
-      .from("user_profiles")
+      .from(table)
       .upsert(payload, { onConflict: "user_id" })
       .select("user_id,email,full_name,referral_code")
       .single();
     if (error) {
-      this.logger.error(JSON.stringify({ event: "auth_profile_upsert_failed", code: error.code }));
+      this.logger.error(JSON.stringify({ event: "auth_profile_upsert_failed", code: error.code, table }));
       return { ok: false, error: publicAuthError("PROFILE_CREATION_FAILED", 503) };
     }
     return { ok: true, value: this.safeUserFromProfile(data, user) };
@@ -221,14 +266,17 @@ export class AuthService {
   }
 
   private async loadProfile(userId: string, email?: string): Promise<AuthResult<SafeAuthUser>> {
+    const table = await this.resolveProfileTable();
+    if (!table) return { ok: false, error: publicAuthError("PROFILE_CREATION_FAILED", 503) };
+
     const { data, error } = await this.supabase.client
       .schema("app_public")
-      .from("user_profiles")
+      .from(table)
       .select("user_id,email,full_name,referral_code")
       .eq("user_id", userId)
       .maybeSingle();
     if (error) {
-      this.logger.error(JSON.stringify({ event: "auth_profile_load_failed", code: error.code }));
+      this.logger.error(JSON.stringify({ event: "auth_profile_load_failed", code: error.code, table }));
       return { ok: false, error: publicAuthError("PROFILE_CREATION_FAILED", 503) };
     }
     return { ok: true, value: this.safeUserFromProfile(data, { id: userId, email: email || null } as User) };
@@ -237,7 +285,7 @@ export class AuthService {
   private safeUserFromProfile(profile: unknown, user: User): SafeAuthUser {
     const row = profile && typeof profile === "object" ? (profile as Record<string, unknown>) : {};
     return {
-      id: String(row.user_id || user.id),
+      id: String(row.user_id || row.id || user.id),
       email: typeof row.email === "string" ? row.email : user.email || null,
       fullName: typeof row.full_name === "string" ? row.full_name : null,
       referralCode: typeof row.referral_code === "string" ? row.referral_code : null,
@@ -249,12 +297,61 @@ export class AuthService {
     return raw.toLowerCase().startsWith("bearer ") ? raw.slice(7).trim() : raw;
   }
 
-  private async profilePersistenceReady(): Promise<boolean> {
-    try {
-      const { error } = await this.supabase.client.schema("app_public").from("user_profiles").select("user_id").limit(1);
-      return !error;
-    } catch {
-      return false;
+  private async profilePersistenceStatus(): Promise<{ ready: boolean; table: ProfileTableName | null }> {
+    const table = await this.resolveProfileTable();
+    return { ready: Boolean(table), table };
+  }
+
+  private async resolveProfileTable(): Promise<ProfileTableName | null> {
+    if (!this.supabase.isConfigured()) return null;
+
+    for (const table of PROFILE_TABLE_CANDIDATES) {
+      try {
+        const { error } = await this.supabase.client.schema("app_public").from(table).select("user_id").limit(1);
+        if (!error) return table;
+      } catch {
+        // Try the next supported profile table name.
+      }
     }
+
+    return null;
+  }
+
+  private ensureAuthOperationsConfigured(): AuthResult<true> {
+    const supabaseReady = this.ensureSupabaseConfigured();
+    if (supabaseReady.ok === false) return supabaseReady;
+    if (!this.hasEnv("JWT_SECRET")) return { ok: false, error: publicAuthError("AUTH_TEMPORARILY_UNAVAILABLE", 503) };
+    return { ok: true, value: true };
+  }
+
+  private ensureSupabaseConfigured(): AuthResult<true> {
+    if (!this.supabase.isConfigured()) return { ok: false, error: publicAuthError("AUTH_TEMPORARILY_UNAVAILABLE", 503) };
+    return { ok: true, value: true };
+  }
+
+  private async findExistingAuthUser(email: string): Promise<AuthResult<boolean>> {
+    try {
+      const { data, error } = await this.supabase.client.auth.admin.listUsers({ page: 1, perPage: 1000 });
+      if (error) return { ok: false, error: mapSupabaseAuthError(error, "AUTH_TEMPORARILY_UNAVAILABLE") };
+      const users = Array.isArray(data.users) ? (data.users as Array<{ email?: string | null }>) : [];
+      const exists = Boolean(users.find((user) => user.email?.toLowerCase() === email));
+      return { ok: true, value: exists };
+    } catch (error) {
+      return { ok: false, error: mapSupabaseAuthError(error, "AUTH_TEMPORARILY_UNAVAILABLE") };
+    }
+  }
+
+  private safeSessionContract(input: { apiAccessToken: string; supabaseSession?: Session }): Record<string, unknown> {
+    return {
+      accessToken: input.apiAccessToken,
+      supabaseAccessToken: input.supabaseSession?.access_token,
+      refreshToken: input.supabaseSession?.refresh_token,
+      expiresAt: input.supabaseSession?.expires_at,
+      tokenType: input.supabaseSession?.token_type || "Bearer",
+    };
+  }
+
+  private hasEnv(key: string): boolean {
+    return Boolean(String(this.config.get<string>(key) || process.env[key] || "").trim());
   }
 }
