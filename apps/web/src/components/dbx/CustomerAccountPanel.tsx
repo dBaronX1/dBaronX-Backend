@@ -196,12 +196,9 @@ export function CustomerAccountPanel({ mode = "account" }: { mode?: "account" | 
           </div>
           <div>
             <h2 style={{ margin: 0 }}>{initialDisplayName}</h2>
-            <p style={{ color: "#fed7aa", marginBottom: 8 }}>{customerEmail}</p>
-            <p style={{ color: "#fdba74", marginTop: 0 }}>Masked profile reference: {shortUserReference(session?.user?.id || "")}</p>
+            <p style={{ color: "#fdba74", marginTop: 8 }}>Masked profile reference: {shortUserReference(session?.user?.id || "")}</p>
           </div>
         </div>
-        <p style={{ color: "#fed7aa", lineHeight: 1.6 }}>Email verification status: {session?.user?.email_confirmed_at ? "Verified" : "Not verified"}</p>
-        <p style={{ color: "#fed7aa", lineHeight: 1.6 }}>Phone verification status: {session?.user?.phone_confirmed_at ? "Verified" : "Not verified"}</p>
         {editing ? (
           <div style={{ display: "grid", gap: 12 }}>
             <input ref={fileInputRef} type="file" accept={PHOTO_ACCEPT} onChange={chooseProfilePhoto} style={{ display: "none" }} />
@@ -213,7 +210,6 @@ export function CustomerAccountPanel({ mode = "account" }: { mode?: "account" | 
             <SelectField id="dbx-profile-country" label="Country" value={countryDraft} options={COUNTRY_OPTIONS} onChange={setCountryDraft} />
             <SelectField id="dbx-profile-phone-code" label="Phone code" value={phoneCodeDraft} options={PHONE_CODE_OPTIONS} onChange={setPhoneCodeDraft} />
             <SelectField id="dbx-profile-language" label="Language" value={languageDraft} options={LANGUAGE_OPTIONS} onChange={setLanguageDraft} />
-            <p style={{ color: "#fdba74", lineHeight: 1.6, margin: 0 }}>Email changes require a secure confirmation flow. Contact support if you need help changing your login email.</p>
             <button type="button" onClick={updateProfile} style={{ ...dbxButtonStyle, cursor: "pointer", border: 0 }}>Save profile</button>
           </div>
         ) : (

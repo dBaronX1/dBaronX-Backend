@@ -9,6 +9,7 @@ export interface NestApiConfig {
 export function getNestApiConfig(): NestApiConfig {
   return {
     baseUrl: requireServerEnv([
+      "NEXT_PUBLIC_API_BASE_URL",
       "NEST_API_URL",
       "NEXT_PUBLIC_NEST_API_URL",
       "NEXT_PUBLIC_API_URL",

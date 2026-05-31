@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from fastapi import APIRouter, Depends
 
-from app.api.dependencies import story_generation_service_dep
+from app.api.routes.ai_generation import story_generation_service_dep
 from app.schemas.ai_generation import (
     StoryGenerationRequest,
     StoryGenerationResult,

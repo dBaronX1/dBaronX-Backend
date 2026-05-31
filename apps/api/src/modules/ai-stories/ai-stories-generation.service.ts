@@ -140,9 +140,15 @@ export class AiStoriesGenerationService {
         clearTimeout(timeout);
         const data = await response.json().catch(() => ({}));
         fastapiReachable = response.ok;
-        providerConfigured = Boolean(data?.providerConfigured || data?.provider_configured);
-        generationEndpointReady = Boolean(data?.generationEndpointReady || data?.generation_endpoint_ready || response.ok);
-        if (!providerConfigured) blockers.push("No FastAPI AI provider key configured");
+        if (response.status === 404) {
+          blockers.push("fastapi_route_missing");
+        } else if (!response.ok) {
+          blockers.push("FastAPI readiness route unreachable");
+        } else {
+          providerConfigured = Boolean(data?.providerConfigured || data?.provider_configured);
+          generationEndpointReady = Boolean(data?.generationEndpointReady || data?.generation_endpoint_ready);
+          if (!providerConfigured) blockers.push("No FastAPI AI provider key configured");
+        }
       } catch {
         blockers.push("FastAPI readiness route unreachable");
       }
