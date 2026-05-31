@@ -1,3 +1,31 @@
+
+
+export type RocketCheckoutCustomerDto = {
+  email?: string;
+  fullName?: string;
+  phone?: string;
+};
+
+export type RocketCheckoutShippingAddressDto = {
+  country?: string;
+  city?: string;
+  state?: string;
+  addressLine1?: string;
+  addressLine2?: string;
+  postalCode?: string;
+};
+
+export type RocketCheckoutLineItemDto = {
+  productId?: string;
+  variantId?: string;
+  handle?: string;
+  title?: string;
+  quantity?: number;
+  unitPriceMinor?: number;
+  currencyCode?: string;
+  imageUrl?: string;
+};
+
 import {
   IsArray,
   IsEmail,
@@ -277,5 +305,19 @@ export class CreateStripeCheckoutSessionDto {
   @IsInt()
   @Min(1)
   quantity?: number;
+
+  @IsOptional()
+  customer?: RocketCheckoutCustomerDto;
+
+  @IsOptional()
+  shippingAddress?: RocketCheckoutShippingAddressDto;
+
+  @IsOptional()
+  lineItems?: RocketCheckoutLineItemDto[];
+
+  @IsOptional()
+  @IsInt()
+  @Min(1)
+  totalMinor?: number;
 
 }

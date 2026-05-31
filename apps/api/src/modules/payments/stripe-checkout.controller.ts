@@ -1,10 +1,11 @@
-import { Body, Controller, Get, Headers, HttpCode, HttpStatus, Post, Query, Req, SetMetadata, UseGuards, VERSION_NEUTRAL } from "@nestjs/common";
+import { Body, Controller, Get, Headers, HttpCode, HttpStatus, Post, Query, Req, Res, SetMetadata, UseGuards, VERSION_NEUTRAL } from "@nestjs/common";
 import { ApiTags } from "@nestjs/swagger";
-import { Request } from "express";
+import { Request, Response } from "express";
 import { Public } from "../../shared/decorators/public.decorator";
 import { InternalAuthGuard, INTERNAL_AUTH_REQUIRED_KEY } from "../../shared/guards/internal-auth.guard";
 import { CreateStripeCheckoutSessionDto } from "./dto/create-stripe-checkout-session.dto";
 import { StripeCheckoutService } from "./stripe-checkout.service";
+import { checkoutErrorResponse, mapCheckoutFailure } from "./checkout-error.mapper";
 
 type RawBodyRequest = Request & { rawBody?: Buffer };
 
@@ -55,8 +56,13 @@ export class StripeCheckoutController {
   @Public()
   @Post("session")
   @HttpCode(HttpStatus.OK)
-  async create(@Body() body: CreateStripeCheckoutSessionDto) {
-    return this.stripe.createSession(body);
+  async create(@Body() body: CreateStripeCheckoutSessionDto, @Res() response: Response) {
+    const res = await this.stripe.createSession(body);
+    if (!res.success) {
+      const error = mapCheckoutFailure(res as Record<string, unknown>, "stripe");
+      return response.status(error.status).json(checkoutErrorResponse(error));
+    }
+    return response.status(200).json({ success: true, provider: "stripe", checkoutUrl: (res as any).checkoutUrl || null, checkoutSessionId: (res as any).sessionId || null, reference: (res as any).metadata?.checkoutRef || body.checkoutRef || body.orderRef || body.cartId || null });
   }
 
   @Public()

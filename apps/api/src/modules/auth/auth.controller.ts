@@ -1,4 +1,4 @@
-import { Body, Controller, Get, Headers, Post, Res } from "@nestjs/common";
+import { Body, Controller, Get, Headers, Post, Res, VERSION_NEUTRAL } from "@nestjs/common";
 import type { Response } from "express";
 
 import { Public } from "../../shared/decorators/public.decorator";
@@ -6,7 +6,7 @@ import { AuthService } from "./auth.service";
 import { authErrorResponse } from "./auth-error.mapper";
 import type { LoginAuthDto, PasswordResetConfirmDto, PasswordResetRequestDto, RegisterAuthDto } from "./dto/auth.dto";
 
-@Controller("auth")
+@Controller({ path: "auth", version: VERSION_NEUTRAL })
 @Public()
 export class AuthController {
   constructor(private readonly auth: AuthService) {}
@@ -37,6 +37,13 @@ export class AuthController {
     const result = await this.auth.me(authorization);
     if (result.ok === false) return res.status(result.error.status).json(authErrorResponse(result.error));
     return res.status(200).json({ success: true, ...result.value });
+  }
+
+  @Post("owner/bootstrap")
+  async bootstrapOwner(@Headers() headers: Record<string, string | string[] | undefined>, @Res() res: Response) {
+    const result = await this.auth.bootstrapOwner(headers);
+    if (result.ok === false) return res.status(result.error.status).json(authErrorResponse(result.error));
+    return res.status(result.value.blockers.length > 0 ? 403 : 200).json({ success: result.value.blockers.length === 0, ...result.value });
   }
 
   @Post("password-reset/request")
