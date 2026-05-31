@@ -1,14 +1,24 @@
 "use client";
 
+import { useMemo, useState } from "react";
 import Image from "next/image";
 import Link from "next/link";
 
 import { productAvailabilityLabel, productDeliveryEstimate, productDisplayPrice, productPrimaryImage, productPrimaryVariantId, type StoreProduct, useStoreProducts } from "@/lib/store-products";
 import { DbxCard, dbxButtonStyle } from "@/components/dbx/DbxVisualShell";
 
+function productCategory(product: StoreProduct) {
+  const metadata = product.metadata && typeof product.metadata === "object" ? product.metadata : {};
+  return String(product.category || product.supplier || metadata.category || metadata.categorySlug || metadata.label || "Catalog").trim() || "Catalog";
+}
+
 export function DbxProductGrid({ handle, initialProducts = [] }: { handle?: string; initialProducts?: StoreProduct[] }) {
   const { products, loading, reason, attemptedEndpoint } = useStoreProducts({ limit: handle ? 8 : 24, handle, initialProducts });
-  const visible = handle ? products.filter((product) => product.handle === handle) : products;
+  const [selectedCategory, setSelectedCategory] = useState("All");
+  const baseProducts = handle ? products.filter((product) => product.handle === handle) : products;
+  const categories = useMemo(() => ["All", ...Array.from(new Set(baseProducts.map(productCategory).filter(Boolean)))], [baseProducts]);
+  const categoryFiltered = selectedCategory === "All" ? baseProducts : baseProducts.filter((product) => productCategory(product) === selectedCategory);
+  const visible = categoryFiltered.length ? categoryFiltered : baseProducts;
 
   if (loading) return <DbxCard>Loading dBaronX products…</DbxCard>;
 
@@ -31,8 +41,29 @@ export function DbxProductGrid({ handle, initialProducts = [] }: { handle?: stri
   }
 
   return (
-    <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(260px, 1fr))", gap: 20 }}>
-      {visible.map((product) => <DbxProductCard key={product.id || product.handle || product.title} product={product} />)}
+    <div style={{ display: "grid", gap: 16 }}>
+      {!handle && categories.length > 1 ? (
+        <div aria-label="Product categories" style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
+          {categories.map((category) => (
+            <button
+              key={category}
+              type="button"
+              onClick={() => setSelectedCategory(category)}
+              style={{
+                ...dbxButtonStyle,
+                border: "1px solid rgba(251,191,36,.35)",
+                cursor: "pointer",
+                background: selectedCategory === category ? "rgba(251,191,36,.24)" : "rgba(255,255,255,.08)",
+              }}
+            >
+              {category}
+            </button>
+          ))}
+        </div>
+      ) : null}
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(260px, 1fr))", gap: 20 }}>
+        {visible.map((product) => <DbxProductCard key={product.id || product.handle || product.title} product={product} />)}
+      </div>
     </div>
   );
 }

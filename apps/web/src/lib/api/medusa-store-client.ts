@@ -3,6 +3,8 @@ import { firstMedusaPriceMinor, firstMedusaVariantId } from "@/lib/medusa-produc
 
 export type StoreProductVariant = Record<string, unknown> & {
   id?: string;
+  productId?: string;
+  variantId?: string;
   title?: string;
   sku?: string;
   inventory_quantity?: number;
@@ -15,6 +17,8 @@ export type StoreProductVariant = Record<string, unknown> & {
 
 export type MedusaStoreProduct = Record<string, unknown> & {
   id?: string;
+  productId?: string;
+  variantId?: string;
   title?: string;
   name?: string;
   handle?: string;
@@ -35,7 +39,11 @@ export type MedusaStoreProduct = Record<string, unknown> & {
   supplier?: string;
   supplierProductId?: string;
   supplierSku?: string;
+  category?: string;
   deliveryEstimate?: string;
+  realSupplierProduct?: boolean;
+  manualCurated?: boolean;
+  buyable?: boolean;
   productUrl?: string;
   metadata?: Record<string, unknown>;
 };
@@ -120,6 +128,7 @@ export function productDisplayPrice(product: MedusaStoreProduct | null | undefin
 
 export function productPrimaryVariantId(product: MedusaStoreProduct | null | undefined) {
   if (product?.checkoutEnabled === false) return "";
+  if (typeof product?.variantId === "string" && product.variantId.trim()) return product.variantId.trim();
   return firstMedusaVariantId(product);
 }
 
@@ -149,20 +158,26 @@ export function productDeliveryEstimate(product: MedusaStoreProduct | null | und
 
 export function normalizeStoreProduct(product: MedusaStoreProduct): MedusaStoreProduct {
   const safe = stripInternalFields(product) as MedusaStoreProduct;
+  const rawVariantId = publicString(safe.variantId ?? (safe as Record<string, unknown>).variant_id);
   const variants = normalizeVariants(Array.isArray(safe.variants) ? safe.variants : []);
-  const checkoutEnabled = safe.checkoutEnabled === false ? false : undefined;
-  const defaultVariantId = productPrimaryVariantId({ ...safe, variants, checkoutEnabled });
-  const priceInfo = resolvePriceInfo({ ...safe, variants });
-  const image = productPrimaryImage({ ...safe, variants });
+  const variantsWithFlatFallback = variants.length || !rawVariantId ? variants : [{ id: rawVariantId, prices: [] }];
+  const checkoutEnabled = safe.checkoutEnabled === false || safe.buyable === false ? false : undefined;
+  const defaultVariantId = productPrimaryVariantId({ ...safe, defaultVariantId: safe.defaultVariantId || rawVariantId, variants: variantsWithFlatFallback, checkoutEnabled });
+  const priceInfo = resolvePriceInfo({ ...safe, variants: variantsWithFlatFallback });
+  const image = productPrimaryImage({ ...safe, variants: variantsWithFlatFallback });
   const metadata = sanitizeMetadata(safe.metadata);
-  const inventoryQuantity = resolveInventoryQuantity({ ...safe, variants });
+  const inventoryQuantity = resolveInventoryQuantity({ ...safe, variants: variantsWithFlatFallback });
+  const productId = publicString(safe.productId ?? (safe as Record<string, unknown>).product_id ?? safe.id);
   const supplier = publicString(metadata.supplier ?? safe.supplier);
   const supplierProductId = publicString(metadata.supplierProductId ?? metadata.supplier_product_id ?? safe.supplierProductId);
-  const supplierSku = publicString(metadata.supplierSku ?? metadata.supplier_sku ?? safe.supplierSku ?? variants[0]?.sku);
+  const supplierSku = publicString(metadata.supplierSku ?? metadata.supplier_sku ?? safe.supplierSku ?? variantsWithFlatFallback[0]?.sku);
+  const category = publicString(metadata.category ?? metadata.categoryLabel ?? safe.category);
   const deliveryEstimate = publicString(metadata.deliveryEstimate ?? metadata.delivery_estimate ?? safe.deliveryEstimate);
 
   return {
-    id: publicString(safe.id),
+    id: productId,
+    productId,
+    variantId: defaultVariantId,
     title: publicString(safe.title ?? safe.name) || "dBaronX product",
     name: publicString(safe.name ?? safe.title) || "dBaronX product",
     handle: publicString(safe.handle),
@@ -176,12 +191,16 @@ export function normalizeStoreProduct(product: MedusaStoreProduct): MedusaStoreP
     currencyCode: priceInfo.currencyCode,
     defaultVariantId,
     ...(checkoutEnabled === false ? { checkoutEnabled } : {}),
-    variants,
-    stockStatus: inventoryQuantity === null ? (variants[0]?.manage_inventory === false ? "Available" : "Availability pending") : inventoryQuantity > 0 ? `Available (${inventoryQuantity} in launch stock)` : "Availability pending",
+    variants: variantsWithFlatFallback,
+    stockStatus: inventoryQuantity === null ? (variantsWithFlatFallback[0]?.manage_inventory === false || safe.buyable === true ? "Available" : "Availability pending") : inventoryQuantity > 0 ? `Available (${inventoryQuantity} in launch stock)` : "Availability pending",
     ...(inventoryQuantity !== null ? { inventoryQuantity } : {}),
     ...(supplier ? { supplier } : {}),
     ...(supplierProductId ? { supplierProductId } : {}),
     ...(supplierSku ? { supplierSku } : {}),
+    ...(category ? { category } : {}),
+    ...(typeof safe.realSupplierProduct === "boolean" ? { realSupplierProduct: safe.realSupplierProduct } : {}),
+    ...(typeof safe.manualCurated === "boolean" ? { manualCurated: safe.manualCurated } : {}),
+    ...(typeof safe.buyable === "boolean" ? { buyable: safe.buyable } : {}),
     ...(deliveryEstimate ? { deliveryEstimate } : {}),
     productUrl: safe.handle ? `/products/${safe.handle}` : "/products",
     metadata,

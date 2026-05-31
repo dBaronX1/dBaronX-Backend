@@ -1,9 +1,14 @@
 from __future__ import annotations
 
+from functools import lru_cache
+
 from fastapi import APIRouter, Depends
 
-from app.api.dependencies import story_generation_service_dep
-from app.services.service_registry import get_ai_provider_service, get_supabase_service
+from app.services.ai_provider_service import AIProviderService
+from app.services.idempotency_service import IdempotencyService
+from app.services.moderation_service import ModerationService
+from app.services.redis_service import RedisService
+from app.services.supabase_service import SupabaseService
 from app.schemas.ai_generation import (
     StoryContinuationRequest,
     StoryGenerationRequest,
@@ -13,6 +18,30 @@ from app.schemas.ai_generation import (
 from app.services.story_generation_service import StoryGenerationService
 
 router = APIRouter(prefix="/ai", tags=["ai-generation"])
+
+
+@lru_cache(maxsize=1)
+def get_ai_provider_service() -> AIProviderService:
+    return AIProviderService()
+
+
+@lru_cache(maxsize=1)
+def get_supabase_service() -> SupabaseService:
+    return SupabaseService()
+
+
+@lru_cache(maxsize=1)
+def get_story_generation_service() -> StoryGenerationService:
+    return StoryGenerationService(
+        provider_service=get_ai_provider_service(),
+        moderation_service=ModerationService(),
+        idempotency_service=IdempotencyService(redis=RedisService()),
+        supabase=get_supabase_service(),
+    )
+
+
+def story_generation_service_dep() -> StoryGenerationService:
+    return get_story_generation_service()
 
 
 @router.post(
@@ -93,16 +122,22 @@ async def legacy_rewrite_story(
 )
 async def ai_stories_readiness() -> dict:
     provider_service = get_ai_provider_service()
-    supabase = get_supabase_service()
     provider_flags = provider_service.configured_provider_flags()
     provider_configured = any(provider_flags.values())
-    persistence_ready = await supabase.ai_stories_ready()
     blockers: list[str] = []
+
+    try:
+        persistence_ready = await get_supabase_service().ai_stories_ready()
+    except Exception:
+        persistence_ready = False
+
     if not provider_configured:
-        blockers.append("No Gemini, OpenAI, or Anthropic provider key is configured.")
+        blockers.append("ai_provider_missing")
     if not persistence_ready:
-        blockers.append("app_public.ai_stories is not reachable with the configured Supabase service role.")
+        blockers.append("persistence_unavailable")
+
     return {
+        "success": True,
         "fastapiReachable": True,
         "providerConfigured": provider_configured,
         "providerConfiguredBooleans": provider_flags,
