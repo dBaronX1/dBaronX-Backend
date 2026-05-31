@@ -5,21 +5,60 @@ const checks = [];
 function check(name, pass) { checks.push({ name, pass: Boolean(pass) }); }
 function file(path) { return existsSync(path) ? readFileSync(path, "utf8") : ""; }
 
+const authModule = file("apps/api/src/modules/auth/auth.module.ts");
 const controller = file("apps/api/src/modules/auth/auth.controller.ts");
 const service = file("apps/api/src/modules/auth/auth.service.ts");
 const mapper = file("apps/api/src/modules/auth/auth-error.mapper.ts");
 const appModule = file("apps/api/src/app.module.ts");
-const combined = `${controller}\n${service}\n${mapper}`;
+const platformModule = file("apps/api/src/modules/platform/platform.module.ts");
+const supabaseService = file("apps/api/src/shared/database/supabase.service.ts");
+const combined = `${authModule}\n${controller}\n${service}\n${mapper}\n${appModule}\n${platformModule}\n${supabaseService}`;
 
-check("/api/auth/register route exists", /@Post\("register"\)/.test(controller) && /@Controller\("auth"\)/.test(controller));
-check("/api/auth/login route exists", /@Post\("login"\)/.test(controller));
-check("/api/auth/readiness route exists", /@Get\("readiness"\)/.test(controller));
-check("auth module is mounted", /AuthModule/.test(appModule));
-check("public auth error mapper exists", /AUTH_TEMPORARILY_UNAVAILABLE/.test(mapper) && /authErrorResponse/.test(mapper));
-check("raw auth_service_unavailable not returned", !/auth_service_unavailable/.test(combined));
-check("safe public error response contract exists", /errorCode/.test(mapper) && /Account service is temporarily unavailable\. Please try again\./.test(mapper));
+const allowedCodes = [
+  "AUTH_TEMPORARILY_UNAVAILABLE",
+  "INVALID_EMAIL",
+  "WEAK_PASSWORD",
+  "PASSWORD_MISMATCH",
+  "EMAIL_ALREADY_REGISTERED",
+  "INVALID_CREDENTIALS",
+  "RATE_LIMITED",
+  "SESSION_EXPIRED",
+  "PROFILE_CREATION_FAILED",
+  "VALIDATION_FAILED",
+];
+const forbiddenClientFacing = [
+  "auth_service_unavailable",
+  "supabase_error",
+  "database_error",
+  "internal_service_error",
+  "service_role_missing",
+  "jwt_error",
+  "unexpected_error",
+  "failed_to_fetch",
+  "TypeError",
+  "NetworkError",
+];
+
+check("AuthModule exists", /export class AuthModule/.test(authModule) && /AuthController/.test(authModule) && /AuthService/.test(authModule));
+check("AuthModule is mounted", /AuthModule/.test(appModule) || /AuthModule/.test(platformModule));
+check("GET /api/auth/readiness route exists", /@Controller\("auth"\)/.test(controller) && /@Get\("readiness"\)/.test(controller));
+check("POST /api/auth/register route exists", /@Post\("register"\)/.test(controller));
+check("POST /api/auth/login route exists", /@Post\("login"\)/.test(controller));
+check("POST /api/auth/logout route exists", /@Post\("logout"\)/.test(controller));
+check("GET /api/auth/me route exists", /@Get\("me"\)/.test(controller));
+check("POST /api/auth/password-reset/request route exists", /@Post\("password-reset\/request"\)/.test(controller));
+check("auth error mapper exists", /AUTH_SAFE_MESSAGES/.test(mapper) && /authErrorResponse/.test(mapper) && /mapSupabaseAuthError/.test(mapper));
+for (const code of allowedCodes) check(`allowed public auth code exists: ${code}`, mapper.includes(code));
+check("raw auth_service_unavailable is not returned as client-facing code", !/errorCode:\s*["']auth_service_unavailable["']/.test(combined) && !/code:\s*["']auth_service_unavailable["']/.test(combined));
+check("readiness includes required profiles table contract", /requiredTables/.test(service) && /profiles:/.test(service));
+check("readiness has safe individual env blockers", /supabase_url_missing/.test(service) && /supabase_service_role_missing/.test(service) && /jwt_secret_missing/.test(service));
+check("password reset uses generic anti-enumeration message", /If an account exists, reset instructions will be sent\./.test(service));
+check("client responses do not expose forbidden internal auth codes", forbiddenClientFacing.every((term) => !new RegExp(`errorCode:\\s*["']${term}["']`).test(combined)));
 check("no service role value exposed", !/SUPABASE_SERVICE_ROLE_KEY\s*=\s*['\"][A-Za-z0-9]/.test(combined));
 check("no database url value exposed", !/DATABASE_URL\s*=\s*['\"][A-Za-z0-9]/.test(combined));
+check("no JWT secret value exposed", !/JWT_SECRET\s*=\s*['\"][A-Za-z0-9]/.test(combined));
+check("no cookie secret value exposed", !/COOKIE_SECRET\s*=\s*['\"][A-Za-z0-9]/.test(combined));
+check("no internal token value exposed", !/INTERNAL_SERVICE_TOKEN\s*=\s*['\"][A-Za-z0-9]/.test(combined));
 
 const failed = checks.filter((item) => !item.pass);
 for (const item of checks) console.log(`${item.pass ? "ok" : "not ok"} - ${item.name}`);

@@ -22,12 +22,14 @@ type HealthResult = {
 export class SupabaseService implements OnModuleInit, OnModuleDestroy {
   private readonly logger = new Logger(SupabaseService.name);
   readonly client: SupabaseClient;
+  private readonly configured: boolean;
 
   constructor(private readonly config: ConfigService) {
-    const url = this.resolveRequired("SUPABASE_URL");
-    const key = this.resolveRequired("SUPABASE_SERVICE_ROLE_KEY");
+    const url = this.resolveOptional("SUPABASE_URL");
+    const key = this.resolveOptional("SUPABASE_SERVICE_ROLE_KEY");
+    this.configured = Boolean(url && key);
 
-    this.client = createClient(url, key, {
+    this.client = createClient(url || "http://localhost.invalid", key || "dbx-unconfigured-service-role-placeholder", {
       auth: {
         persistSession: false,
         autoRefreshToken: false,
@@ -78,8 +80,21 @@ export class SupabaseService implements OnModuleInit, OnModuleDestroy {
     return this.client.from(table);
   }
 
+  isConfigured(): boolean {
+    return this.configured;
+  }
+
   async health(): Promise<HealthResult> {
     const startedAt = Date.now();
+
+    if (!this.configured) {
+      return {
+        ok: false,
+        source: "supabase",
+        error: "supabase_not_configured",
+        latencyMs: Date.now() - startedAt,
+      };
+    }
 
     try {
       const { error } = await this.client
@@ -156,14 +171,8 @@ export class SupabaseService implements OnModuleInit, OnModuleDestroy {
     return data as T;
   }
 
-  private resolveRequired(key: string): string {
-    const value = String(this.config.get<string>(key) || process.env[key] || "").trim();
-
-    if (!value) {
-      throw new Error(`Missing required environment variable: ${key}`);
-    }
-
-    return value;
+  private resolveOptional(key: string): string {
+    return String(this.config.get<string>(key) || process.env[key] || "").trim();
   }
 
   private boolean(key: string, fallback: boolean): boolean {
