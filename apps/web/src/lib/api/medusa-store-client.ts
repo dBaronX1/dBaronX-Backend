@@ -49,15 +49,22 @@ export type MedusaProductResult = {
 
 const SECRET_FIELD_PATTERN = /(secret|token|password|api[_-]?key|publishable[_-]?key|service[_-]?role|webhook|database[_-]?url|admin)/i;
 
-function storeProductsPath(options: { limit?: number; handle?: string } = {}) {
-  const params = new URLSearchParams();
-  params.set("limit", String(options.limit || (options.handle ? 5 : 20)));
-  if (options.handle) params.set("handle", options.handle);
-  return options.handle ? `/api/store/products/${encodeURIComponent(options.handle)}?${params}` : `/api/store/products?${params}`;
+function apiCatalogUrl(options: { limit?: number; handle?: string } = {}) {
+  const env = getPublicEnv();
+  const base = env.apiBaseUrl;
+  const fallbackPath = options.handle ? `/api/store/products/${encodeURIComponent(options.handle)}` : "/api/store/products";
+  if (!base) {
+    const params = new URLSearchParams({ limit: String(options.limit || (options.handle ? 5 : 20)) });
+    return `${fallbackPath}?${params.toString()}`;
+  }
+  const path = options.handle ? `/api/catalog/products/${encodeURIComponent(options.handle)}` : "/api/catalog/products";
+  const url = new URL(path, base);
+  if (!options.handle) url.searchParams.set("limit", String(options.limit || 20));
+  return url.toString();
 }
 
-export async function fetchMedusaStoreProducts(options: { limit?: number; handle?: string } = {}): Promise<MedusaProductResult> {
-  const attemptedEndpoint = storeProductsPath(options);
+export async function fetchApiCatalogProducts(options: { limit?: number; handle?: string } = {}): Promise<MedusaProductResult> {
+  const attemptedEndpoint = apiCatalogUrl(options);
 
   try {
     const response = await fetch(attemptedEndpoint, {
@@ -75,8 +82,8 @@ export async function fetchMedusaStoreProducts(options: { limit?: number; handle
   }
 }
 
-export async function fetchMedusaStoreProductByHandle(handle: string) {
-  const listing = await fetchMedusaStoreProducts({ handle, limit: 5 });
+export async function fetchApiCatalogProductByHandle(handle: string) {
+  const listing = await fetchApiCatalogProducts({ handle, limit: 5 });
   const exact = listing.products.find((product) => String(product.handle || "") === handle);
   if (exact) return { product: exact, reason: null };
   if (listing.products[0]) return { product: listing.products[0], reason: null };
@@ -84,7 +91,7 @@ export async function fetchMedusaStoreProductByHandle(handle: string) {
 }
 
 export async function fetchFirstStoreProduct() {
-  const listing = await fetchMedusaStoreProducts({ limit: 1 });
+  const listing = await fetchApiCatalogProducts({ limit: 1 });
   if (listing.products[0]) return { product: listing.products[0], reason: null };
   return { product: null, reason: listing.reason || "products_unavailable" };
 }
@@ -255,3 +262,6 @@ function formatMinor(amount: number, currency: string) {
   const normalizedAmount = amount > 0 && amount < 1000 && !Number.isInteger(amount) ? amount : amount / 100;
   return `${normalizedAmount.toFixed(2)} ${currency.toUpperCase()}`;
 }
+
+export const fetchMedusaStoreProducts = fetchApiCatalogProducts;
+export const fetchMedusaStoreProductByHandle = fetchApiCatalogProductByHandle;

@@ -4,8 +4,6 @@ export type PublicRuntimeConfig = {
   supabaseUrl: string;
   supabaseAnonKey: string;
   apiBaseUrl: string;
-  medusaBackendUrl: string;
-  medusaPublishableKey: string;
   siteUrl: string;
   webBaseUrl: string;
   stripePublicKey: string;
@@ -17,8 +15,6 @@ export const PUBLIC_CONFIG_KEYS = [
   "supabaseUrl",
   "supabaseAnonKey",
   "apiBaseUrl",
-  "medusaBackendUrl",
-  "medusaPublishableKey",
   "siteUrl",
   "webBaseUrl",
   "stripePublicKey",
@@ -45,8 +41,6 @@ export function getBuildTimePublicConfig(): PublicRuntimeConfig {
     supabaseUrl: cleanBaseUrl(env.supabaseUrl),
     supabaseAnonKey: clean(env.supabaseAnonKey),
     apiBaseUrl: cleanBaseUrl(env.apiBaseUrl),
-    medusaBackendUrl: cleanBaseUrl(env.medusaBackendUrl),
-    medusaPublishableKey: clean(env.medusaPublishableKey),
     siteUrl: cleanBaseUrl(env.siteUrl),
     webBaseUrl: cleanBaseUrl(env.webBaseUrl),
     stripePublicKey: clean(env.stripePublicKey),
@@ -61,8 +55,6 @@ export function getRuntimePublicConfigFromEnv(): PublicRuntimeConfig {
     supabaseUrl: buildTime.supabaseUrl,
     supabaseAnonKey: buildTime.supabaseAnonKey,
     apiBaseUrl: buildTime.apiBaseUrl,
-    medusaBackendUrl: buildTime.medusaBackendUrl,
-    medusaPublishableKey: buildTime.medusaPublishableKey,
     siteUrl: buildTime.siteUrl,
     webBaseUrl: buildTime.webBaseUrl,
     stripePublicKey: buildTime.stripePublicKey,

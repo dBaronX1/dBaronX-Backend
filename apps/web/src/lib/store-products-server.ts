@@ -6,16 +6,15 @@ import {
   type MedusaStoreProduct,
 } from "@/lib/api/medusa-store-client";
 
-function cleanBaseUrl(value: string | undefined) {
-  return (value || "").trim().replace(/\/+$/, "");
-}
-
-export function getMedusaStoreServerConfig() {
-  return {
-    backendUrl: cleanBaseUrl(process.env.MEDUSA_BASE_URL || process.env.MEDUSA_BACKEND_URL || process.env.NEXT_PUBLIC_MEDUSA_BASE_URL || process.env.NEXT_PUBLIC_MEDUSA_BACKEND_URL),
-    publishableKey: (process.env.MEDUSA_PUBLISHABLE_KEY || process.env.NEXT_PUBLIC_MEDUSA_PUBLISHABLE_KEY || "").trim(),
-  };
-}
+type CatalogProductsPayload = {
+  success?: boolean;
+  source?: string;
+  product?: unknown;
+  products?: unknown[];
+  count?: number;
+  message?: string;
+  code?: string;
+};
 
 export function extractStoreProducts(payload: unknown): MedusaStoreProduct[] {
   const root = payload && typeof payload === "object" ? (payload as Record<string, unknown>) : {};
@@ -32,33 +31,35 @@ export function normalizeServerStoreProduct(product: MedusaStoreProduct): Medusa
   return normalizeStoreProduct(product);
 }
 
-function storefrontPath(options: { limit?: number; handle?: string } = {}) {
+export function apiCatalogPath(options: { limit?: number; handle?: string } = {}) {
   const handle = options.handle?.trim();
-  const limit = String(options.limit || (handle ? 5 : 20));
-  const params = new URLSearchParams({ limit });
-  return handle ? `/api/storefront/products/${encodeURIComponent(handle)}?${params.toString()}` : `/api/storefront/products?${params.toString()}`;
+  if (handle) return `/api/catalog/products/${encodeURIComponent(handle)}`;
+  const params = new URLSearchParams({ limit: String(options.limit || 24) });
+  return `/api/catalog/products?${params.toString()}`;
 }
 
 export async function fetchServerStoreProducts(options: { limit?: number; handle?: string } = {}): Promise<MedusaProductResult> {
+  const attemptedEndpoint = apiCatalogPath(options);
   try {
-    const response = await nestApiRequest<StorefrontProductsPayload>({ path: storefrontPath(options) });
-    if (!response.ok) return { products: [], reason: "products_unavailable", status: response.status };
+    const response = await nestApiRequest<CatalogProductsPayload>({ path: attemptedEndpoint });
+    const products = extractStoreProducts(response.data).map(normalizeServerStoreProduct).slice(0, options.limit || (options.handle ? 5 : 24));
+    if (!response.ok) return { products: [], reason: response.data?.code || "products_unavailable", status: response.status, attemptedEndpoint };
 
-    const products = extractStoreProducts(response.data).map(normalizeServerStoreProduct);
     return {
       products,
-      reason: response.data?.success === false ? response.data.message || "products_unavailable" : null,
+      reason: response.data?.success === false ? response.data.code || response.data.message || "products_unavailable" : null,
       status: response.status,
+      attemptedEndpoint,
     };
   } catch {
-    return { products: [], reason: "products_unavailable" };
+    return { products: [], reason: "api_catalog_unavailable", attemptedEndpoint };
   }
 }
 
 export async function fetchServerStoreProductByHandle(handle: string) {
   const result = await fetchServerStoreProducts({ handle, limit: 5 });
   const product = result.products.find((item) => item.handle === handle) || result.products[0] || null;
-  return { product, reason: product ? null : result.reason || "products_unavailable", status: result.status };
+  return { product, reason: product ? null : result.reason || "products_unavailable", status: result.status, attemptedEndpoint: result.attemptedEndpoint };
 }
 
 function getRocketWebBaseUrl() {
@@ -74,7 +75,7 @@ function rocketStoreProductsUrl(options: { limit?: number; handle?: string } = {
   if (!baseUrl) return null;
   const path = options.handle ? `/api/store/products/${encodeURIComponent(options.handle)}` : "/api/store/products";
   const url = new URL(path, baseUrl);
-  url.searchParams.set("limit", String(options.limit || (options.handle ? 5 : 20)));
+  url.searchParams.set("limit", String(options.limit || (options.handle ? 5 : 24)));
   return url;
 }
 
@@ -88,21 +89,12 @@ export async function fetchRocketStoreProducts(options: { limit?: number; handle
       cache: "no-store",
     });
     const payload = await response.json().catch(() => null);
-    const products = extractStoreProducts(payload).map(normalizeServerStoreProduct).slice(0, options.limit || (options.handle ? 5 : 20));
-    if (response.ok && (products.length > 0 || (payload && typeof payload === "object" && (payload as Record<string, unknown>).success !== false))) {
-      return { products, reason: null, status: response.status };
-    }
-    return { products, reason: "products_unavailable", status: response.status };
+    const products = extractStoreProducts(payload).map(normalizeServerStoreProduct).slice(0, options.limit || (options.handle ? 5 : 24));
+    if (!response.ok) return { products: [], reason: "api_catalog_proxy_unavailable", status: response.status, attemptedEndpoint: url.pathname };
+    return { products, reason: products.length ? null : "products_unavailable", status: response.status, attemptedEndpoint: url.pathname };
   } catch {
     return fetchServerStoreProducts(options);
   }
-
-  const medusa = await fetchServerStoreProducts(options);
-  if (medusa.products.length > 0 || medusa.reason === null) return medusa;
-
-  const supabase = await fetchSupabaseStorefrontProducts(options);
-  if (supabase.products.length > 0) return supabase;
-  return medusa.reason ? medusa : supabase;
 }
 
 export function productCardProofAttributes(product: MedusaStoreProduct) {

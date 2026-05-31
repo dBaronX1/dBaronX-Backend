@@ -1,14 +1,16 @@
 import { NextResponse } from "next/server";
 
-import { fetchSupabaseStorefrontProductCache } from "@/lib/store-products-supabase-fallback";
-import { extractStoreProducts, getMedusaStoreServerConfig, normalizeServerStoreProduct } from "@/lib/store-products-server";
+import { nestApiRequest } from "@/server/api/nest-api.client";
+import { apiCatalogPath, extractStoreProducts, normalizeServerStoreProduct } from "@/lib/store-products-server";
 
-type StorefrontProductsPayload = {
+type CatalogProductsPayload = {
   success?: boolean;
   source?: string;
   product?: unknown;
   products?: unknown[];
+  count?: number;
   message?: string;
+  code?: string;
 };
 
 function safeFailure(status = 200, handle?: string, code = "products_unavailable") {
@@ -18,6 +20,7 @@ function safeFailure(status = 200, handle?: string, code = "products_unavailable
       code,
       product: handle ? null : undefined,
       products: [],
+      source: "nestjs_api_catalog",
       message: handle
         ? "This product is temporarily unavailable. Please try again shortly or contact support."
         : "Products are temporarily unavailable. Please try again shortly or contact support.",
@@ -29,49 +32,33 @@ function safeFailure(status = 200, handle?: string, code = "products_unavailable
   );
 }
 
-export async function storeProductsResponse({ handle = "", limit = "20", category = "" }: { handle?: string; limit?: string; category?: string } = {}) {
-  const { backendUrl, publishableKey } = getMedusaStoreServerConfig();
-  if (!backendUrl || !publishableKey) {
-    console.error("[store-products] Medusa Store API configuration is missing", { hasBackendUrl: Boolean(backendUrl), hasPublishableKey: Boolean(publishableKey) });
-    return productsFallbackOrSafeFailure(200, handle, limit);
-  }
-
-  const url = new URL(`${backendUrl}/store/products`);
-  url.searchParams.set("limit", limit || "20");
-  if (handle) url.searchParams.set("handle", handle);
-  if (category) url.searchParams.set("category_id", category);
+export async function storeProductsResponse({ handle = "", limit = "20" }: { handle?: string; limit?: string; category?: string } = {}) {
+  const cleanHandle = handle.trim();
+  const cleanLimit = Math.max(Number(limit) || 20, 1);
+  const path = apiCatalogPath({ handle: cleanHandle || undefined, limit: cleanLimit });
 
   try {
-    const response = await nestApiRequest<StorefrontProductsPayload>({
-      path: storefrontPath(cleanHandle, cleanLimit),
-    });
+    const response = await nestApiRequest<CatalogProductsPayload>({ path });
+    const payload = response.data;
+    const products = extractStoreProducts(payload).map(normalizeServerStoreProduct).slice(0, cleanHandle ? 5 : cleanLimit);
+    const product = cleanHandle ? products.find((item) => item.handle === cleanHandle) || products[0] || null : undefined;
 
-    if (!response.ok) {
-      console.error("[store-products] Medusa Store API product request failed", {
-        status: response.status,
-        handle: cleanHandle || undefined,
-      });
-      return safeFailure(200, handle, "medusa_store_products_http_error");
-    }
-
-    const products = extractStoreProducts(payload).map(normalizeServerStoreProduct);
-    const product = handle ? products.find((item) => item.handle === handle) || null : undefined;
-    if ((handle && !product) || (!handle && products.length === 0)) {
-      console.warn("[store-products] Medusa returned no visible products", { handle: handle || undefined });
-      return safeFailure(200, handle, handle ? "medusa_store_product_handle_missing" : "medusa_store_products_empty");
+    if (!response.ok || (cleanHandle && !product) || (!cleanHandle && products.length === 0)) {
+      return safeFailure(200, cleanHandle, payload?.code || (cleanHandle ? "api_catalog_product_handle_missing" : "api_catalog_products_empty"));
     }
 
     return NextResponse.json(
       {
-        success: handle ? Boolean(product) : true,
-        source: "medusa_store_api",
-        ...(handle ? { product } : {}),
-        products: handle && product ? [product] : products,
+        success: cleanHandle ? Boolean(product) : true,
+        source: "nestjs_api_catalog",
+        ...(cleanHandle ? { product } : {}),
+        products: cleanHandle && product ? [product] : products,
+        count: cleanHandle && product ? 1 : products.length,
       },
       { headers: { "cache-control": "no-store, max-age=0" } },
     );
   } catch (error) {
-    console.error("[store-products] Medusa Store API product request unreachable", error);
-    return safeFailure(200, handle, "medusa_store_products_unreachable");
+    console.error("[store-products] NestJS API catalog request failed", error);
+    return safeFailure(200, cleanHandle, "api_catalog_unreachable");
   }
 }
