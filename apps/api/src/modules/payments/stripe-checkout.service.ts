@@ -198,11 +198,23 @@ type StripeWebhookEventRecord = {
   rawMetadataSafe?: Record<string, string | null>;
 };
 
+type NormalizedCheckoutLineItem = {
+  productId: string;
+  variantId: string;
+  handle: string;
+  productName: string;
+  quantity: number;
+  unitPriceMinor: number;
+  currency: string;
+  imageUrl: string;
+};
+
 type NormalizedCheckoutInput = {
   cartId: string;
   amount: number;
   unitPriceMinor: number;
   quantity: number;
+  lineItems: NormalizedCheckoutLineItem[];
   currency: string;
   successUrl: string;
   cancelUrl: string;
@@ -590,7 +602,7 @@ export class StripeCheckoutService {
         checkoutUrl: null,
         sessionId: null,
         blockers,
-        message: "STRIPE_SECRET_KEY is not configured on the API server.",
+        message: "Payment provider is temporarily unavailable. Please try again.",
       };
     }
 
@@ -616,8 +628,7 @@ export class StripeCheckoutService {
           stripeSecretKeyMode: mode,
           requestedCheckoutMode: checkoutMode,
         },
-        message:
-          "A live Stripe key is configured for a test checkout request. Configure Stripe test-mode secrets or explicitly allow live smoke checkout.",
+        message: "Payment provider is temporarily unavailable. Please try again.",
       };
     }
 
@@ -639,8 +650,7 @@ export class StripeCheckoutService {
           stripeSecretKeyMode: mode,
           requestedCheckoutMode: checkoutMode,
         },
-        message:
-          "Live Stripe checkout requires ALLOW_LIVE_STRIPE_CHECKOUT=true before a session can be created.",
+        message: "Payment provider is temporarily unavailable. Please try again.",
       };
     }
 
@@ -655,22 +665,18 @@ export class StripeCheckoutService {
           success_url: payload.successUrl,
           cancel_url: payload.cancelUrl,
           customer_email: payload.customerEmail || undefined,
-          line_items: [
-            {
-              quantity: payload.quantity,
-              price_data: {
-                currency: payload.currency,
-                unit_amount: payload.unitPriceMinor,
-                product_data: {
-                  name:
-                    payload.productName ||
-                    `dBaronX checkout cart ${payload.cartId}`,
-                  images: payload.imageUrl ? [payload.imageUrl] : undefined,
-                  metadata: productMetadata,
-                },
+          line_items: payload.lineItems.map((item, index) => ({
+            quantity: item.quantity,
+            price_data: {
+              currency: item.currency,
+              unit_amount: item.unitPriceMinor,
+              product_data: {
+                name: item.productName || `dBaronX checkout item ${index + 1}`,
+                images: item.imageUrl ? [item.imageUrl] : undefined,
+                metadata: this.cleanMetadata({ ...productMetadata, lineIndex: String(index), productId: item.productId, variantId: item.variantId, handle: item.handle }),
               },
             },
-          ],
+          })),
           metadata,
           payment_intent_data: {
             metadata,
@@ -694,7 +700,7 @@ export class StripeCheckoutService {
           checkoutUrl: null,
           sessionId: session.id || null,
           blockers,
-          message: "Stripe created a session without a checkout URL.",
+          message: "Payment provider is temporarily unavailable. Please try again.",
         };
       }
 
@@ -748,7 +754,7 @@ export class StripeCheckoutService {
           productReady: true,
           shippingReady: true,
         },
-        message: "Unable to create Stripe checkout session.",
+        message: "Payment provider is temporarily unavailable. Please try again.",
       };
     }
   }
@@ -1826,56 +1832,72 @@ export class StripeCheckoutService {
   }
 
   private normalizeCheckoutInput(input: CreateStripeCheckoutSessionDto): { ok: true; value: NormalizedCheckoutInput } | { ok: false; response: Record<string, unknown> } {
-    const quantity = input.quantity ?? 1;
-    const unitPriceMinor =
-      input.unitPriceMinor ??
-      input.priceMinor ??
-      input.unit_price ??
-      (Number.isInteger(input.amount) && Number.isInteger(quantity) && quantity > 0
-        ? Math.floor((input.amount as number) / quantity)
-        : undefined);
-    const amount =
-      input.amount ??
-      input.amountMinor ??
-      (typeof unitPriceMinor === "number" ? unitPriceMinor * quantity : undefined);
-    const productId = input.productId ?? input.product_id ?? "";
-    const variantId = input.variantId ?? input.variant_id ?? "";
-    const handle = input.handle ?? input.product_handle ?? "";
-    const productName = input.title ?? input.productName ?? input.product_name ?? "";
-    const customerEmail = input.customerEmail ?? input.email ?? "";
-    const customerName = input.fullName ?? input.customerName ?? input.name ?? "";
-    const customerPhone = input.phone ?? input.customerPhone ?? "";
-    const addressLine1 = input.addressLine1 ?? input.address1 ?? "";
-    const addressLine2 = input.addressLine2 ?? input.address2 ?? "";
-    const postalCode = input.postalCode ?? input.zip ?? input.postcode ?? "";
+    const rawLineItems = Array.isArray(input.lineItems) ? input.lineItems : [];
+    const customer = input.customer || {};
+    const shipping = input.shippingAddress || {};
+    const customerEmail = input.customerEmail ?? input.email ?? customer.email ?? "";
+    const customerName = input.fullName ?? input.customerName ?? input.name ?? customer.fullName ?? "";
+    const customerPhone = input.phone ?? input.customerPhone ?? customer.phone ?? "";
+    const addressLine1 = input.addressLine1 ?? input.address1 ?? shipping.addressLine1 ?? "";
+    const addressLine2 = input.addressLine2 ?? input.address2 ?? shipping.addressLine2 ?? "";
+    const postalCode = input.postalCode ?? input.zip ?? input.postcode ?? shipping.postalCode ?? "";
+    const country = input.country ?? shipping.country ?? "";
+    const city = input.city ?? shipping.city ?? "";
+
+    const lineItems: NormalizedCheckoutLineItem[] = rawLineItems.length > 0
+      ? rawLineItems.map((item) => ({
+          productId: item.productId ?? "",
+          variantId: item.variantId ?? "",
+          handle: item.handle ?? "",
+          productName: item.title ?? item.handle ?? "dBaronX checkout item",
+          quantity: item.quantity ?? 0,
+          unitPriceMinor: item.unitPriceMinor ?? 0,
+          currency: (item.currencyCode || input.currency || "usd").toLowerCase(),
+          imageUrl: item.imageUrl ?? "",
+        }))
+      : [{
+          productId: input.productId ?? input.product_id ?? "",
+          variantId: input.variantId ?? input.variant_id ?? "",
+          handle: input.handle ?? input.product_handle ?? "",
+          productName: input.title ?? input.productName ?? input.product_name ?? "dBaronX checkout item",
+          quantity: input.quantity ?? 1,
+          unitPriceMinor: input.unitPriceMinor ?? input.priceMinor ?? input.unit_price ?? (Number.isInteger(input.amount) && Number.isInteger(input.quantity ?? 1) && (input.quantity ?? 1) > 0 ? Math.floor((input.amount as number) / (input.quantity ?? 1)) : 0),
+          currency: (input.currency || "usd").toLowerCase(),
+          imageUrl: input.imageUrl ?? input.image_url ?? "",
+        }];
+
+    const missingFields: string[] = [];
+    const blockers: string[] = [];
+    if (!customerEmail) { missingFields.push("customer.email"); blockers.push("missing_customer_email"); }
+    const shippingReady = Boolean(country && city && addressLine1 && postalCode);
+    if (!shippingReady) { missingFields.push("shippingAddress"); blockers.push("missing_shipping"); }
+    if (lineItems.length === 0) blockers.push("empty_line_items");
+
+    for (const [index, item] of lineItems.entries()) {
+      if (!item.variantId) { missingFields.push(`lineItems.${index}.variantId`); blockers.push("missing_product"); }
+      if (!Number.isInteger(item.quantity) || item.quantity < 1) blockers.push("invalid_quantity");
+      if (!Number.isInteger(item.unitPriceMinor) || item.unitPriceMinor <= 0) blockers.push("invalid_amount");
+    }
+
+    const amount = lineItems.reduce((sum, item) => sum + item.quantity * item.unitPriceMinor, 0);
+    const requestedTotal = input.totalMinor ?? input.amount ?? input.amountMinor;
+    const amountMatches = requestedTotal === undefined || requestedTotal === amount;
+    if (!amountMatches) blockers.push("amount_mismatch");
+    const productReady = lineItems.every((item) => Boolean(item.variantId));
+
+    if (blockers.length > 0) {
+      return { ok: false, response: { success: false, blocker: blockers[0], blockers: [...new Set(blockers)], code: "checkout_payload_invalid", details: { missingFields, amountMatches, productReady, shippingReady } } };
+    }
+
+    const first = lineItems[0];
     const supplierProductId = input.supplierProductId ?? input.supplier_product_id ?? "";
     const supplierSku = input.supplierSku ?? input.supplier_sku ?? "";
     const cartId = input.cartId ?? input.cart_id ?? input.checkoutRef ?? input.checkout_ref ?? `rocket_${Date.now()}`;
     const checkoutRef = input.checkoutRef ?? input.checkout_ref ?? cartId;
-    const currency = (input.currency || "usd").toLowerCase();
     const successUrl = input.successUrl || `${this.getSiteBaseUrl()}/checkout/success`;
     const cancelUrl = input.cancelUrl || `${this.getSiteBaseUrl()}/checkout/cancel`;
 
-    const missingFields: string[] = [];
-    const blockers: string[] = [];
-    if (!customerEmail) { missingFields.push("customerEmail"); blockers.push("missing_customer_email"); }
-    const shippingReady = Boolean(input.country && input.city && addressLine1 && postalCode);
-    const productReady = Boolean(productId || variantId || handle);
-    if (!productReady) { missingFields.push("productIdentity"); blockers.push("missing_product"); }
-    if (!Number.isInteger(quantity) || quantity < 1) blockers.push("invalid_quantity");
-    if (!Number.isInteger(unitPriceMinor) || (unitPriceMinor || 0) <= 0) blockers.push("invalid_amount");
-    if (!Number.isInteger(amount) || (amount || 0) <= 0) blockers.push("invalid_amount");
-    const expectedAmount = (unitPriceMinor || 0) * quantity;
-    const amountMatches = amount === expectedAmount;
-    if (!amountMatches) blockers.push("amount_mismatch");
-    if (!shippingReady && (input.country || input.city || addressLine1 || postalCode)) {
-      blockers.push("missing_shipping");
-      missingFields.push("shipping");
-    }
-    if (blockers.length > 0) {
-      return { ok: false, response: { success: false, blocker: blockers[0], blockers, code: "checkout_payload_invalid", details: { missingFields, amountMatches, productReady, shippingReady } } };
-    }
-    return { ok: true, value: { cartId, amount: amount as number, unitPriceMinor: unitPriceMinor as number, quantity, currency, successUrl, cancelUrl, checkoutMode: input.checkoutMode ?? "test", customerEmail, customerName, customerPhone, country: input.country ?? "", city: input.city ?? "", addressLine1, addressLine2, postalCode, productId, variantId, handle, productName: productName || `dBaronX checkout cart ${cartId}`, imageUrl: input.imageUrl ?? input.image_url ?? "", supplier: input.supplier ?? "", supplierProductId, supplierSku, checkoutRef, source: input.source ?? "dbaronx" } };
+    return { ok: true, value: { cartId, amount, unitPriceMinor: first.unitPriceMinor, quantity: first.quantity, lineItems, currency: first.currency, successUrl, cancelUrl, checkoutMode: input.checkoutMode ?? "test", customerEmail, customerName, customerPhone, country, city, addressLine1, addressLine2, postalCode, productId: first.productId, variantId: first.variantId, handle: first.handle, productName: first.productName || `dBaronX checkout cart ${cartId}`, imageUrl: first.imageUrl, supplier: input.supplier ?? "", supplierProductId, supplierSku, checkoutRef, source: input.source ?? "dbaronx" } };
   }
 
   private getSiteBaseUrl(): string {
@@ -1914,8 +1936,9 @@ export class StripeCheckoutService {
   private createSessionIdempotencyKey(
     input: CreateStripeCheckoutSessionDto,
   ): string {
-    const stableIntent = input.orderIntentId || input.orderRef || input.cartId;
-    return `dbx_checkout_${stableIntent}_${input.amount}_${(input.currency || "usd").toLowerCase()}`.slice(
+    const stableIntent = input.orderIntentId || input.orderRef || input.cartId || input.checkoutRef || `rocket_${Date.now()}`;
+    const amount = input.totalMinor || input.amount || input.amountMinor || 0;
+    return `dbx_checkout_${stableIntent}_${amount}_${(input.currency || "usd").toLowerCase()}`.slice(
       0,
       255,
     );

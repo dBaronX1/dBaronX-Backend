@@ -22,6 +22,7 @@ type AuthReadiness = {
   supabaseConfigured: boolean;
   authProviderReachable: boolean;
   profilePersistenceReady: boolean;
+  ownerBootstrapConfigured: boolean;
   requiredTables: {
     profiles: boolean;
   };
@@ -151,6 +152,52 @@ export class AuthService {
     return { ok: true, value: { signedOut: true } };
   }
 
+
+  async bootstrapOwner(headers: Record<string, string | string[] | undefined>): Promise<AuthResult<{ ownerCreated: boolean; profileUpserted: boolean; blockers: string[] }>> {
+    const blockers: string[] = [];
+    if (this.value("DBX_ENABLE_OWNER_BOOTSTRAP").toLowerCase() !== "true") blockers.push("owner_bootstrap_disabled");
+    const expectedToken = this.value("INTERNAL_SERVICE_TOKEN");
+    const receivedToken = this.headerValue(headers, "x-internal-token") || this.headerValue(headers, "x-internal-service-token");
+    if (!expectedToken || receivedToken !== expectedToken) blockers.push("internal_token_required");
+    const email = this.value("DBX_OWNER_EMAIL").toLowerCase();
+    const password = this.value("DBX_OWNER_PASSWORD");
+    const fullName = this.value("DBX_OWNER_FULL_NAME") || "dBaronX Owner";
+    if (!EMAIL_PATTERN.test(email)) blockers.push("owner_email_missing");
+    if (!PASSWORD_PATTERN.test(password)) blockers.push("owner_password_missing");
+    const configured = this.ensureAuthOperationsConfigured();
+    if (configured.ok === false) blockers.push("auth_operations_unavailable");
+    if (blockers.length > 0) {
+      return { ok: true, value: { ownerCreated: false, profileUpserted: false, blockers } };
+    }
+
+    try {
+      const existing = await this.findAuthUserByEmail(email);
+      if (existing.ok === false) return { ok: false, error: existing.error };
+      let owner = existing.value;
+      let ownerCreated = false;
+      if (!owner) {
+        const created = await this.supabase.client.auth.admin.createUser({
+          email,
+          password,
+          email_confirm: true,
+          user_metadata: { full_name: fullName, display_name: fullName, dbx_owner: true },
+        });
+        if (created.error || !created.data.user) {
+          this.logger.warn(JSON.stringify({ event: "owner_bootstrap_create_failed", code: created.error?.code, status: created.error?.status }));
+          return { ok: false, error: mapSupabaseAuthError(created.error, "AUTH_TEMPORARILY_UNAVAILABLE") };
+        }
+        owner = created.data.user;
+        ownerCreated = true;
+      }
+      const profile = await this.upsertOwnerProfile(owner, { fullName });
+      if (profile.ok === false) return { ok: false, error: profile.error };
+      return { ok: true, value: { ownerCreated, profileUpserted: true, blockers: [] } };
+    } catch (error) {
+      this.logger.error(JSON.stringify({ event: "owner_bootstrap_unexpected_failed" }), error instanceof Error ? error.stack : undefined);
+      return { ok: false, error: mapSupabaseAuthError(error, "AUTH_TEMPORARILY_UNAVAILABLE") };
+    }
+  }
+
   async requestPasswordReset(input: PasswordResetRequestDto): Promise<AuthResult<{ requested: true; message: string }>> {
     const email = String(input.email || "").trim().toLowerCase();
     if (!EMAIL_PATTERN.test(email)) return { ok: false, error: publicAuthError("INVALID_EMAIL") };
@@ -195,7 +242,7 @@ export class AuthService {
     const supabaseConfigured = supabaseUrlConfigured && supabaseServiceRoleConfigured;
 
     if (!supabaseUrlConfigured) blockers.push("supabase_url_missing");
-    if (!supabaseServiceRoleConfigured) blockers.push("supabase_service_role_missing");
+    if (!supabaseServiceRoleConfigured) blockers.push("supabase_admin_credentials_missing");
     if (!jwtSecretConfigured) blockers.push("jwt_secret_missing");
 
     const health = supabaseConfigured ? await this.supabase.health() : { ok: false };
@@ -209,6 +256,7 @@ export class AuthService {
       supabaseConfigured,
       authProviderReachable: Boolean(health.ok),
       profilePersistenceReady: profilePersistence.ready,
+      ownerBootstrapConfigured: this.ownerBootstrapConfigured(),
       requiredTables: {
         profiles: profilePersistence.ready,
       },
@@ -256,6 +304,24 @@ export class AuthService {
       return { ok: false, error: publicAuthError("PROFILE_CREATION_FAILED", 503) };
     }
     return { ok: true, value: this.safeUserFromProfile(data, user) };
+  }
+
+
+  private async upsertOwnerProfile(user: User, input: { fullName: string }): Promise<AuthResult<SafeAuthUser>> {
+    const table = await this.resolveProfileTable();
+    if (!table) return { ok: false, error: publicAuthError("PROFILE_CREATION_FAILED", 503) };
+    const basePayload = { user_id: user.id, email: user.email || null, full_name: input.fullName || null };
+    const ownerPayload = { ...basePayload, role: "owner", account_role: "owner", is_admin: true };
+    const select = "user_id,email,full_name,referral_code";
+    let result = await this.supabase.client.schema("app_public").from(table).upsert(ownerPayload, { onConflict: "user_id" }).select(select).single();
+    if (result.error) {
+      result = await this.supabase.client.schema("app_public").from(table).upsert(basePayload, { onConflict: "user_id" }).select(select).single();
+    }
+    if (result.error) {
+      this.logger.error(JSON.stringify({ event: "owner_profile_upsert_failed", code: result.error.code, table }));
+      return { ok: false, error: publicAuthError("PROFILE_CREATION_FAILED", 503) };
+    }
+    return { ok: true, value: this.safeUserFromProfile(result.data, user) };
   }
 
   private async loadOrCreateProfile(user: User): Promise<AuthResult<SafeAuthUser>> {
@@ -329,6 +395,31 @@ export class AuthService {
     return { ok: true, value: true };
   }
 
+
+  private async findAuthUserByEmail(email: string): Promise<AuthResult<User | null>> {
+    try {
+      const { data, error } = await this.supabase.client.auth.admin.listUsers({ page: 1, perPage: 1000 });
+      if (error) return { ok: false, error: mapSupabaseAuthError(error, "AUTH_TEMPORARILY_UNAVAILABLE") };
+      const users = Array.isArray(data.users) ? (data.users as User[]) : [];
+      return { ok: true, value: users.find((user) => user.email?.toLowerCase() === email) || null };
+    } catch (error) {
+      return { ok: false, error: mapSupabaseAuthError(error, "AUTH_TEMPORARILY_UNAVAILABLE") };
+    }
+  }
+
+  private ownerBootstrapConfigured(): boolean {
+    return this.value("DBX_ENABLE_OWNER_BOOTSTRAP").toLowerCase() === "true" && Boolean(this.value("INTERNAL_SERVICE_TOKEN")) && Boolean(this.value("DBX_OWNER_EMAIL")) && Boolean(this.value("DBX_OWNER_PASSWORD"));
+  }
+
+  private headerValue(headers: Record<string, string | string[] | undefined>, key: string): string {
+    const value = headers[key] || headers[key.toLowerCase()];
+    return Array.isArray(value) ? String(value[0] || "").trim() : String(value || "").trim();
+  }
+
+  private value(key: string): string {
+    return String(this.config.get<string>(key) || process.env[key] || "").trim();
+  }
+
   private async findExistingAuthUser(email: string): Promise<AuthResult<boolean>> {
     try {
       const { data, error } = await this.supabase.client.auth.admin.listUsers({ page: 1, perPage: 1000 });
@@ -352,6 +443,6 @@ export class AuthService {
   }
 
   private hasEnv(key: string): boolean {
-    return Boolean(String(this.config.get<string>(key) || process.env[key] || "").trim());
+    return Boolean(this.value(key));
   }
 }

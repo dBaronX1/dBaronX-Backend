@@ -41,7 +41,7 @@ const forbiddenClientFacing = [
 
 check("AuthModule exists", /export class AuthModule/.test(authModule) && /AuthController/.test(authModule) && /AuthService/.test(authModule));
 check("AuthModule is mounted", /AuthModule/.test(appModule) || /AuthModule/.test(platformModule));
-check("GET /api/auth/readiness route exists", /@Controller\("auth"\)/.test(controller) && /@Get\("readiness"\)/.test(controller));
+check("GET /api/auth/readiness route exists", /@Controller\(\{\s*path:\s*["']auth["']/.test(controller) && /VERSION_NEUTRAL/.test(controller) && /@Get\("readiness"\)/.test(controller));
 check("POST /api/auth/register route exists", /@Post\("register"\)/.test(controller));
 check("POST /api/auth/login route exists", /@Post\("login"\)/.test(controller));
 check("POST /api/auth/logout route exists", /@Post\("logout"\)/.test(controller));
@@ -51,7 +51,9 @@ check("auth error mapper exists", /AUTH_SAFE_MESSAGES/.test(mapper) && /authErro
 for (const code of allowedCodes) check(`allowed public auth code exists: ${code}`, mapper.includes(code));
 check("raw auth_service_unavailable is not returned as client-facing code", !/errorCode:\s*["']auth_service_unavailable["']/.test(combined) && !/code:\s*["']auth_service_unavailable["']/.test(combined));
 check("readiness includes required profiles table contract", /requiredTables/.test(service) && /profiles:/.test(service));
-check("readiness has safe individual env blockers", /supabase_url_missing/.test(service) && /supabase_service_role_missing/.test(service) && /jwt_secret_missing/.test(service));
+check("owner bootstrap route exists and is guarded", /@Post\("owner\/bootstrap"\)/.test(controller) && /DBX_ENABLE_OWNER_BOOTSTRAP/.test(service) && /INTERNAL_SERVICE_TOKEN/.test(service) && /x-internal-token/.test(service));
+check("readiness includes owner bootstrap configuration flag", /ownerBootstrapConfigured/.test(service));
+check("readiness has safe individual env blockers", /supabase_url_missing/.test(service) && /supabase_admin_credentials_missing/.test(service) && /jwt_secret_missing/.test(service));
 check("password reset uses generic anti-enumeration message", /If an account exists, reset instructions will be sent\./.test(service));
 check("client responses do not expose forbidden internal auth codes", forbiddenClientFacing.every((term) => !new RegExp(`errorCode:\\s*["']${term}["']`).test(combined)));
 check("no service role value exposed", !/SUPABASE_SERVICE_ROLE_KEY\s*=\s*['\"][A-Za-z0-9]/.test(combined));

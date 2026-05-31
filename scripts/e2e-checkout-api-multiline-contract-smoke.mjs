@@ -1,0 +1,21 @@
+#!/usr/bin/env node
+import { readFileSync, existsSync } from "node:fs";
+const checks=[]; const check=(name,pass)=>checks.push({name,pass:Boolean(pass)}); const file=(p)=>existsSync(p)?readFileSync(p,"utf8"):"";
+const controller=file("apps/api/src/modules/payments/checkout-session.controller.ts");
+const stripe=file("apps/api/src/modules/payments/stripe-checkout.service.ts");
+const paystack=file("apps/api/src/modules/payments/paystack-checkout.service.ts");
+const dto=file("apps/api/src/modules/payments/dto/create-stripe-checkout-session.dto.ts");
+const mapper=file("apps/api/src/modules/payments/checkout-error.mapper.ts");
+const combined=`${controller}\n${stripe}\n${paystack}\n${dto}\n${mapper}`;
+check("public checkout session route exists", /@Controller\(\{\s*path:\s*"checkout"/.test(controller) && /@Post\("session"\)/.test(controller));
+check("checkout readiness route exists", /@Get\("readiness"\)/.test(controller) && /multiLineCheckoutSupported/.test(controller));
+check("lineItems array is part of source contract", /lineItems\?: RocketCheckoutLineItemDto\[\]/.test(dto));
+check("Stripe creates multiple hosted line items from payload", /line_items:\s*payload\.lineItems\.map/.test(stripe));
+check("Paystack sums multiple line items", /lineItems\.reduce/.test(paystack));
+check("variantId is required for checkout items", /variantId/.test(stripe) && /missing_product/.test(stripe));
+check("safe provider-not-configured response exists", /PAYMENT_PROVIDER_NOT_CONFIGURED/.test(mapper) && /Payment provider is temporarily unavailable/.test(mapper));
+check("safe checkout error mapper is used by route", /mapCheckoutFailure/.test(controller) && /checkoutErrorResponse/.test(controller));
+check("no one-item-only blocker remains", !/Multi-item checkout is not supported yet/.test(combined));
+check("no fake paid state in checkout session response", !/payment_status:\s*["']paid["']/.test(controller) && !/paid_verified/.test(controller));
+check("raw provider errors are not returned by checkout route", !/raw Stripe|raw Paystack|STRIPE_SECRET_KEY is not configured on the API server/.test(controller));
+const failed=checks.filter((c)=>!c.pass); for (const c of checks) console.log(`${c.pass?"ok":"not ok"} - ${c.name}`); if(failed.length) process.exit(1);

@@ -11,43 +11,58 @@ export class PaystackCheckoutService {
   async createAuthorization(input: CreateCheckoutSessionDto) {
     const secret = this.value("PAYSTACK_SECRET_KEY");
     const configured = Boolean(secret);
-    const quantity = input.quantity ?? 1;
-    const unitPriceMinor =
-      input.unitPriceMinor ??
-      input.priceMinor ??
-      input.unit_price ??
-      (Number.isInteger(input.amount) && Number.isInteger(quantity) && quantity > 0
-        ? Math.floor((input.amount as number) / quantity)
-        : undefined);
-    const amount =
-      input.amount ??
-      input.amountMinor ??
-      (typeof unitPriceMinor === "number" ? unitPriceMinor * quantity : undefined);
+    const rawLineItems = Array.isArray(input.lineItems) ? input.lineItems : [];
+    const lineItems = rawLineItems.length > 0
+      ? rawLineItems.map((item) => ({
+          productId: item.productId || null,
+          variantId: item.variantId || "",
+          handle: item.handle || null,
+          title: item.title || item.handle || "dBaronX checkout item",
+          quantity: item.quantity ?? 0,
+          unitPriceMinor: item.unitPriceMinor ?? 0,
+          currency: (item.currencyCode || input.currency || "usd").toUpperCase(),
+        }))
+      : [{
+          productId: input.productId || input.product_id || null,
+          variantId: input.variantId || input.variant_id || "",
+          handle: input.handle || input.product_handle || null,
+          title: input.title || input.productName || input.product_name || "dBaronX checkout item",
+          quantity: input.quantity ?? 1,
+          unitPriceMinor: input.unitPriceMinor ?? input.priceMinor ?? input.unit_price ?? (Number.isInteger(input.amount) && Number.isInteger(input.quantity ?? 1) && (input.quantity ?? 1) > 0 ? Math.floor((input.amount as number) / (input.quantity ?? 1)) : 0),
+          currency: (input.currency || "usd").toUpperCase(),
+        }];
+    const amount = lineItems.reduce((sum, item) => sum + item.quantity * item.unitPriceMinor, 0);
+    const requestedTotal = input.totalMinor ?? input.amount ?? input.amountMinor;
+    const customer = input.customer || {};
+    const shipping = input.shippingAddress || {};
+    const customerEmail = input.customerEmail || input.email || customer.email || "";
+    const addressLine1 = input.addressLine1 || input.address1 || shipping.addressLine1 || "";
+    const country = input.country || shipping.country || "";
+    const city = input.city || shipping.city || "";
+    const postalCode = input.postalCode || input.zip || input.postcode || shipping.postalCode || "";
+
     if (!configured) {
-      return { success: false, provider: "paystack", configured, blockers: ["paystack_not_configured"], authorizationUrl: null, reference: null, message: "Paystack is not configured." };
+      return { success: false, provider: "paystack", configured, blockers: ["paystack_not_configured"], authorizationUrl: null, reference: null, message: "Payment provider is temporarily unavailable. Please try again." };
     }
-    if (!Number.isInteger(quantity) || quantity < 1 || !Number.isInteger(unitPriceMinor) || (unitPriceMinor || 0) <= 0 || !Number.isInteger(amount) || (amount || 0) <= 0 || amount !== unitPriceMinor * quantity) {
-      return { success: false, provider: "paystack", configured, blocker: "checkout_payload_invalid", blockers: ["checkout_payload_invalid"], authorizationUrl: null, reference: null, message: "Unable to initialize Paystack checkout." };
+    if (!customerEmail || !country || !city || !addressLine1 || !postalCode || lineItems.length === 0 || lineItems.some((item) => !item.variantId || !Number.isInteger(item.quantity) || item.quantity < 1 || !Number.isInteger(item.unitPriceMinor) || item.unitPriceMinor <= 0) || (requestedTotal !== undefined && requestedTotal !== amount)) {
+      return { success: false, provider: "paystack", configured, blocker: "checkout_payload_invalid", blockers: ["checkout_payload_invalid"], authorizationUrl: null, reference: null, message: "Some cart items are unavailable. Please update your cart and try again." };
     }
     try {
+      const reference = input.checkoutRef || input.orderRef || randomUUID();
       const res = await fetch(`${this.baseUrl()}/transaction/initialize`, {
         method: "POST",
         headers: { Authorization: `Bearer ${secret}`, "Content-Type": "application/json" },
         body: JSON.stringify({
-          email: input.customerEmail || "checkout@dbaronx.local",
+          email: customerEmail,
           amount,
-          currency: (input.currency || "usd").toUpperCase(),
+          currency: lineItems[0]?.currency || "USD",
           callback_url: this.paystackCallbackUrl(input.successUrl),
           metadata: {
             cartId: input.cartId,
-            checkoutRef: input.checkoutRef || input.orderRef || randomUUID(),
+            checkoutRef: reference,
             orderRef: input.orderRef || null,
-            productId: input.productId || null,
-            handle: input.handle || null,
-            imageUrl: null,
-            supplier: input.supplier || null,
-            supplierProductId: input.supplierProductId || null,
-            supplierSku: input.supplierSku || null,
+            lineItemCount: lineItems.length,
+            lineItems: lineItems.map((item) => ({ productId: item.productId, variantId: item.variantId, handle: item.handle, quantity: item.quantity, unitPriceMinor: item.unitPriceMinor })),
             referralCode: input.referralCode || null,
             referredByCode: input.referredByCode || null,
           },
@@ -55,22 +70,22 @@ export class PaystackCheckoutService {
       });
       const data = (await res.json()) as any;
       const authUrl = this.pickHostedUrl(data);
-      const reference = data?.data?.reference || null;
+      const providerReference = data?.data?.reference || reference;
       if (!res.ok) {
         this.logger.warn(`paystack_initialize_failed status=${res.status}`);
-        return { success: false, provider: "paystack", configured, blocker: "paystack_session_failed", blockers: ["paystack_session_failed"], authorizationUrl: null, reference, message: "Unable to initialize Paystack checkout." };
+        return { success: false, provider: "paystack", configured, blocker: "paystack_session_failed", blockers: ["paystack_session_failed"], authorizationUrl: null, reference: providerReference, message: "Payment provider is temporarily unavailable. Please try again." };
       }
       if (!authUrl) {
-        return { success: false, provider: "paystack", configured, blocker: "paystack_authorization_url_missing", blockers: ["paystack_authorization_url_missing"], authorizationUrl: null, reference, message: "Paystack response did not include a hosted authorization URL." };
+        return { success: false, provider: "paystack", configured, blocker: "paystack_authorization_url_missing", blockers: ["paystack_authorization_url_missing"], authorizationUrl: null, reference: providerReference, message: "Payment provider is temporarily unavailable. Please try again." };
       }
       return {
         success: true, provider: "paystack", configured, blockers: [],
-        authorizationUrl: authUrl, authorization_url: authUrl, url: authUrl, reference,
-        data: { authorizationUrl: authUrl, authorization_url: authUrl, url: authUrl, reference },
+        authorizationUrl: authUrl, authorization_url: authUrl, url: authUrl, checkoutUrl: authUrl, reference: providerReference,
+        data: { authorizationUrl: authUrl, authorization_url: authUrl, url: authUrl, checkoutUrl: authUrl, reference: providerReference },
       };
     } catch (error) {
       this.logger.error(`paystack_initialize_exception ${(error as Error).message}`);
-      return { success: false, provider: "paystack", configured, blocker: "paystack_session_failed", blockers: ["paystack_session_failed"], authorizationUrl: null, reference: null, message: "Unable to initialize Paystack checkout." };
+      return { success: false, provider: "paystack", configured, blocker: "paystack_session_failed", blockers: ["paystack_session_failed"], authorizationUrl: null, reference: null, message: "Payment provider is temporarily unavailable. Please try again." };
     }
   }
 
