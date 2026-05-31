@@ -11,11 +11,19 @@ function uniqueEmail(email) {
 }
 
 async function fetchJson(url, init) {
-  const response = await fetch(url, init);
-  const text = await response.text();
-  let payload = {};
-  try { payload = text ? JSON.parse(text) : {}; } catch { payload = { parseError: true }; }
-  return { response, payload };
+  try {
+    const response = await fetch(url, init);
+    const text = await response.text();
+    let payload = {};
+    try { payload = text ? JSON.parse(text) : {}; } catch { payload = { parseError: true }; }
+    return { response, payload, networkOk: true };
+  } catch {
+    return {
+      response: { ok: false, status: 0 },
+      payload: { success: false, blockers: ["network_unreachable"] },
+      networkOk: false,
+    };
+  }
 }
 
 function redactBlockers(blockers) {
@@ -23,6 +31,7 @@ function redactBlockers(blockers) {
 }
 
 function readinessNextAction(summary) {
+  if (!summary.networkReachable) return "Network could not reach the NestJS API from this environment. Re-run from a network that can resolve API_BASE_URL, then validate /api/auth/readiness.";
   if (!summary.authReadinessRouteLive) return "Deploy the NestJS API branch that mounts AuthModule and exposes /api/auth/readiness.";
   if (!summary.supabaseConfigured) return "Set SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY, and JWT_SECRET on the NestJS API service, then redeploy.";
   if (!summary.authProviderReachable) return "Check the Supabase project URL/service role and API egress from the NestJS service.";
@@ -45,7 +54,8 @@ if (!RUN_LIVE_SMOKE) {
 const readiness = await fetchJson(`${API_BASE_URL}/api/auth/readiness`, { headers: { accept: "application/json" } });
 const payload = readiness.payload && typeof readiness.payload === "object" ? readiness.payload : {};
 const summary = {
-  authReadinessRouteLive: readiness.response.status !== 404 && typeof payload.success === "boolean",
+  networkReachable: Boolean(readiness.networkOk),
+  authReadinessRouteLive: Boolean(readiness.networkOk) && readiness.response.status !== 404 && typeof payload.success === "boolean",
   supabaseConfigured: Boolean(payload.supabaseConfigured),
   authProviderReachable: Boolean(payload.authProviderReachable),
   profilePersistenceReady: Boolean(payload.profilePersistenceReady),
@@ -56,7 +66,15 @@ const summary = {
 if (CREATE_USER) {
   const password = process.env.TEST_AUTH_PASSWORD || "";
   const email = uniqueEmail(process.env.TEST_AUTH_EMAIL || "");
-  if (!password || password.length < 8) throw new Error("TEST_AUTH_PASSWORD is required and must not be printed");
+  if (!password || password.length < 8) {
+    summary.testUserRegister = false;
+    summary.testUserLogin = false;
+    summary.testUserMe = false;
+    summary.blockers = Array.from(new Set([...summary.blockers, "test_auth_password_required"]));
+    summary.nextAction = "Set TEST_AUTH_PASSWORD to a strong temporary test password; the script will not print it.";
+    console.log(JSON.stringify(summary, null, 2));
+    process.exit(1);
+  }
 
   const register = await fetchJson(`${API_BASE_URL}/api/auth/register`, {
     method: "POST",
@@ -83,4 +101,4 @@ if (CREATE_USER) {
 
 summary.nextAction = readinessNextAction(summary);
 console.log(JSON.stringify(summary, null, 2));
-if (!summary.authReadinessRouteLive) process.exit(1);
+if (!summary.networkReachable || !summary.authReadinessRouteLive) process.exit(1);
