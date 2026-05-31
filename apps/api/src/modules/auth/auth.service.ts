@@ -60,7 +60,7 @@ export class AuthService {
       const { data, error } = await this.supabase.client.auth.admin.createUser({
         email,
         password,
-        email_confirm: false,
+        email_confirm: true,
         user_metadata: {
           full_name: fullName || undefined,
           display_name: fullName || undefined,
