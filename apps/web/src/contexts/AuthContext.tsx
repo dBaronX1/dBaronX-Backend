@@ -1,12 +1,20 @@
 "use client";
 
 import { createContext, type ReactNode, useContext, useEffect, useMemo, useState } from "react";
-import type { Session } from "@supabase/supabase-js";
 
-import { getSupabaseRuntimeBrowserClient } from "@/lib/supabase/runtime-client";
+import { clearAuthSession, meWithApi, readAuthSession, safeAuthMessage, type AuthUser } from "@/lib/auth/nest-auth-client";
+
+type SafeSession = {
+  accessToken?: string;
+  user: {
+    id: string;
+    email: string | null;
+    user_metadata: Record<string, unknown>;
+  };
+};
 
 type AuthContextValue = {
-  session: Session | null;
+  session: SafeSession | null;
   loading: boolean;
   error: string | null;
   signedIn: boolean;
@@ -15,27 +23,45 @@ type AuthContextValue = {
 
 const AuthContext = createContext<AuthContextValue | null>(null);
 
-function safeAuthError(error: unknown) {
-  const message = error instanceof Error ? error.message : "Unable to load auth session.";
-  const lower = message.toLowerCase();
-  const looksInternal = ["next_public", "customer_auth_", "secret", "private", "credential"].some((marker) => lower.includes(marker));
-  return looksInternal ? "Unable to load auth session. Please sign in again or contact support." : message;
+function sessionFromUser(user: AuthUser): SafeSession {
+  return {
+    accessToken: readAuthSession()?.accessToken,
+    user: {
+      id: user.id,
+      email: user.email,
+      user_metadata: {
+        full_name: user.fullName || "",
+        display_name: user.fullName || "",
+        referral_code: user.referralCode || "",
+      },
+    },
+  };
+}
+
+function safeSessionError(error: unknown) {
+  const message = error instanceof Error ? error.message : String(error || "");
+  return safeAuthMessage(message, "Unable to load auth session. Please sign in again or contact support.");
 }
 
 export function AuthProvider({ children }: { children: ReactNode }) {
-  const [session, setSession] = useState<Session | null>(null);
+  const [session, setSession] = useState<SafeSession | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
   async function refreshSession() {
     setLoading(true);
     try {
-      const supabase = await getSupabaseRuntimeBrowserClient();
-      const { data, error: sessionError } = await supabase.auth.getSession();
-      setSession(data.session || null);
-      setError(sessionError ? safeAuthError(sessionError) : null);
+      const payload = await meWithApi();
+      if (payload?.user) {
+        setSession(sessionFromUser(payload.user));
+        setError(null);
+      } else {
+        setSession(null);
+        setError(null);
+      }
     } catch (err) {
-      setError(safeAuthError(err));
+      clearAuthSession();
+      setError(safeSessionError(err));
       setSession(null);
     } finally {
       setLoading(false);
@@ -43,44 +69,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }
 
   useEffect(() => {
-    let mounted = true;
-    let unsubscribe: (() => void) | null = null;
-
-    getSupabaseRuntimeBrowserClient()
-      .then((supabase) => {
-        if (!mounted) return;
-        supabase.auth
-          .getSession()
-          .then(({ data, error: sessionError }) => {
-            if (!mounted) return;
-            setSession(data.session || null);
-            setError(sessionError ? safeAuthError(sessionError) : null);
-          })
-          .catch((err) => {
-            if (!mounted) return;
-            setError(safeAuthError(err));
-            setSession(null);
-          })
-          .finally(() => mounted && setLoading(false));
-
-        const { data: subscription } = supabase.auth.onAuthStateChange((_event, nextSession) => {
-          setSession(nextSession);
-          setError(null);
-          setLoading(false);
-        });
-        unsubscribe = () => subscription.subscription.unsubscribe();
-      })
-      .catch((err) => {
-        if (!mounted) return;
-        setError(safeAuthError(err));
-        setSession(null);
-        setLoading(false);
-      });
-
-    return () => {
-      mounted = false;
-      unsubscribe?.();
-    };
+    void refreshSession();
   }, []);
 
   const value = useMemo(

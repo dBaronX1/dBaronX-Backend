@@ -1,20 +1,15 @@
 "use client";
 
-import { FormEvent, Suspense, useEffect, useMemo, useState } from "react";
+import { FormEvent, Suspense, useMemo, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 
 import { DbxAuthShell } from "@/components/auth/DbxAuthShell";
-import { appendReferralParams, captureReferralParams } from "@/lib/auth/referral-capture";
+import { captureReferralParams } from "@/lib/auth/referral-capture";
 import { safeLocalPath } from "@/lib/auth/routes";
-import { CUSTOMER_ACCESS_UNAVAILABLE_MESSAGE, getBrowserCustomerConfig, getCustomerAuthClient, hasCustomerAccessConfig } from "@/lib/auth/customer-auth-client";
-import { customerAuthRedirectTo } from "@/lib/auth/customer-auth-routes";
+import { loginWithApi, safeAuthMessage } from "@/lib/auth/nest-auth-client";
 
 function humanLoginError(message: string) {
-  if (/invalid|credentials/i.test(message)) return "Email or password is incorrect.";
-  if (/network|fetch/i.test(message)) return "Login is temporarily unavailable. Please try again shortly or contact support.";
-  return message && !/NEXT_PUBLIC|CUSTOMER_AUTH_|DATABASE_URL|SECRET|TOKEN/i.test(message)
-    ? message
-    : "Login failed. Please try again.";
+  return safeAuthMessage(message, "We could not sign you in. Please check your email and password.");
 }
 
 function LoginForm() {
@@ -25,55 +20,16 @@ function LoginForm() {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [message, setMessage] = useState("");
-  const [configReady, setConfigReady] = useState(false);
-
-  useEffect(() => {
-    let mounted = true;
-    getBrowserCustomerConfig()
-      .then((config) => {
-        if (mounted) setConfigReady(hasCustomerAccessConfig(config));
-      })
-      .catch(() => {
-        if (mounted) setConfigReady(false);
-      });
-    return () => {
-      mounted = false;
-    };
-  }, []);
+  const [configReady] = useState(true);
 
   async function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    if (!configReady) {
-      setMessage("Login is temporarily unavailable. Please try again shortly or contact support.");
-      return;
-    }
     setMessage("Signing in…");
     try {
-      const authClient = await getCustomerAuthClient();
-      const { error } = await authClient.auth.signInWithPassword({ email, password });
-      if (error) {
-        setMessage(humanLoginError(error.message));
-        return;
-      }
+      await loginWithApi({ email, password });
       router.push(nextPath);
     } catch (error) {
-      setMessage(error instanceof Error ? humanLoginError(error.message) : "Login failed. Please try again.");
-    }
-  }
-
-  async function magicLink() {
-    if (!configReady) {
-      setMessage(CUSTOMER_ACCESS_UNAVAILABLE_MESSAGE);
-      return;
-    }
-    setMessage("Sending magic link…");
-    try {
-      const authClient = await getCustomerAuthClient();
-      const callbackPath = appendReferralParams(`/auth/callback?next=${encodeURIComponent(nextPath)}`, referral);
-      const { error } = await authClient.auth.signInWithOtp({ email, options: { emailRedirectTo: customerAuthRedirectTo(callbackPath) } });
-      setMessage(error ? humanLoginError(error.message) : "Check your email for the magic login link.");
-    } catch (error) {
-      setMessage(error instanceof Error ? humanLoginError(error.message) : "Login failed. Please try again.");
+      setMessage(error instanceof Error ? humanLoginError(error.message) : "We could not sign you in. Please check your email and password.");
     }
   }
 
@@ -89,7 +45,6 @@ function LoginForm() {
       onEmailChange={setEmail}
       onPasswordChange={setPassword}
       onSubmit={submit}
-      onMagicLink={magicLink}
     />
   );
 }
