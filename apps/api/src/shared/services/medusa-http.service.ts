@@ -50,6 +50,10 @@ export class MedusaHttpService {
     return !!this.publishableKey;
   }
 
+  getBaseUrlConfigured(): boolean {
+    return !!this.baseUrl;
+  }
+
   getAdminApiKeyConfigured(): boolean {
     return !!this.adminApiKey;
   }
@@ -126,9 +130,9 @@ export class MedusaHttpService {
     throw new HttpException(
       {
         success: false,
-        message: "Medusa bridge request failed",
+        message: "Upstream commerce request failed",
+        code: "MEDUSA_UPSTREAM_UNAVAILABLE",
         medusaStatus: response.status,
-        medusaResponse: response.data,
         requestId,
       },
       response.status >= 400 && response.status < 600
