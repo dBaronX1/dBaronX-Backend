@@ -2,6 +2,7 @@ import { HttpStatus } from "@nestjs/common";
 
 export type PublicAuthErrorCode =
   | "AUTH_TEMPORARILY_UNAVAILABLE"
+  | "AUTH_DATABASE_USER_CREATION_FAILED"
   | "INVALID_EMAIL"
   | "WEAK_PASSWORD"
   | "PASSWORD_MISMATCH"
@@ -20,6 +21,7 @@ export type PublicAuthError = {
 
 export const ALLOWED_PUBLIC_AUTH_ERROR_CODES: PublicAuthErrorCode[] = [
   "AUTH_TEMPORARILY_UNAVAILABLE",
+  "AUTH_DATABASE_USER_CREATION_FAILED",
   "INVALID_EMAIL",
   "WEAK_PASSWORD",
   "PASSWORD_MISMATCH",
@@ -33,6 +35,7 @@ export const ALLOWED_PUBLIC_AUTH_ERROR_CODES: PublicAuthErrorCode[] = [
 
 export const AUTH_SAFE_MESSAGES: Record<PublicAuthErrorCode, string> = {
   AUTH_TEMPORARILY_UNAVAILABLE: "Account service is temporarily unavailable. Please try again.",
+  AUTH_DATABASE_USER_CREATION_FAILED: "Account service is temporarily unavailable. Please run the Supabase auth user creation diagnostic.",
   INVALID_EMAIL: "Please enter a valid email address.",
   WEAK_PASSWORD: "Your password is too weak. Please use a stronger password.",
   PASSWORD_MISMATCH: "Passwords do not match.",
@@ -45,6 +48,7 @@ export const AUTH_SAFE_MESSAGES: Record<PublicAuthErrorCode, string> = {
 };
 
 const providerMessageMatchers: Array<[RegExp, PublicAuthErrorCode, number]> = [
+  [/database error creating new user|database.*creating.*user|error.*creating.*user/i, "AUTH_DATABASE_USER_CREATION_FAILED", HttpStatus.SERVICE_UNAVAILABLE],
   [/already|registered|exists|duplicate|email_exists/i, "EMAIL_ALREADY_REGISTERED", HttpStatus.CONFLICT],
   [/weak|password.*short|at least|characters/i, "WEAK_PASSWORD", HttpStatus.BAD_REQUEST],
   [/invalid.*credential|invalid login|email or password|invalid.*password/i, "INVALID_CREDENTIALS", HttpStatus.UNAUTHORIZED],
@@ -84,6 +88,7 @@ export function authErrorResponse(error: PublicAuthError) {
   return {
     success: false,
     errorCode: error.errorCode,
+    code: error.errorCode,
     message: error.message,
   };
 }

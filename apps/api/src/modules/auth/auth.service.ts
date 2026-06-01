@@ -26,6 +26,8 @@ type AuthReadiness = {
   requiredTables: {
     profiles: boolean;
   };
+  authUserCreationDiagnosticAvailable: boolean;
+  recommendedSupabaseDiagnostic: string;
   blockers: string[];
 };
 
@@ -260,6 +262,8 @@ export class AuthService {
       requiredTables: {
         profiles: profilePersistence.ready,
       },
+      authUserCreationDiagnosticAvailable: true,
+      recommendedSupabaseDiagnostic: "Run supabase/sql/diagnostics/auth_user_creation_diagnostic.sql if Supabase dashboard says Database error creating new user.",
       blockers,
     };
   }
