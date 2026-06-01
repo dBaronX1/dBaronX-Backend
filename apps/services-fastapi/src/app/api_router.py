@@ -93,7 +93,7 @@ ROUTE_MOUNTS: tuple[RouteMount, ...] = (
         module_path="app.api.routes.ai_generation",
         prefix="",
         tags=("ai",),
-        required=False,
+        required=True,
     ),
     RouteMount(
         module_path="app.api.routes.watch_session_anomaly",

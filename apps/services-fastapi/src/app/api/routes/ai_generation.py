@@ -118,7 +118,7 @@ async def legacy_rewrite_story(
 
 @router.get(
     "/stories/readiness",
-    summary="AI Stories provider and persistence readiness",
+    summary="AI Stories provider and route readiness",
 )
 async def ai_stories_readiness() -> dict:
     provider_service = get_ai_provider_service()
@@ -126,24 +126,14 @@ async def ai_stories_readiness() -> dict:
     provider_configured = any(provider_flags.values())
     blockers: list[str] = []
 
-    try:
-        persistence_ready = await get_supabase_service().ai_stories_ready()
-    except Exception:
-        persistence_ready = False
-
     if not provider_configured:
         blockers.append("ai_provider_missing")
-    if not persistence_ready:
-        blockers.append("persistence_unavailable")
 
     return {
         "success": True,
-        "fastapiReachable": True,
         "providerConfigured": provider_configured,
-        "providerConfiguredBooleans": provider_flags,
-        "generationEndpointReady": provider_configured,
-        "persistenceReady": persistence_ready,
-        "supabaseReady": persistence_ready,
-        "fallbackOrder": ["gemini", "openai", "anthropic"],
+        "generationEndpointReady": True,
+        "providersDetected": provider_flags,
+        "providerOrder": provider_service.provider_order(),
         "blockers": blockers,
     }

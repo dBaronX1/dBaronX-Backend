@@ -3,7 +3,7 @@ from __future__ import annotations
 import os
 import time
 from dataclasses import dataclass
-from typing import Any, Literal, Optional
+from typing import Any, Literal, Optional, cast
 
 import httpx
 
@@ -44,7 +44,11 @@ class AiProviderService:
 
     def __init__(self) -> None:
         self.timeout_seconds = float(os.getenv("AI_PROVIDER_TIMEOUT_SECONDS", "45"))
-        self.gemini_api_key = self._env("GEMINI_API_KEY") or self._env("GOOGLE_GENERATIVE_AI_API_KEY")
+        self.gemini_api_key = (
+            self._env("GEMINI_API_KEY")
+            or self._env("GOOGLE_API_KEY")
+            or self._env("GOOGLE_GENERATIVE_AI_API_KEY")
+        )
         self.openai_api_key = self._env("OPENAI_API_KEY")
         self.anthropic_api_key = self._env("ANTHROPIC_API_KEY")
 
@@ -131,15 +135,24 @@ class AiProviderService:
             providers_attempted=tuple(attempted),
         )
 
+    def provider_order(self) -> list[AiProviderName]:
+        configured_order = [
+            item.strip().lower()
+            for item in self._env("AI_PROVIDER_ORDER", "gemini,openai,anthropic").split(",")
+            if item.strip()
+        ]
+        ordered: list[AiProviderName] = []
+        for provider in configured_order:
+            if provider in {"gemini", "openai", "anthropic"} and provider not in ordered:
+                ordered.append(cast(AiProviderName, provider))
+        for provider in ("gemini", "openai", "anthropic"):
+            if provider not in ordered:
+                ordered.append(cast(AiProviderName, provider))
+        return ordered
+
     def available_providers(self) -> list[AiProviderName]:
-        providers: list[AiProviderName] = []
-        if self.gemini_api_key:
-            providers.append("gemini")
-        if self.openai_api_key:
-            providers.append("openai")
-        if self.anthropic_api_key:
-            providers.append("anthropic")
-        return providers
+        flags = self.configured_provider_flags()
+        return [provider for provider in self.provider_order() if flags.get(provider, False)]
 
     def configured_provider_flags(self) -> dict[str, bool]:
         return {

@@ -63,7 +63,7 @@ class StoryGenerationRequest(DBXModel):
         validation_alias=AliasChoices("prompt", "text", "input", "query"),
     )
     genre: str = Field(default="brand", min_length=2, max_length=80)
-    tone: str = Field(min_length=2, max_length=120)
+    tone: str = Field(default="cinematic", min_length=2, max_length=120)
     length: str = Field(default="medium", pattern="^(short|medium|long)$")
     audience: str | None = Field(default=None, max_length=120)
     language: str = Field(min_length=2, max_length=32, default="en")
