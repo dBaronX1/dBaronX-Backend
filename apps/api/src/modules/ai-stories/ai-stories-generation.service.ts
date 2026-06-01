@@ -82,7 +82,7 @@ export class AiStoriesGenerationService {
       },
     };
 
-    const fastapiResponse = await this.fetchFastapi(`${fastapiBaseUrl}/ai/stories/generate`, payload, requestId);
+    const fastapiResponse = await this.fetchFastapi(this.fastapiPaths("generate"), payload, requestId);
 
     if (fastapiResponse.ok === false) {
       return fastapiResponse.failure;
@@ -133,33 +133,11 @@ export class AiStoriesGenerationService {
     if (!fastapiBaseUrl) {
       blockers.push("fastapi_unavailable");
     } else {
-      try {
-        const controller = new AbortController();
-        const timeout = setTimeout(() => controller.abort(), 5000);
-        const response = await fetch(`${fastapiBaseUrl}/ai/stories/readiness`, {
-          headers: this.fastapiHeaders(),
-          signal: controller.signal,
-        });
-        clearTimeout(timeout);
-        const data = await response.json().catch(() => ({}));
-        fastapiReachable = response.ok;
-        if (response.status === 404) {
-          blockers.push("fastapi_route_missing");
-        } else if (!response.ok) {
-          blockers.push("fastapi_unavailable");
-        } else {
-          providerConfigured = Boolean(data?.providerConfigured || data?.provider_configured);
-          generationEndpointReady = Boolean(data?.generationEndpointReady || data?.generation_endpoint_ready);
-          if (!providerConfigured) blockers.push("ai_provider_missing");
-          if (Array.isArray(data?.blockers)) {
-            for (const blocker of data.blockers.map(String)) {
-              if (!blockers.includes(blocker)) blockers.push(blocker);
-            }
-          }
-        }
-      } catch {
-        blockers.push("fastapi_unavailable");
-      }
+      const readiness = await this.fetchFastapiReadiness();
+      fastapiReachable = readiness.fastapiReachable;
+      providerConfigured = readiness.providerConfigured;
+      generationEndpointReady = readiness.generationEndpointReady;
+      blockers.push(...readiness.blockers);
     }
 
     const supabaseHealth = await this.supabase.health();
@@ -177,11 +155,11 @@ export class AiStoriesGenerationService {
     };
   }
 
-  private async fetchFastapi(url: string, payload: Record<string, unknown>, requestId?: string): Promise<{ ok: true; data: unknown } | { ok: false; failure: StoryFailure }> {
+  private async fetchFastapi(urls: string[], payload: Record<string, unknown>, requestId?: string): Promise<{ ok: true; data: unknown } | { ok: false; failure: StoryFailure }> {
     let lastStatus = 0;
     let lastCode = "fastapi_unavailable";
 
-    for (let attempt = 0; attempt < 2; attempt += 1) {
+    for (const url of urls) {
       try {
         const controller = new AbortController();
         const timeout = setTimeout(() => controller.abort(), 55000);
@@ -207,7 +185,8 @@ export class AiStoriesGenerationService {
         const rawCode = this.extractErrorCode(data);
         lastCode = rawCode;
         if (response.status === 404) {
-          return { ok: false, failure: this.failure("fastapi_route_missing", "The FastAPI AI Stories route is not deployed yet.", { fastapiStatus: response.status, fastapiCode: rawCode }) };
+          lastCode = "fastapi_route_missing";
+          continue;
         }
         if (response.status === 422) {
           return { ok: false, failure: this.failure("validation_failed", "Please check the story details and try again.", { fastapiStatus: response.status, fastapiCode: rawCode }) };
@@ -222,6 +201,10 @@ export class AiStoriesGenerationService {
       } catch {
         lastCode = "fastapi_unavailable";
       }
+    }
+
+    if (lastCode === "fastapi_route_missing") {
+      return { ok: false, failure: this.failure("fastapi_route_missing", "The FastAPI AI Stories route is not deployed yet.", { fastapiStatus: lastStatus, lastCode }) };
     }
 
     return { ok: false, failure: this.failure("fastapi_unavailable", "The story generation service is unavailable. Please try again shortly.", { fastapiStatus: lastStatus, lastCode }) };
@@ -292,14 +275,71 @@ export class AiStoriesGenerationService {
   }
 
   private fastapiBaseUrl(): string {
-    return String(
-      this.config.get<string>("FASTAPI_BASE_URL") ||
-        process.env.FASTAPI_BASE_URL ||
-        process.env.NEXT_PUBLIC_FASTAPI_BASE_URL ||
-        DEFAULT_FASTAPI_BASE_URL,
-    )
-      .trim()
-      .replace(/\/+$/, "");
+    return this.fastapiBaseUrlCandidates()[0] || "";
+  }
+
+  private fastapiBaseUrlCandidates(): string[] {
+    return Array.from(
+      new Set(
+        [
+          this.config.get<string>("FASTAPI_BASE_URL"),
+          process.env.FASTAPI_BASE_URL,
+          process.env.FASTAPI_URL,
+          process.env.FASTAPI_PUBLIC_BASE_URL,
+          process.env.NEXT_PUBLIC_FASTAPI_BASE_URL,
+          DEFAULT_FASTAPI_BASE_URL,
+        ]
+          .map((value) => String(value || "").trim().replace(/\/+$/, ""))
+          .filter((value) => value.length > 0),
+      ),
+    );
+  }
+
+  private fastapiPaths(kind: "generate" | "readiness"): string[] {
+    const suffixes = kind === "generate" ? ["/ai/stories/generate", "/ai/generate"] : ["/ai/stories/readiness"];
+    return this.fastapiBaseUrlCandidates().flatMap((baseUrl) => suffixes.map((suffix) => `${baseUrl}${suffix}`));
+  }
+
+  private async fetchFastapiReadiness(): Promise<{ fastapiReachable: boolean; providerConfigured: boolean; generationEndpointReady: boolean; blockers: string[] }> {
+    const blockers: string[] = [];
+    let fastapiReachable = false;
+    let providerConfigured = false;
+    let generationEndpointReady = false;
+
+    for (const url of this.fastapiPaths("readiness")) {
+      try {
+        const controller = new AbortController();
+        const timeout = setTimeout(() => controller.abort(), 5000);
+        const response = await fetch(url, {
+          headers: this.fastapiHeaders(),
+          signal: controller.signal,
+        });
+        clearTimeout(timeout);
+        const data = await response.json().catch(() => ({}));
+        if (response.status === 404) {
+          if (!blockers.includes("fastapi_route_missing")) blockers.push("fastapi_route_missing");
+          continue;
+        }
+        if (!response.ok) {
+          if (!blockers.includes("fastapi_unavailable")) blockers.push("fastapi_unavailable");
+          continue;
+        }
+        fastapiReachable = true;
+        providerConfigured = Boolean(data?.providerConfigured || data?.provider_configured);
+        generationEndpointReady = Boolean(data?.generationEndpointReady || data?.generation_endpoint_ready);
+        if (!providerConfigured) blockers.push("ai_provider_missing");
+        if (Array.isArray(data?.blockers)) {
+          for (const blocker of data.blockers.map(String)) {
+            if (!blockers.includes(blocker)) blockers.push(blocker);
+          }
+        }
+        return { fastapiReachable, providerConfigured, generationEndpointReady, blockers: blockers.filter((blocker) => blocker !== "fastapi_unavailable" && blocker !== "fastapi_route_missing") };
+      } catch {
+        if (!blockers.includes("fastapi_unavailable")) blockers.push("fastapi_unavailable");
+      }
+    }
+
+    return { fastapiReachable, providerConfigured, generationEndpointReady, blockers };
   }
 
   private fastapiHeaders(): Record<string, string> {

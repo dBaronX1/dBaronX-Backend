@@ -14,14 +14,20 @@ export class MedusaHttpService {
   private readonly logger = new Logger(MedusaHttpService.name);
   private readonly client: AxiosInstance;
   private readonly baseUrl: string;
+  private readonly baseUrlCandidates: string[];
   private readonly adminApiKey: string;
   private readonly publishableKey: string;
 
   constructor(private readonly configService: ConfigService) {
-    this.baseUrl =
-      this.configService.get<string>("medusa.baseUrl") ||
-      process.env.MEDUSA_BASE_URL ||
-      "";
+    this.baseUrlCandidates = this.uniqueUrls([
+      this.configService.get<string>("medusa.baseUrl"),
+      process.env.MEDUSA_BASE_URL,
+      process.env.MEDUSA_URL,
+      process.env.MEDUSA_BACKEND_URL,
+      process.env.NEXT_PUBLIC_MEDUSA_BACKEND_URL,
+      "https://dbaronx-medusa-xrwh.onrender.com",
+    ]);
+    this.baseUrl = this.baseUrlCandidates[0] || "";
     this.adminApiKey =
       this.configService.get<string>("medusa.adminApiKey") ||
       process.env.MEDUSA_ADMIN_API_KEY ||
@@ -113,17 +119,34 @@ export class MedusaHttpService {
       headers: finalHeaders,
     };
 
-    const response = await this.client.request(config);
+    let lastStatus = 0;
+    let lastResponse: unknown;
+    let lastError: unknown;
 
-    if (response.status >= 200 && response.status < 300) {
-      return response.data as T;
+    for (const baseURL of this.baseUrlCandidates) {
+      try {
+        const response = await this.client.request({ ...config, baseURL });
+        lastStatus = response.status;
+        lastResponse = response.data;
+
+        if (response.status >= 200 && response.status < 300) {
+          return response.data as T;
+        }
+
+        if (response.status === 401 || response.status === 403) {
+          break;
+        }
+      } catch (error) {
+        lastError = error;
+      }
     }
 
     this.logger.error(
-      `Medusa request failed: ${method} ${path} -> ${response.status}`,
+      `Medusa request failed: ${method} ${path} -> ${lastStatus || "network"}`,
       JSON.stringify({
         requestId,
-        response: response.data,
+        response: lastResponse,
+        errorName: lastError instanceof Error ? lastError.name : undefined,
       }),
     );
 
@@ -132,12 +155,22 @@ export class MedusaHttpService {
         success: false,
         message: "Upstream commerce request failed",
         code: "MEDUSA_UPSTREAM_UNAVAILABLE",
-        medusaStatus: response.status,
+        medusaStatus: lastStatus || 0,
         requestId,
       },
-      response.status >= 400 && response.status < 600
-        ? response.status
+      lastStatus >= 400 && lastStatus < 600
+        ? lastStatus
         : HttpStatus.BAD_GATEWAY,
+    );
+  }
+
+  private uniqueUrls(values: Array<string | undefined>): string[] {
+    return Array.from(
+      new Set(
+        values
+          .map((value) => String(value || "").trim().replace(/\/+$/, ""))
+          .filter((value) => value.length > 0),
+      ),
     );
   }
 }
