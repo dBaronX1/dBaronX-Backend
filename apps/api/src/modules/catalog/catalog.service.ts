@@ -1,5 +1,6 @@
 import { HttpException, HttpStatus, Injectable, Logger } from "@nestjs/common";
 import { MedusaHttpService } from "../../shared/services/medusa-http.service";
+import { SupabaseService } from "../../shared/services/supabase.service";
 import { MedusaStoreProduct, MedusaStoreVariant, PublicCatalogProduct } from "./catalog.types";
 
 const SECRET_FIELD_PATTERN = /(secret|token|password|api[_-]?key|publishable[_-]?key|service[_-]?role|database[_-]?url|cost|supplier[_-]?price|supplier[_-]?cost|shipping[_-]?cost|internal|admin|webhook)/i;
@@ -117,18 +118,21 @@ function uniquePaths(paths: string[]) {
 export class CatalogService {
   private readonly logger = new Logger(CatalogService.name);
 
-  constructor(private readonly medusaHttp: MedusaHttpService) {}
+  constructor(
+    private readonly medusaHttp: MedusaHttpService,
+    private readonly supabase: SupabaseService,
+  ) {}
 
   async listProducts(options: { limit?: number } = {}) {
     const limit = Math.min(Math.max(Number(options.limit || 50) || 50, 1), 100);
-    const products = await this.fetchMedusaProductsWithSafeError(this.listPaths(limit));
+    const { products, source, warnings } = await this.fetchCatalogProductsWithFallback(this.listPaths(limit), { limit });
     const normalized = this.normalizeProducts(products);
     return {
       success: true,
       products: normalized.products,
       count: normalized.products.length,
-      source: "medusa",
-      warnings: normalized.products.length === 0 && products.length > 0 ? ["catalog_products_skipped_until_buyable"] : [],
+      source,
+      warnings: [...warnings, ...(normalized.products.length === 0 && products.length > 0 ? ["catalog_products_skipped_until_buyable"] : [])],
       diagnostics: normalized.diagnostics,
     };
   }
@@ -141,7 +145,7 @@ export class CatalogService {
         HttpStatus.NOT_FOUND,
       );
     }
-    const products = await this.fetchMedusaProductsWithSafeError(this.detailPaths(cleanHandle));
+    const { products, source, warnings } = await this.fetchCatalogProductsWithFallback(this.detailPaths(cleanHandle), { limit: 5, handle: cleanHandle });
     const normalized = this.normalizeProducts(products);
     const product = normalized.products.find((item) => item.handle === cleanHandle) || null;
     if (!product) {
@@ -150,7 +154,7 @@ export class CatalogService {
         HttpStatus.NOT_FOUND,
       );
     }
-    return { success: true, product, products: [product], count: 1, source: "medusa", warnings: [], diagnostics: normalized.diagnostics };
+    return { success: true, product, products: [product], count: 1, source, warnings, diagnostics: normalized.diagnostics };
   }
 
   async readiness() {
@@ -161,6 +165,8 @@ export class CatalogService {
     let medusaProductsFetched = 0;
     let firstCjProductVisible = false;
     let manualCuratedBuyableCount = 0;
+    let source = "medusa";
+    const warnings: string[] = [];
     let diagnostics = this.emptyDiagnostics("not_checked");
 
     const publishableKeyConfigured = this.medusaHttp.getPublishableKeyConfigured();
@@ -183,6 +189,21 @@ export class CatalogService {
       diagnostics = this.emptyDiagnostics("unreachable");
       this.logger.warn(JSON.stringify({ event: "catalog_readiness_medusa_unreachable", error: this.safeErrorName(error) }));
       blockers.push("medusa_unreachable");
+
+      const fallbackProducts = await this.fetchStorefrontProducts({ limit: 50 });
+      if (fallbackProducts.length > 0) {
+        const normalized = this.normalizeProducts(fallbackProducts);
+        diagnostics = {
+          ...normalized.diagnostics,
+          medusaStatus: "unreachable",
+        };
+        productCount = normalized.products.length;
+        medusaProductsFetched = fallbackProducts.length;
+        firstCjProductVisible = normalized.products.some((product) => product.supplier === "cj" && product.buyable) || normalized.products.some((product) => product.handle === SHIRT_HANDLE && product.buyable);
+        manualCuratedBuyableCount = normalized.products.filter((product) => product.manualCurated && product.buyable).length;
+        source = "supabase_storefront_products";
+        warnings.push("medusa_store_api_unavailable_using_verified_storefront_snapshot");
+      }
     }
 
     if (!productCount) blockers.push("medusa_products_not_visible");
@@ -201,7 +222,8 @@ export class CatalogService {
       firstCjProductVisible,
       manualCuratedBuyableCount,
       blockers: [...new Set(blockers)],
-      source: "medusa",
+      source,
+      warnings,
       diagnostics,
     };
   }
@@ -219,6 +241,85 @@ export class CatalogService {
       `/store/products?handle=${encoded}&limit=5&fields=${encodeURIComponent(STORE_PRODUCT_FIELDS)}`,
       `/store/products?handle=${encoded}&limit=5`,
     ]);
+  }
+
+  private async fetchCatalogProductsWithFallback(paths: string[], options: { limit: number; handle?: string }) {
+    try {
+      return {
+        products: await this.fetchMedusaProducts(paths, "public-catalog"),
+        source: "medusa",
+        warnings: [] as string[],
+      };
+    } catch (error) {
+      this.logger.warn(JSON.stringify({ event: "catalog_medusa_bridge_failed_trying_storefront_snapshot", error: this.safeErrorName(error) }));
+      const fallbackProducts = await this.fetchStorefrontProducts(options);
+      if (fallbackProducts.length > 0) {
+        return {
+          products: fallbackProducts,
+          source: "supabase_storefront_products",
+          warnings: ["medusa_store_api_unavailable_using_verified_storefront_snapshot"],
+        };
+      }
+      return { products: await this.fetchMedusaProductsWithSafeError(paths), source: "medusa", warnings: [] as string[] };
+    }
+  }
+
+  private async fetchStorefrontProducts(options: { limit: number; handle?: string }): Promise<MedusaStoreProduct[]> {
+    try {
+      let query = this.supabase
+        .schema("app_public")
+        .from("storefront_products")
+        .select("id,supplier,supplier_product_id,supplier_sku,medusa_product_id,medusa_variant_id,handle,title,description,short_description,thumbnail,image_url,images,price_minor,currency_code,inventory_quantity,stock_status,delivery_estimate,metadata,checkout_enabled")
+        .eq("active", true)
+        .eq("verification_status", "verified")
+        .order("updated_at", { ascending: false })
+        .limit(options.limit);
+
+      if (options.handle) query = query.eq("handle", options.handle).limit(options.limit);
+
+      const { data, error } = await query;
+      if (error || !Array.isArray(data)) return [];
+      return data.map((row) => this.storefrontRowToMedusaProduct(row as Record<string, unknown>));
+    } catch (error) {
+      this.logger.warn(JSON.stringify({ event: "catalog_storefront_snapshot_failed", error: this.safeErrorName(error) }));
+      return [];
+    }
+  }
+
+  private storefrontRowToMedusaProduct(row: Record<string, unknown>): MedusaStoreProduct {
+    const metadata = objectValue(row.metadata);
+    const imageList = Array.isArray(row.images) ? row.images.filter((item): item is string => typeof item === "string" && item.trim().length > 0) : [];
+    const variantId = text(row.medusa_variant_id);
+    const priceMinor = num(row.price_minor);
+    const currencyCode = text(row.currency_code) || "usd";
+    return {
+      id: text(row.medusa_product_id) || text(row.id),
+      title: text(row.title),
+      handle: text(row.handle),
+      description: text(row.description) || text(row.short_description),
+      thumbnail: text(row.thumbnail) || text(row.image_url) || imageList[0] || "",
+      images: imageList.map((url) => ({ url })),
+      variants: variantId
+        ? [
+            {
+              id: variantId,
+              manage_inventory: false,
+              prices: priceMinor ? [{ amount: priceMinor, currency_code: currencyCode }] : [],
+            },
+          ]
+        : [],
+      metadata: {
+        ...metadata,
+        supplier: text(row.supplier) || text(metadata.supplier),
+        supplierProductId: text(row.supplier_product_id) || text(metadata.supplierProductId),
+        supplierSku: text(row.supplier_sku) || text(metadata.supplierSku),
+        deliveryEstimate: text(row.delivery_estimate) || text(metadata.deliveryEstimate),
+        imageUrl: text(row.image_url) || text(metadata.imageUrl),
+        manualCurated: true,
+        realSupplierProduct: true,
+      },
+      inventory_quantity: num(row.inventory_quantity) ?? undefined,
+    };
   }
 
   private async fetchMedusaProductsWithSafeError(paths: string[]) {
