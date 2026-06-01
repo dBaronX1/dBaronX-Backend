@@ -402,10 +402,15 @@ export class AuthService {
 
   private async findAuthUserByEmail(email: string): Promise<AuthResult<User | null>> {
     try {
-      const { data, error } = await this.supabase.client.auth.admin.listUsers({ page: 1, perPage: 1000 });
-      if (error) return { ok: false, error: mapSupabaseAuthError(error, "AUTH_TEMPORARILY_UNAVAILABLE") };
-      const users = Array.isArray(data.users) ? (data.users as User[]) : [];
-      return { ok: true, value: users.find((user) => user.email?.toLowerCase() === email) || null };
+      for (let page = 1; page <= 10; page += 1) {
+        const { data, error } = await this.supabase.client.auth.admin.listUsers({ page, perPage: 1000 });
+        if (error) return { ok: false, error: mapSupabaseAuthError(error, "AUTH_TEMPORARILY_UNAVAILABLE") };
+        const users = Array.isArray(data.users) ? (data.users as User[]) : [];
+        const match = users.find((user) => user.email?.toLowerCase() === email);
+        if (match) return { ok: true, value: match };
+        if (users.length < 1000) break;
+      }
+      return { ok: true, value: null };
     } catch (error) {
       return { ok: false, error: mapSupabaseAuthError(error, "AUTH_TEMPORARILY_UNAVAILABLE") };
     }
@@ -425,15 +430,9 @@ export class AuthService {
   }
 
   private async findExistingAuthUser(email: string): Promise<AuthResult<boolean>> {
-    try {
-      const { data, error } = await this.supabase.client.auth.admin.listUsers({ page: 1, perPage: 1000 });
-      if (error) return { ok: false, error: mapSupabaseAuthError(error, "AUTH_TEMPORARILY_UNAVAILABLE") };
-      const users = Array.isArray(data.users) ? (data.users as Array<{ email?: string | null }>) : [];
-      const exists = Boolean(users.find((user) => user.email?.toLowerCase() === email));
-      return { ok: true, value: exists };
-    } catch (error) {
-      return { ok: false, error: mapSupabaseAuthError(error, "AUTH_TEMPORARILY_UNAVAILABLE") };
-    }
+    const user = await this.findAuthUserByEmail(email);
+    if (user.ok === false) return { ok: false, error: user.error };
+    return { ok: true, value: Boolean(user.value) };
   }
 
   private safeSessionContract(input: { apiAccessToken: string; supabaseSession?: Session }): Record<string, unknown> {

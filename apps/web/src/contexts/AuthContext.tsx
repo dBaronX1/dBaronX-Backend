@@ -1,6 +1,6 @@
 "use client";
 
-import { createContext, type ReactNode, useContext, useEffect, useMemo, useState } from "react";
+import { createContext, useContext, useEffect, useMemo, useState } from "react";
 
 import { clearAuthSession, meWithApi, readAuthSession, safeAuthMessage, type AuthUser } from "@/lib/auth/nest-auth-client";
 
@@ -22,6 +22,7 @@ type AuthContextValue = {
 };
 
 const AuthContext = createContext<AuthContextValue | null>(null);
+const AuthContextProvider = AuthContext.Provider as any;
 
 function sessionFromUser(user: AuthUser): SafeSession {
   return {
@@ -43,7 +44,7 @@ function safeSessionError(error: unknown) {
   return safeAuthMessage(message, "Unable to load auth session. Please sign in again or contact support.");
 }
 
-export function AuthProvider({ children }: { children: ReactNode }) {
+export function AuthProvider({ children }: { children: any }) {
   const [session, setSession] = useState<SafeSession | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -77,7 +78,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     [session, loading, error],
   );
 
-  return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
+  return <AuthContextProvider value={value}>{children}</AuthContextProvider>;
 }
 
 export function useAuthContext() {

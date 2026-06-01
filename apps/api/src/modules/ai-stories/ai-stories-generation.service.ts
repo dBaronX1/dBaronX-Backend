@@ -39,6 +39,8 @@ type StoryFailure = {
 
 type StoryResponse = StorySuccess | StoryFailure;
 
+const DEFAULT_FASTAPI_BASE_URL = "https://dbaronx-fastapi-5ci9.onrender.com";
+
 const LENGTH_TOKENS: Record<GenerateAiStoryDto["length"], number> = {
   short: 700,
   medium: 1500,
@@ -290,7 +292,14 @@ export class AiStoriesGenerationService {
   }
 
   private fastapiBaseUrl(): string {
-    return String(this.config.get<string>("FASTAPI_BASE_URL") || process.env.FASTAPI_BASE_URL || process.env.NEXT_PUBLIC_FASTAPI_BASE_URL || "").trim().replace(/\/+$/, "");
+    return String(
+      this.config.get<string>("FASTAPI_BASE_URL") ||
+        process.env.FASTAPI_BASE_URL ||
+        process.env.NEXT_PUBLIC_FASTAPI_BASE_URL ||
+        DEFAULT_FASTAPI_BASE_URL,
+    )
+      .trim()
+      .replace(/\/+$/, "");
   }
 
   private fastapiHeaders(): Record<string, string> {

@@ -2,7 +2,9 @@
 
 import { useEffect, useMemo, useState } from "react";
 import {
+  DEFAULT_LEGACY_LOCALE,
   LEGACY_LOCALE_META,
+  LEGACY_LOCALE_OPTIONS,
   getLegacyMessages,
   isLegacyLocale,
   type LegacyLocaleCode,
@@ -15,7 +17,7 @@ interface UserAccessibilityPreferences {
 }
 
 const DEFAULT_PREFERENCES: UserAccessibilityPreferences = {
-  locale: "en",
+  locale: DEFAULT_LEGACY_LOCALE,
   highContrast: false,
   reduceMotion: false,
 };
@@ -34,7 +36,7 @@ function loadStoredPreferences(): UserAccessibilityPreferences {
 
   try {
     const parsed = JSON.parse(raw) as Partial<UserAccessibilityPreferences>;
-    const locale = parsed.locale && isLegacyLocale(parsed.locale) ? parsed.locale : "en";
+    const locale = parsed.locale && isLegacyLocale(parsed.locale) ? parsed.locale : DEFAULT_LEGACY_LOCALE;
 
     return {
       locale,
@@ -101,9 +103,9 @@ export function LocaleAccessibilityControls() {
           }
           className="rounded-md border border-neutral-300 bg-white px-2 py-1 text-xs"
         >
-          {Object.entries(LEGACY_LOCALE_META).map(([code, locale]) => (
-            <option key={code} value={code}>
-              {locale.nativeLabel}
+          {LEGACY_LOCALE_OPTIONS.map((locale) => (
+            <option key={locale.code} value={locale.code}>
+              {locale.label === locale.nativeLabel ? locale.label : `${locale.label} — ${locale.nativeLabel}`}
             </option>
           ))}
         </select>

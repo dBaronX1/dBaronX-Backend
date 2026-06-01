@@ -1,4 +1,3 @@
-import type { ReactNode } from "react";
 import Link from "next/link";
 
 import { DbxCard, DbxVisualShell, dbxButtonStyle } from "@/components/dbx/DbxVisualShell";
@@ -58,7 +57,7 @@ export async function DbxShopPage({ handle }: { handle?: string }) {
   );
 }
 
-export function DbxSimplePage({ title, description, children }: { title: string; description: string; children?: ReactNode }) {
+export function DbxSimplePage({ title, description, children }: { title: string; description: string; children?: any }) {
   return (
     <DbxVisualShell title={title} description={description}>
       <DbxCard>{children || <p style={{ color: "#fed7aa", lineHeight: 1.7 }}>This dBaronX page is ready for customers.</p>}</DbxCard>

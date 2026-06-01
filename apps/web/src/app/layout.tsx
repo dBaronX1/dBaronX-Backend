@@ -1,4 +1,3 @@
-import type { ReactNode } from "react";
 
 import { AuthProvider } from "@/contexts/AuthContext";
 
@@ -7,6 +6,6 @@ export const metadata = {
   description: "dBaronX commerce, onboarding, and platform access.",
 };
 
-export default function RootLayout({ children }: { children: ReactNode }) {
+export default function RootLayout({ children }: { children: any }) {
   return <html lang="en"><body><AuthProvider>{children}</AuthProvider></body></html>;
 }

@@ -1,7 +1,7 @@
 "use client";
 
-import { FormEvent, Suspense, useEffect, useMemo, useState } from "react";
-import { useRouter, useSearchParams } from "next/navigation";
+import { FormEvent, useEffect, useMemo, useState } from "react";
+import { useRouter } from "next/navigation";
 
 import { DbxAuthShell } from "@/components/auth/DbxAuthShell";
 import { captureReferralParams } from "@/lib/auth/referral-capture";
@@ -28,9 +28,13 @@ function validateSignup(fullName: string, email: string, password: string, confi
 
 function RegisterForm() {
   const router = useRouter();
-  const params = useSearchParams();
+  const [params, setParams] = useState(() => new URLSearchParams());
   const referral = useMemo(() => captureReferralParams(params), [params]);
   const nextPath = safeLocalPath(params.get("next"), "/account");
+
+  useEffect(() => {
+    setParams(new URLSearchParams(window.location.search));
+  }, []);
   const initialReferralCode = referral.ref || "";
   const [fullName, setFullName] = useState("");
   const [email, setEmail] = useState("");
@@ -107,9 +111,5 @@ function RegisterForm() {
 }
 
 export default function RegisterPage() {
-  return (
-    <Suspense fallback={<main style={{ padding: 24 }}>Loading register…</main>}>
-      <RegisterForm />
-    </Suspense>
-  );
+  return <RegisterForm />;
 }

@@ -1,6 +1,6 @@
 "use client";
 
-import type { FormEvent, ReactNode } from "react";
+import type { FormEvent } from "react";
 import Link from "next/link";
 
 import type { ReferralCapture } from "@/lib/auth/referral-capture";
@@ -144,7 +144,7 @@ export type DbxAuthShellProps = {
   onConfirmPasswordChange?: (value: string) => void;
   onReferralCodeChange?: (value: string) => void;
   onMagicLink?: () => void;
-  children?: ReactNode;
+  children?: JSX.Element | JSX.Element[] | string | null;
 };
 
 export function DbxAuthShell({

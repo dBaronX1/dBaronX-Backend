@@ -11,19 +11,40 @@ export type RocketCheckoutShippingAddressDto = {
   city?: string;
   state?: string;
   addressLine1?: string;
+  address1?: string;
   addressLine2?: string;
+  address2?: string;
   postalCode?: string;
+  zip?: string;
+  postcode?: string;
 };
 
 export type RocketCheckoutLineItemDto = {
   productId?: string;
+  product_id?: string;
+  id?: string;
   variantId?: string;
+  variant_id?: string;
+  variant?: string;
   handle?: string;
+  productHandle?: string;
+  product_handle?: string;
   title?: string;
+  productName?: string;
+  product_name?: string;
+  name?: string;
   quantity?: number;
+  qty?: number;
   unitPriceMinor?: number;
+  priceMinor?: number;
+  unit_price?: number;
+  amountMinor?: number;
+  price?: number;
   currencyCode?: string;
+  currency?: string;
   imageUrl?: string;
+  image_url?: string;
+  thumbnail?: string;
 };
 
 import {
@@ -313,7 +334,22 @@ export class CreateStripeCheckoutSessionDto {
   shippingAddress?: RocketCheckoutShippingAddressDto;
 
   @IsOptional()
+  shipping?: RocketCheckoutShippingAddressDto;
+
+  @IsOptional()
+  shipping_address?: RocketCheckoutShippingAddressDto;
+
+  @IsOptional()
   lineItems?: RocketCheckoutLineItemDto[];
+
+  @IsOptional()
+  line_items?: RocketCheckoutLineItemDto[];
+
+  @IsOptional()
+  items?: RocketCheckoutLineItemDto[];
+
+  @IsOptional()
+  cartItems?: RocketCheckoutLineItemDto[];
 
   @IsOptional()
   @IsInt()
