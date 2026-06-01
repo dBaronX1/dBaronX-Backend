@@ -21,6 +21,7 @@ type StorySuccess = {
 
 type StoryFailureCode =
   | "ai_provider_missing"
+  | "all_ai_providers_failed"
   | "provider_failed"
   | "fastapi_route_missing"
   | "fastapi_unavailable"
@@ -148,6 +149,11 @@ export class AiStoriesGenerationService {
           providerConfigured = Boolean(data?.providerConfigured || data?.provider_configured);
           generationEndpointReady = Boolean(data?.generationEndpointReady || data?.generation_endpoint_ready);
           if (!providerConfigured) blockers.push("ai_provider_missing");
+          if (Array.isArray(data?.blockers)) {
+            for (const blocker of data.blockers.map(String)) {
+              if (!blockers.includes(blocker)) blockers.push(blocker);
+            }
+          }
         }
       } catch {
         blockers.push("fastapi_unavailable");
@@ -208,7 +214,7 @@ export class AiStoriesGenerationService {
           return { ok: false, failure: this.failure("rate_limited", "Story generation is rate limited. Please wait a moment and try again.", { fastapiStatus: response.status }) };
         }
         const normalizedCode = rawCode === "ai_provider_failed" ? "provider_failed" : rawCode;
-        if (["ai_provider_missing", "provider_failed", "persistence_failed"].includes(normalizedCode)) {
+        if (["ai_provider_missing", "all_ai_providers_failed", "provider_failed", "persistence_failed"].includes(normalizedCode)) {
           return { ok: false, failure: this.failure(normalizedCode as StoryFailureCode, this.safeMessage(normalizedCode as StoryFailureCode), { fastapiStatus: response.status, fastapiCode: rawCode, fastapiDiagnostics: this.safeDiagnostics(data) }) };
         }
       } catch {
@@ -304,6 +310,12 @@ export class AiStoriesGenerationService {
       code: this.extractErrorCode(record),
       provider: typeof record.provider === "string" ? record.provider : undefined,
       providersAttempted: Array.isArray(record.providersAttempted) ? record.providersAttempted.map(String) : undefined,
+      providerAttempts: Array.isArray(record.providerAttempts)
+        ? record.providerAttempts.map((attempt) => {
+            const item = attempt && typeof attempt === "object" ? (attempt as Record<string, unknown>) : {};
+            return { provider: String(item.provider || "unknown"), status: String(item.status || "failed") };
+          })
+        : undefined,
       blockers: Array.isArray(record.blockers) ? record.blockers.map(String) : undefined,
       saved: typeof record.saved === "boolean" ? record.saved : undefined,
     };
@@ -312,6 +324,7 @@ export class AiStoriesGenerationService {
   private safeMessage(code: StoryFailureCode): string {
     const messages: Record<StoryFailureCode, string> = {
       ai_provider_missing: "AI story generation is not configured yet. Please contact support.",
+      all_ai_providers_failed: "All configured AI providers could not generate the story. Please revise the prompt or try again.",
       provider_failed: "The AI provider could not generate the story. Please revise the prompt or try again.",
       fastapi_route_missing: "The FastAPI AI Stories route is not deployed yet.",
       fastapi_unavailable: "The story generation service is unavailable. Please try again shortly.",

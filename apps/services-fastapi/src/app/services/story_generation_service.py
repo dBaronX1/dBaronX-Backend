@@ -41,8 +41,9 @@ class StoryGenerationService:
                 code="ai_provider_missing",
                 message="AI story generation is not configured.",
                 diagnostics={
-                    "providerConfigured": self.provider_service.configured_provider_flags(),
-                    "blockers": ["No Gemini, OpenAI, or Anthropic API key is configured on FastAPI."],
+                    "providersDetected": self.provider_service.configured_provider_flags(),
+                    "providerOrder": self.provider_service.provider_order(),
+                    "blockers": ["ai_provider_missing"],
                 },
             )
 
@@ -82,13 +83,16 @@ class StoryGenerationService:
                 code = "ai_provider_failed" if generated.providers_attempted else "ai_provider_missing"
                 return {
                     "success": False,
-                    "code": code,
-                    "message": "AI provider generation failed." if code == "ai_provider_failed" else "AI story generation is not configured.",
+                    "code": "all_ai_providers_failed" if code == "ai_provider_failed" else "ai_provider_missing",
+                    "message": "All configured AI providers failed." if code == "ai_provider_failed" else "AI story generation is not configured.",
                     "diagnostics": {
                         "providersAttempted": list(generated.providers_attempted),
-                        "providerConfigured": self.provider_service.configured_provider_flags(),
-                        "lastProvider": generated.provider,
-                        "lastErrorType": (generated.error or "").split(":", 1)[0],
+                        "providerAttempts": [
+                            {"provider": provider, "status": "failed"}
+                            for provider in generated.providers_attempted
+                        ],
+                        "providersDetected": self.provider_service.configured_provider_flags(),
+                        "providerOrder": self.provider_service.provider_order(),
                     },
                 }
 
@@ -96,9 +100,15 @@ class StoryGenerationService:
             if not output_moderation.passed:
                 return {
                     "success": False,
-                    "code": "ai_provider_failed",
+                    "code": "all_ai_providers_failed",
                     "message": "Generated content did not pass safety checks.",
-                    "diagnostics": {"providersAttempted": list(generated.providers_attempted), "moderation": "output_rejected"},
+                    "diagnostics": {
+                        "providersAttempted": list(generated.providers_attempted),
+                        "providerAttempts": [
+                            {"provider": provider, "status": "failed"}
+                            for provider in generated.providers_attempted
+                        ],
+                    },
                 }
 
             title = (request.title_hint or f"{request.genre.title()} Story").strip()[:160]
@@ -164,7 +174,7 @@ class StoryGenerationService:
         result = dict(idem["result"])
         if not result.get("success"):
             return StoryGenerationResult.failure(
-                code=str(result.get("code") or "ai_provider_failed"),
+                code=str(result.get("code") or "all_ai_providers_failed"),
                 message=str(result.get("message") or "Story generation failed."),
                 diagnostics=dict(result.get("diagnostics") or {}),
             )
