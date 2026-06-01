@@ -1,7 +1,7 @@
 "use client";
 
-import { FormEvent, Suspense, useMemo, useState } from "react";
-import { useRouter, useSearchParams } from "next/navigation";
+import { FormEvent, useEffect, useMemo, useState } from "react";
+import { useRouter } from "next/navigation";
 
 import { DbxAuthShell } from "@/components/auth/DbxAuthShell";
 import { captureReferralParams } from "@/lib/auth/referral-capture";
@@ -14,9 +14,13 @@ function humanLoginError(message: string) {
 
 function LoginForm() {
   const router = useRouter();
-  const params = useSearchParams();
+  const [params, setParams] = useState(() => new URLSearchParams());
   const nextPath = safeLocalPath(params.get("next"), "/account");
   const referral = useMemo(() => captureReferralParams(params), [params]);
+
+  useEffect(() => {
+    setParams(new URLSearchParams(window.location.search));
+  }, []);
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [message, setMessage] = useState("");
@@ -50,9 +54,5 @@ function LoginForm() {
 }
 
 export default function LoginPage() {
-  return (
-    <Suspense fallback={<main style={{ padding: 24 }}>Loading login…</main>}>
-      <LoginForm />
-    </Suspense>
-  );
+  return <LoginForm />;
 }

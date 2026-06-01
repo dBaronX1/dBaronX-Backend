@@ -1,6 +1,6 @@
 import Image from "next/image";
 import Link from "next/link";
-import type { CSSProperties, HTMLAttributes, ReactNode } from "react";
+import type { CSSProperties, HTMLAttributes } from "react";
 
 const navItems = [
   ["Home", "/home"],
@@ -48,11 +48,11 @@ export function DbxVisualShell({
   description,
   actions,
 }: {
-  children: ReactNode;
+  children: any;
   eyebrow?: string;
   title: string;
   description: string;
-  actions?: ReactNode;
+  actions?: any;
 }) {
   return (
     <main style={pageStyle}>
@@ -95,6 +95,6 @@ export function DbxVisualShell({
   );
 }
 
-export function DbxCard({ children, style, ...props }: { children: ReactNode; style?: CSSProperties } & HTMLAttributes<HTMLDivElement>) {
+export function DbxCard({ children, style, ...props }: { children: any; style?: CSSProperties } & HTMLAttributes<HTMLDivElement>) {
   return <div {...props} style={{ ...dbxCardStyle, padding: 24, ...style }}>{children}</div>;
 }

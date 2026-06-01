@@ -11,35 +11,41 @@ export class PaystackCheckoutService {
   async createAuthorization(input: CreateCheckoutSessionDto) {
     const secret = this.value("PAYSTACK_SECRET_KEY");
     const configured = Boolean(secret);
-    const rawLineItems = Array.isArray(input.lineItems) ? input.lineItems : [];
+    const candidateLineItems = input.lineItems || input.line_items || input.items || input.cartItems || [];
+    const rawLineItems = Array.isArray(candidateLineItems) ? candidateLineItems : [];
+    const toText = (value: unknown) => String(value ?? "").trim();
+    const toPositiveInteger = (value: unknown, fallback = 0) => {
+      const numeric = typeof value === "number" ? value : Number.parseInt(String(value ?? ""), 10);
+      return Number.isFinite(numeric) && numeric > 0 ? Math.floor(numeric) : fallback;
+    };
     const lineItems = rawLineItems.length > 0
       ? rawLineItems.map((item) => ({
-          productId: item.productId || null,
-          variantId: item.variantId || "",
-          handle: item.handle || null,
-          title: item.title || item.handle || "dBaronX checkout item",
-          quantity: item.quantity ?? 0,
-          unitPriceMinor: item.unitPriceMinor ?? 0,
-          currency: (item.currencyCode || input.currency || "usd").toUpperCase(),
+          productId: toText(item.productId ?? item.product_id ?? item.id) || null,
+          variantId: toText(item.variantId ?? item.variant_id ?? item.variant),
+          handle: toText(item.handle ?? item.productHandle ?? item.product_handle) || null,
+          title: toText(item.title ?? item.productName ?? item.product_name ?? item.name ?? item.handle) || "dBaronX checkout item",
+          quantity: toPositiveInteger(item.quantity ?? item.qty),
+          unitPriceMinor: toPositiveInteger(item.unitPriceMinor ?? item.priceMinor ?? item.unit_price ?? item.amountMinor ?? item.price),
+          currency: toText(item.currencyCode ?? item.currency ?? input.currency ?? "usd").toUpperCase(),
         }))
       : [{
-          productId: input.productId || input.product_id || null,
-          variantId: input.variantId || input.variant_id || "",
-          handle: input.handle || input.product_handle || null,
-          title: input.title || input.productName || input.product_name || "dBaronX checkout item",
-          quantity: input.quantity ?? 1,
-          unitPriceMinor: input.unitPriceMinor ?? input.priceMinor ?? input.unit_price ?? (Number.isInteger(input.amount) && Number.isInteger(input.quantity ?? 1) && (input.quantity ?? 1) > 0 ? Math.floor((input.amount as number) / (input.quantity ?? 1)) : 0),
-          currency: (input.currency || "usd").toUpperCase(),
+          productId: toText(input.productId ?? input.product_id) || null,
+          variantId: toText(input.variantId ?? input.variant_id),
+          handle: toText(input.handle ?? input.product_handle) || null,
+          title: toText(input.title ?? input.productName ?? input.product_name) || "dBaronX checkout item",
+          quantity: toPositiveInteger(input.quantity, 1),
+          unitPriceMinor: toPositiveInteger(input.unitPriceMinor ?? input.priceMinor ?? input.unit_price) || (Number.isInteger(input.amount) && Number.isInteger(input.quantity ?? 1) && (input.quantity ?? 1) > 0 ? Math.floor((input.amount as number) / (input.quantity ?? 1)) : 0),
+          currency: toText(input.currency || "usd").toUpperCase(),
         }];
     const amount = lineItems.reduce((sum, item) => sum + item.quantity * item.unitPriceMinor, 0);
     const requestedTotal = input.totalMinor ?? input.amount ?? input.amountMinor;
     const customer = input.customer || {};
-    const shipping = input.shippingAddress || {};
-    const customerEmail = input.customerEmail || input.email || customer.email || "";
-    const addressLine1 = input.addressLine1 || input.address1 || shipping.addressLine1 || "";
-    const country = input.country || shipping.country || "";
-    const city = input.city || shipping.city || "";
-    const postalCode = input.postalCode || input.zip || input.postcode || shipping.postalCode || "";
+    const shipping = input.shippingAddress || input.shipping || input.shipping_address || {};
+    const customerEmail = toText(input.customerEmail ?? input.email ?? customer.email).toLowerCase();
+    const addressLine1 = toText(input.addressLine1 ?? input.address1 ?? shipping.addressLine1 ?? shipping.address1);
+    const country = toText(input.country ?? shipping.country);
+    const city = toText(input.city ?? shipping.city);
+    const postalCode = toText(input.postalCode ?? input.zip ?? input.postcode ?? shipping.postalCode ?? shipping.zip ?? shipping.postcode);
 
     if (!configured) {
       return { success: false, provider: "paystack", configured, blockers: ["paystack_not_configured"], authorizationUrl: null, reference: null, message: "Payment provider is temporarily unavailable. Please try again." };

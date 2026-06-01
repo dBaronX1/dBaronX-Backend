@@ -1826,38 +1826,44 @@ export class StripeCheckoutService {
   }
 
   private normalizeCheckoutInput(input: CreateStripeCheckoutSessionDto): { ok: true; value: NormalizedCheckoutInput } | { ok: false; response: Record<string, unknown> } {
-    const rawLineItems = Array.isArray(input.lineItems) ? input.lineItems : [];
+    const candidateLineItems = input.lineItems || input.line_items || input.items || input.cartItems || [];
+    const rawLineItems = Array.isArray(candidateLineItems) ? candidateLineItems : [];
     const customer = input.customer || {};
-    const shipping = input.shippingAddress || {};
-    const customerEmail = input.customerEmail ?? input.email ?? customer.email ?? "";
-    const customerName = input.fullName ?? input.customerName ?? input.name ?? customer.fullName ?? "";
-    const customerPhone = input.phone ?? input.customerPhone ?? customer.phone ?? "";
-    const addressLine1 = input.addressLine1 ?? input.address1 ?? shipping.addressLine1 ?? "";
-    const addressLine2 = input.addressLine2 ?? input.address2 ?? shipping.addressLine2 ?? "";
-    const postalCode = input.postalCode ?? input.zip ?? input.postcode ?? shipping.postalCode ?? "";
-    const country = input.country ?? shipping.country ?? "";
-    const city = input.city ?? shipping.city ?? "";
+    const shipping = input.shippingAddress || input.shipping || input.shipping_address || {};
+    const toText = (value: unknown) => String(value ?? "").trim();
+    const toPositiveInteger = (value: unknown, fallback = 0) => {
+      const numeric = typeof value === "number" ? value : Number.parseInt(String(value ?? ""), 10);
+      return Number.isFinite(numeric) && numeric > 0 ? Math.floor(numeric) : fallback;
+    };
+    const customerEmail = toText(input.customerEmail ?? input.email ?? customer.email).toLowerCase();
+    const customerName = toText(input.fullName ?? input.customerName ?? input.name ?? customer.fullName);
+    const customerPhone = toText(input.phone ?? input.customerPhone ?? customer.phone);
+    const addressLine1 = toText(input.addressLine1 ?? input.address1 ?? shipping.addressLine1 ?? shipping.address1);
+    const addressLine2 = toText(input.addressLine2 ?? input.address2 ?? shipping.addressLine2 ?? shipping.address2);
+    const postalCode = toText(input.postalCode ?? input.zip ?? input.postcode ?? shipping.postalCode ?? shipping.zip ?? shipping.postcode);
+    const country = toText(input.country ?? shipping.country);
+    const city = toText(input.city ?? shipping.city);
 
     const lineItems: NormalizedCheckoutLineItem[] = rawLineItems.length > 0
       ? rawLineItems.map((item) => ({
-          productId: item.productId ?? "",
-          variantId: item.variantId ?? "",
-          handle: item.handle ?? "",
-          productName: item.title ?? item.handle ?? "dBaronX checkout item",
-          quantity: item.quantity ?? 0,
-          unitPriceMinor: item.unitPriceMinor ?? 0,
-          currency: (item.currencyCode || input.currency || "usd").toLowerCase(),
-          imageUrl: item.imageUrl ?? "",
+          productId: toText(item.productId ?? item.product_id ?? item.id),
+          variantId: toText(item.variantId ?? item.variant_id ?? item.variant),
+          handle: toText(item.handle ?? item.productHandle ?? item.product_handle),
+          productName: toText(item.title ?? item.productName ?? item.product_name ?? item.name ?? item.handle) || "dBaronX checkout item",
+          quantity: toPositiveInteger(item.quantity ?? item.qty),
+          unitPriceMinor: toPositiveInteger(item.unitPriceMinor ?? item.priceMinor ?? item.unit_price ?? item.amountMinor ?? item.price),
+          currency: toText(item.currencyCode ?? item.currency ?? input.currency ?? "usd").toLowerCase(),
+          imageUrl: toText(item.imageUrl ?? item.image_url ?? item.thumbnail),
         }))
       : [{
-          productId: input.productId ?? input.product_id ?? "",
-          variantId: input.variantId ?? input.variant_id ?? "",
-          handle: input.handle ?? input.product_handle ?? "",
-          productName: input.title ?? input.productName ?? input.product_name ?? "dBaronX checkout item",
-          quantity: input.quantity ?? 1,
-          unitPriceMinor: input.unitPriceMinor ?? input.priceMinor ?? input.unit_price ?? (Number.isInteger(input.amount) && Number.isInteger(input.quantity ?? 1) && (input.quantity ?? 1) > 0 ? Math.floor((input.amount as number) / (input.quantity ?? 1)) : 0),
-          currency: (input.currency || "usd").toLowerCase(),
-          imageUrl: input.imageUrl ?? input.image_url ?? "",
+          productId: toText(input.productId ?? input.product_id),
+          variantId: toText(input.variantId ?? input.variant_id),
+          handle: toText(input.handle ?? input.product_handle),
+          productName: toText(input.title ?? input.productName ?? input.product_name) || "dBaronX checkout item",
+          quantity: toPositiveInteger(input.quantity, 1),
+          unitPriceMinor: toPositiveInteger(input.unitPriceMinor ?? input.priceMinor ?? input.unit_price) || (Number.isInteger(input.amount) && Number.isInteger(input.quantity ?? 1) && (input.quantity ?? 1) > 0 ? Math.floor((input.amount as number) / (input.quantity ?? 1)) : 0),
+          currency: toText(input.currency || "usd").toLowerCase(),
+          imageUrl: toText(input.imageUrl ?? input.image_url),
         }];
 
     const missingFields: string[] = [];
