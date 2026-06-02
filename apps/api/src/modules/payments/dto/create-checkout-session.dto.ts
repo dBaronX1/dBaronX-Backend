@@ -11,6 +11,18 @@ export class CreateCheckoutSessionDto extends CreateStripeCheckoutSessionDto {
   provider?: "stripe" | "paystack";
 
   @IsOptional()
+  @IsIn(["stripe", "paystack"])
+  paymentMethod?: "stripe" | "paystack";
+
+  @IsOptional()
+  @IsIn(["stripe", "paystack"])
+  payment_method?: "stripe" | "paystack";
+
+  @IsOptional()
+  @IsIn(["stripe", "paystack"])
+  selectedPaymentMethod?: "stripe" | "paystack";
+
+  @IsOptional()
   referredByCode?: string;
 
   @IsOptional()

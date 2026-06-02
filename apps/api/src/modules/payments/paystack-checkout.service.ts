@@ -18,6 +18,12 @@ export class PaystackCheckoutService {
       const numeric = typeof value === "number" ? value : Number.parseInt(String(value ?? ""), 10);
       return Number.isFinite(numeric) && numeric > 0 ? Math.floor(numeric) : fallback;
     };
+    const toPriceMinor = (value: unknown, fallback = 0) => {
+      const raw = String(value ?? "").trim();
+      const numeric = typeof value === "number" ? value : Number.parseFloat(raw);
+      if (!Number.isFinite(numeric) || numeric <= 0) return fallback;
+      return raw.includes(".") ? Math.round(numeric * 100) : Math.floor(numeric);
+    };
     const lineItems = rawLineItems.length > 0
       ? rawLineItems.map((item) => ({
           productId: toText(item.productId ?? item.product_id ?? item.id) || null,
@@ -25,7 +31,7 @@ export class PaystackCheckoutService {
           handle: toText(item.handle ?? item.productHandle ?? item.product_handle) || null,
           title: toText(item.title ?? item.productName ?? item.product_name ?? item.name ?? item.handle) || "dBaronX checkout item",
           quantity: toPositiveInteger(item.quantity ?? item.qty),
-          unitPriceMinor: toPositiveInteger(item.unitPriceMinor ?? item.priceMinor ?? item.unit_price ?? item.amountMinor ?? item.price),
+          unitPriceMinor: toPositiveInteger(item.unitPriceMinor ?? item.priceMinor ?? item.unit_price ?? item.amountMinor) || toPriceMinor(item.price),
           currency: toText(item.currencyCode ?? item.currency ?? input.currency ?? "usd").toUpperCase(),
         }))
       : [{
@@ -38,7 +44,8 @@ export class PaystackCheckoutService {
           currency: toText(input.currency || "usd").toUpperCase(),
         }];
     const amount = lineItems.reduce((sum, item) => sum + item.quantity * item.unitPriceMinor, 0);
-    const requestedTotal = input.totalMinor ?? input.amount ?? input.amountMinor;
+    const requestedTotalRaw = input.totalMinor ?? input.amount ?? input.amountMinor;
+    const requestedTotal = requestedTotalRaw === undefined ? undefined : toPriceMinor(requestedTotalRaw);
     const customer = input.customer || {};
     const shipping = input.shippingAddress || input.shipping || input.shipping_address || {};
     const customerEmail = toText(input.customerEmail ?? input.email ?? customer.email).toLowerCase();
@@ -54,7 +61,7 @@ export class PaystackCheckoutService {
       return { success: false, provider: "paystack", configured, blocker: "checkout_payload_invalid", blockers: ["checkout_payload_invalid"], authorizationUrl: null, reference: null, message: "Some cart items are unavailable. Please update your cart and try again." };
     }
     try {
-      const reference = input.checkoutRef || input.orderRef || randomUUID();
+      const reference = input.checkoutRef || input.checkout_ref || input.orderRef || randomUUID();
       const res = await fetch(`${this.baseUrl()}/transaction/initialize`, {
         method: "POST",
         headers: { Authorization: `Bearer ${secret}`, "Content-Type": "application/json" },
@@ -64,7 +71,7 @@ export class PaystackCheckoutService {
           currency: lineItems[0]?.currency || "USD",
           callback_url: this.paystackCallbackUrl(input.successUrl),
           metadata: {
-            cartId: input.cartId,
+            cartId: input.cartId || input.cart_id || null,
             checkoutRef: reference,
             orderRef: input.orderRef || null,
             lineItemCount: lineItems.length,

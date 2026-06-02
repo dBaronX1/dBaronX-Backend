@@ -1850,6 +1850,12 @@ export class StripeCheckoutService {
       const numeric = typeof value === "number" ? value : Number.parseInt(String(value ?? ""), 10);
       return Number.isFinite(numeric) && numeric > 0 ? Math.floor(numeric) : fallback;
     };
+    const toPriceMinor = (value: unknown, fallback = 0) => {
+      const raw = String(value ?? "").trim();
+      const numeric = typeof value === "number" ? value : Number.parseFloat(raw);
+      if (!Number.isFinite(numeric) || numeric <= 0) return fallback;
+      return raw.includes(".") ? Math.round(numeric * 100) : Math.floor(numeric);
+    };
     const customerEmail = toText(input.customerEmail ?? input.email ?? customer.email).toLowerCase();
     const customerName = toText(input.fullName ?? input.customerName ?? input.name ?? customer.fullName);
     const customerPhone = toText(input.phone ?? input.customerPhone ?? customer.phone);
@@ -1866,7 +1872,7 @@ export class StripeCheckoutService {
           handle: toText(item.handle ?? item.productHandle ?? item.product_handle),
           productName: toText(item.title ?? item.productName ?? item.product_name ?? item.name ?? item.handle) || "dBaronX checkout item",
           quantity: toPositiveInteger(item.quantity ?? item.qty),
-          unitPriceMinor: toPositiveInteger(item.unitPriceMinor ?? item.priceMinor ?? item.unit_price ?? item.amountMinor ?? item.price),
+          unitPriceMinor: toPositiveInteger(item.unitPriceMinor ?? item.priceMinor ?? item.unit_price ?? item.amountMinor) || toPriceMinor(item.price),
           currency: toText(item.currencyCode ?? item.currency ?? input.currency ?? "usd").toLowerCase(),
           imageUrl: toText(item.imageUrl ?? item.image_url ?? item.thumbnail),
         }))
@@ -1895,7 +1901,8 @@ export class StripeCheckoutService {
     }
 
     const amount = lineItems.reduce((sum, item) => sum + item.quantity * item.unitPriceMinor, 0);
-    const requestedTotal = input.totalMinor ?? input.amount ?? input.amountMinor;
+    const requestedTotalRaw = input.totalMinor ?? input.amount ?? input.amountMinor;
+    const requestedTotal = requestedTotalRaw === undefined ? undefined : toPriceMinor(requestedTotalRaw);
     const amountMatches = requestedTotal === undefined || requestedTotal === amount;
     if (!amountMatches) blockers.push("amount_mismatch");
     const productReady = lineItems.every((item) => Boolean(item.variantId));
@@ -1951,7 +1958,7 @@ export class StripeCheckoutService {
   private createSessionIdempotencyKey(
     input: CreateStripeCheckoutSessionDto,
   ): string {
-    const stableIntent = input.orderIntentId || input.orderRef || input.cartId || input.checkoutRef || `rocket_${Date.now()}`;
+    const stableIntent = input.orderIntentId || input.orderRef || input.cartId || input.cart_id || input.checkoutRef || input.checkout_ref || `rocket_${Date.now()}`;
     const amount = input.totalMinor || input.amount || input.amountMinor || 0;
     return `dbx_checkout_${stableIntent}_${amount}_${(input.currency || "usd").toLowerCase()}`.slice(
       0,
