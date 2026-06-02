@@ -72,10 +72,10 @@ export function DbxProductCard({ product }: { product: StoreProduct }) {
   return (
     <DbxCard style={{ padding: 0, overflow: "hidden" }} data-product-handle={product.handle || ""} data-product-variant-id={variantId}>
       <div style={{ position: "relative", minHeight: 230, background: "rgba(255,255,255,.06)" }}>
-        <Image src={image} alt={product.title || "dBaronX product"} fill sizes="(max-width: 768px) 100vw, 33vw" style={{ objectFit: "cover" }} unoptimized={image.startsWith("http")} />
+        <Image src={image} alt={product.title || "dBaronX product"} fill sizes="(max-width: 768px) 100vw, (max-width: 1200px) 50vw, 33vw" quality={92} style={{ objectFit: "cover" }} unoptimized={image.startsWith("http")} />
       </div>
       <div style={{ padding: 22, display: "grid", gap: 10 }}>
-        <p style={{ margin: 0, color: "#fbbf24", fontWeight: 900 }}>{categoryLabel} · {productAvailabilityLabel(product)}</p>
+        <p style={{ margin: 0, color: "#fbbf24", fontWeight: 900 }}>{categoryLabel} · {publicLabels.slice(0, 2).join(" · ")} · {productAvailabilityLabel(product)}</p>
         <h2 style={{ margin: 0, fontSize: 24 }}>{product.title || "dBaronX product"}</h2>
         <p style={{ margin: 0, color: "#fed7aa", lineHeight: 1.6 }}>{product.description || "Verified dBaronX product."}</p>
         <p style={{ margin: 0, fontSize: 22, fontWeight: 950 }}>{productDisplayPrice(product)}</p>

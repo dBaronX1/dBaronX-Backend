@@ -69,9 +69,9 @@ function safeErrorMessage(code: string, fallback?: string) {
     fastapi_unavailable: "Story generation is temporarily unavailable. Please try again shortly.",
     validation_failed: "Please check the prompt, length, and tone before trying again.",
     rate_limited: "Story generation is rate limited. Please wait a moment and try again.",
-    persistence_failed: "The story was generated, but saving it failed. Please copy it before leaving this page.",
+    persistence_failed: "Story generation is temporarily unavailable. Please try again.",
   };
-  return messages[code] || fallback || "Story generation could not complete. Please try again.";
+  return messages[code] || fallback || "Story generation is temporarily unavailable. Please try again.";
 }
 
 export async function POST(request: NextRequest) {

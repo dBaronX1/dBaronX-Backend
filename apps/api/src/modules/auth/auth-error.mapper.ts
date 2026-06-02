@@ -37,7 +37,7 @@ export const AUTH_SAFE_MESSAGES: Record<PublicAuthErrorCode, string> = {
   AUTH_TEMPORARILY_UNAVAILABLE:
     "Account service is temporarily unavailable. Please try again.",
   AUTH_DATABASE_USER_CREATION_FAILED:
-    "Account service is temporarily unavailable. Please run the Supabase auth user creation diagnostic.",
+    "Account service is temporarily unavailable. Please try again.",
   INVALID_EMAIL: "Please enter a valid email address.",
   WEAK_PASSWORD: "Your password is too weak. Please use a stronger password.",
   PASSWORD_MISMATCH: "Passwords do not match.",

@@ -9,6 +9,7 @@ import {
   detectStripeSecretKeyMode,
   type StripeSecretKeyMode,
 } from "./stripe-secret-key-mode";
+import { resolvePaymentMode } from "./payment-mode-resolver";
 
 
 const STRIPE_SETTLEMENT_SCHEMA = "app_public";
@@ -146,6 +147,7 @@ type StripePaymentReadinessResult = {
   configured: boolean;
   safeMode: boolean;
   stripeSecretKeyMode: StripeSecretKeyMode;
+  stripeMode?: StripeSecretKeyMode;
   stripeWebhookConfigured: boolean;
   stripeWebhookUrlExpected: string;
   liveCheckoutExplicitlyAllowed: boolean;
@@ -439,19 +441,18 @@ export class StripeCheckoutService {
   }
 
   isConfigured(): boolean {
-    return Boolean(this.getStripeSecretKey());
+    return Boolean(this.resolveStripePaymentMode().secretKey);
   }
 
   mode(): StripeCheckoutMode {
-    const mode = this.getStripeSecretKeyMode(this.getStripeSecretKey());
+    const mode = this.resolveStripePaymentMode().mode;
     return mode === "missing" ? "unknown" : mode;
   }
 
   async readiness(): Promise<StripePaymentReadinessResult> {
-    const stripeConfigured = this.isConfigured();
-    const stripeSecretKeyMode = this.getStripeSecretKeyMode(
-      this.getStripeSecretKey(),
-    );
+    const stripeMode = this.resolveStripePaymentMode();
+    const stripeConfigured = Boolean(stripeMode.secretKey);
+    const stripeSecretKeyMode = stripeMode.mode;
     const stripeWebhookConfigured = Boolean(
       String(this.config.get<string>("STRIPE_WEBHOOK_SECRET") || "").trim(),
     );
@@ -460,10 +461,7 @@ export class StripeCheckoutService {
     const economicEventPersistence = await this.checkEconomicEventPersistence();
     const orderSyncConfigured = this.isOrderSyncConfigured();
     const blockers = [
-      ...(stripeConfigured ? [] : ["stripe_secret_key_missing"]),
-      ...(stripeSecretKeyMode === "live" && !liveCheckoutExplicitlyAllowed
-        ? ["stripe_live_key_present_without_live_checkout_allowance"]
-        : []),
+      ...stripeMode.blockers,
       ...(stripeWebhookConfigured ? [] : ["stripe_webhook_secret_missing"]),
       ...stripeEventIdempotency.blockers,
       ...economicEventPersistence.blockers,
@@ -476,6 +474,7 @@ export class StripeCheckoutService {
       configured: stripeConfigured,
       safeMode: blockers.length > 0,
       stripeSecretKeyMode,
+      stripeMode: stripeSecretKeyMode,
       stripeWebhookConfigured,
       stripeWebhookUrlExpected: "/api/checkout/stripe/webhook",
       liveCheckoutExplicitlyAllowed,
@@ -583,23 +582,20 @@ export class StripeCheckoutService {
     if (normalized.ok === false) return normalized.response;
 
     const normalizedPayload = normalized.value;
-    const secretKey = this.getStripeSecretKey();
-    const blockers: string[] = [];
-    const mode = this.getStripeSecretKeyMode(secretKey);
+    const resolvedMode = this.resolveStripePaymentMode();
+    const secretKey = resolvedMode.secretKey;
+    const blockers: string[] = [...resolvedMode.blockers];
+    const mode = resolvedMode.mode;
     const requestedCheckoutMode = this.getRequestedCheckoutMode(normalizedPayload.checkoutMode);
     const liveSmokeOverrideAllowed = this.isLiveSmokeOverrideAllowed();
-    const checkoutMode = this.resolveEffectiveCheckoutMode(
-      requestedCheckoutMode,
-      mode,
-      liveSmokeOverrideAllowed,
-    );
-    const payload = { ...normalizedPayload, checkoutMode };
+    const checkoutMode: "test" | "live" = mode === "live" ? "live" : "test";
+    const payload: NormalizedCheckoutInput = { ...normalizedPayload, checkoutMode };
 
-    if (!secretKey) {
+    if (!secretKey || blockers.length > 0) {
       blockers.push("stripe_secret_key_missing");
       return {
         success: false,
-        configured: false,
+        configured: Boolean(secretKey),
         provider: "stripe",
         mode,
         stripeSecretKeyMode: mode,
@@ -619,30 +615,6 @@ export class StripeCheckoutService {
       !liveSmokeOverrideAllowed
     ) {
       blockers.push("stripe_live_key_used_for_test_checkout");
-      return {
-        success: false,
-        configured: true,
-        provider: "stripe",
-        mode,
-        stripeSecretKeyMode: mode,
-        requestedCheckoutMode,
-        effectiveCheckoutMode: checkoutMode,
-        checkoutSessionPathReady: true,
-        checkoutUrl: null,
-        sessionId: null,
-        blockers,
-        metadata: {
-          stripeKeyMode: mode,
-          stripeSecretKeyMode: mode,
-          requestedCheckoutMode,
-          effectiveCheckoutMode: checkoutMode,
-        },
-        message: "Payment provider is temporarily unavailable. Please try again.",
-      };
-    }
-
-    if (checkoutMode === "live" && !this.liveCheckoutExplicitlyAllowed()) {
-      blockers.push("stripe_live_checkout_not_explicitly_allowed");
       return {
         success: false,
         configured: true,
@@ -2005,6 +1977,10 @@ export class StripeCheckoutService {
         .trim()
         .toLowerCase() === "true"
     );
+  }
+
+  private resolveStripePaymentMode() {
+    return resolvePaymentMode("stripe", (key) => this.config.get<string>(key) || process.env[key]);
   }
 
   private getStripeSecretKey(): string {

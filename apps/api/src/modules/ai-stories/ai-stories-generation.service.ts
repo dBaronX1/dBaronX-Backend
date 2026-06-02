@@ -218,9 +218,9 @@ export class AiStoriesGenerationService {
       return this.failure(code, this.safeMessage(code), { fastapiDiagnostics: this.safeDiagnostics(record) });
     }
 
-    const content = String(record.content || "").trim();
+    const content = String(record.content || record.story || record.text || "").trim();
     if (!content) {
-      return this.failure("provider_failed", "The AI provider did not return usable story text.", { emptyContent: true });
+      return this.failure("provider_failed", this.safeMessage("provider_failed"), { emptyContent: true });
     }
 
     const wordCount = Number(record.wordCount || record.word_count || content.split(/\s+/).filter(Boolean).length);
@@ -296,7 +296,7 @@ export class AiStoriesGenerationService {
   }
 
   private fastapiPaths(kind: "generate" | "readiness"): string[] {
-    const suffixes = kind === "generate" ? ["/ai/stories/generate", "/stories/ai-stories/generate", "/ai/generate"] : ["/ai/stories/readiness", "/stories/ai-stories/readiness"];
+    const suffixes = kind === "generate" ? ["/ai/stories/generate", "/stories/ai-stories/generate", "/ai/generate"] : ["/ai/stories/readiness", "/stories/ai-stories/readiness", "/ai-stories/readiness"];
     return this.fastapiBaseUrlCandidates().flatMap((baseUrl) => suffixes.map((suffix) => `${baseUrl}${suffix}`));
   }
 
@@ -350,9 +350,11 @@ export class AiStoriesGenerationService {
   private unwrapFastapiEnvelope(data: unknown): Record<string, unknown> {
     const record = data && typeof data === "object" ? (data as Record<string, unknown>) : {};
     if (record.data && typeof record.data === "object") {
-      return record.data as Record<string, unknown>;
+      const data = record.data as Record<string, unknown>;
+      const nestedData = data.data && typeof data.data === "object" ? (data.data as Record<string, unknown>) : data;
+      return { ...data, ...nestedData, content: nestedData.content || nestedData.story || nestedData.text || data.content || data.story || data.text };
     }
-    return record;
+    return { ...record, content: record.content || record.story || record.text };
   }
 
   private extractErrorCode(data: unknown): string {
@@ -380,11 +382,11 @@ export class AiStoriesGenerationService {
 
   private safeMessage(code: StoryFailureCode): string {
     const messages: Record<StoryFailureCode, string> = {
-      ai_provider_missing: "AI story generation is not configured yet. Please contact support.",
-      all_ai_providers_failed: "All configured AI providers could not generate the story. Please revise the prompt or try again.",
-      provider_failed: "The AI provider could not generate the story. Please revise the prompt or try again.",
-      fastapi_route_missing: "The FastAPI AI Stories route is not deployed yet.",
-      fastapi_unavailable: "The story generation service is unavailable. Please try again shortly.",
+      ai_provider_missing: "Story generation is temporarily unavailable. Please try again.",
+      all_ai_providers_failed: "Story generation is temporarily unavailable. Please try again.",
+      provider_failed: "Story generation is temporarily unavailable. Please try again.",
+      fastapi_route_missing: "Story generation is temporarily unavailable. Please try again.",
+      fastapi_unavailable: "Story generation is temporarily unavailable. Please try again.",
       validation_failed: "Please check the story details and try again.",
       rate_limited: "Story generation is rate limited. Please wait a moment and try again.",
       persistence_failed: "The story was generated, but saving it failed. Please copy the story before leaving this page.",

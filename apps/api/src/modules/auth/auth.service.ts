@@ -138,6 +138,7 @@ export class AuthService {
             event: "auth_register_provider_failed",
             code: error?.code,
             status: error?.status,
+            nextAction: "run auth user creation diagnostic SQL",
           }),
         );
         return {
@@ -205,6 +206,7 @@ export class AuthService {
             event: "auth_login_provider_failed",
             code: error?.code,
             status: error?.status,
+            nextAction: "run auth user creation diagnostic SQL",
           }),
         );
         return {

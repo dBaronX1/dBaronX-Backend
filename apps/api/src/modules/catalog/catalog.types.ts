@@ -29,6 +29,7 @@ export type PublicCatalogProduct = {
   title: string;
   handle: string;
   description: string;
+  imageUrl: string;
   thumbnail: string;
   images: string[];
   category: string;
@@ -43,6 +44,7 @@ export type PublicCatalogProduct = {
   manualCurated: boolean;
   buyable: boolean;
   deliveryEstimate: string;
+  publicLabels: string[];
   sourceUrl: string;
   metadataPublic: Record<string, unknown>;
 };

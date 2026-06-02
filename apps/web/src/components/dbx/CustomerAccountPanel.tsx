@@ -192,7 +192,8 @@ export function CustomerAccountPanel({ mode = "account" }: { mode?: "account" | 
             <input ref={fileInputRef} type="file" accept={PHOTO_ACCEPT} onChange={chooseProfilePhoto} style={{ display: "none" }} />
             <button type="button" onClick={() => fileInputRef.current?.click()} style={{ ...dbxButtonStyle, cursor: "pointer", border: 0 }}>Upload / Change Photo</button>
             <label style={labelStyle} htmlFor="dbx-profile-full-name">Full name<input id="dbx-profile-full-name" autoComplete="name" value={fullNameDraft} onChange={(event) => setFullNameDraft(event.target.value)} style={fieldStyle} /></label>
-            <label style={labelStyle} htmlFor="dbx-profile-display-name">Display name<input id="dbx-profile-display-name" autoComplete="nickname" value={displayNameDraft} onChange={(event) => setDisplayNameDraft(event.target.value)} style={fieldStyle} /></label>
+            <label style={labelStyle} htmlFor="dbx-profile-email">Email<input id="dbx-profile-email" autoComplete="email" value={customerEmail} readOnly style={fieldStyle} /></label>
+            <label style={labelStyle} htmlFor="dbx-profile-phone">Phone<input id="dbx-profile-phone" autoComplete="tel" value="" placeholder="Add phone during checkout or support update" readOnly style={fieldStyle} /></label>
             <SelectField id="dbx-profile-gender" label="Gender" value={genderDraft} options={GENDER_OPTIONS} onChange={setGenderDraft} />
             <SelectField id="dbx-profile-pronouns" label="Pronouns" value={pronounsDraft} options={PRONOUN_OPTIONS} onChange={setPronounsDraft} />
             <SelectField id="dbx-profile-country" label="Country" value={countryDraft} options={COUNTRY_OPTIONS} onChange={setCountryDraft} />

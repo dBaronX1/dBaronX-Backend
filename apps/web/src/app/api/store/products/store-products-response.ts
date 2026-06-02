@@ -86,7 +86,7 @@ export async function storeProductsResponse({ handle = "", limit = "20", categor
       { headers: { "cache-control": "no-store, max-age=0" } },
     );
   } catch (error) {
-    console.error("[store-products] NestJS API catalog request failed", error);
+    console.error("[store-products] product service request failed", error);
     return safeFailure(200, cleanHandle, "api_catalog_unreachable");
   }
 }

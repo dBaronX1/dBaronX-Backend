@@ -2,6 +2,7 @@ import { Injectable, Logger } from "@nestjs/common";
 import { ConfigService } from "@nestjs/config";
 import { createHmac, randomUUID, timingSafeEqual } from "crypto";
 import { CreateCheckoutSessionDto } from "./dto/create-checkout-session.dto";
+import { resolvePaymentMode } from "./payment-mode-resolver";
 
 @Injectable()
 export class PaystackCheckoutService {
@@ -55,7 +56,7 @@ export class PaystackCheckoutService {
     const postalCode = toText(input.postalCode ?? input.zip ?? input.postcode ?? shipping.postalCode ?? shipping.zip ?? shipping.postcode);
 
     if (!configured) {
-      return { success: false, provider: "paystack", configured, blockers: ["paystack_not_configured"], authorizationUrl: null, reference: null, message: "Payment provider is temporarily unavailable. Please try again." };
+      return { success: false, provider: "paystack", configured: Boolean(secret), mode: paymentMode.mode, blockers: paymentMode.blockers.length ? paymentMode.blockers : ["paystack_not_configured"], authorizationUrl: null, reference: null, message: "Payment provider is temporarily unavailable. Please try again." };
     }
     if (!customerEmail || !country || !city || !addressLine1 || !postalCode || lineItems.length === 0 || lineItems.some((item) => !item.variantId || !Number.isInteger(item.quantity) || item.quantity < 1 || !Number.isInteger(item.unitPriceMinor) || item.unitPriceMinor <= 0) || (requestedTotal !== undefined && requestedTotal !== amount)) {
       return { success: false, provider: "paystack", configured, blocker: "checkout_payload_invalid", blockers: ["checkout_payload_invalid"], authorizationUrl: null, reference: null, message: "Some cart items are unavailable. Please update your cart and try again." };
@@ -137,6 +138,7 @@ export class PaystackCheckoutService {
   }
 
   readiness() {
+    const paymentMode = this.resolvePaystackPaymentMode();
     return {
       paystackReady: Boolean(this.paystackSecretKey()),
       webhookReady: Boolean(this.paystackWebhookSigningSecret()),

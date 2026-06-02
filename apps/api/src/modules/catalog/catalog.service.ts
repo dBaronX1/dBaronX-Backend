@@ -66,14 +66,14 @@ function imageUrls(product: MedusaStoreProduct, metadata: Record<string, unknown
     const url = text(value);
     if (url) urls.add(url);
   };
-  add(product.thumbnail);
-  add(product.image);
   add(product.image_url);
+  add(product.image);
   add(metadata.imageUrl);
   add(metadata.image_url);
   if (Array.isArray(product.images)) {
     for (const image of product.images) add(typeof image === "string" ? image : image?.url);
   }
+  add(product.thumbnail);
   return [...urls];
 }
 
@@ -425,6 +425,7 @@ export class CatalogService {
       title: text(product.title) || "dBaronX product",
       handle: text(product.handle),
       description: text(product.description),
+      imageUrl: images[0] || text(product.thumbnail) || "",
       thumbnail: text(product.thumbnail) || images[0] || "",
       images,
       category,
@@ -439,6 +440,7 @@ export class CatalogService {
       manualCurated,
       buyable,
       deliveryEstimate: text(metadata.deliveryEstimate) || text(metadata.delivery_estimate) || "Ships after checkout confirmation",
+      publicLabels: ["Verified Supplier", "Direct Shipping", "Global Supplier"],
       sourceUrl: text(metadata.sourceUrl) || text(metadata.source_url) || "",
       metadataPublic: publicMetadata(metadata),
     };

@@ -1,0 +1,16 @@
+import { read, assert } from './e2e-production-lock-helpers.mjs';
+const nestController = read('apps/api/src/modules/ai-stories/ai-stories-generation.controller.ts');
+const nestService = read('apps/api/src/modules/ai-stories/ai-stories-generation.service.ts');
+const fastapiRoute = read('apps/services-fastapi/src/app/api/routes/ai_generation.py') + read('apps/services-fastapi/src/app/api/routes/ai_stories.py');
+const provider = read('apps/services-fastapi/src/app/services/ai_provider_service.py');
+const webRoute = read('apps/web/src/app/api/ai-stories/route.ts');
+const panel = read('apps/web/src/components/dbx/AiStoryGeneratorPanel.tsx');
+assert(nestController.includes('@Controller({ path: "ai-stories", version: "1" })') && nestController.includes('@Post("generate")') && nestController.includes('@Get("readiness")'), 'NestJS AI routes missing');
+assert(nestService.includes('/ai/stories/generate') && nestService.includes('/ai/stories/readiness'), 'NestJS must call FastAPI canonical AI routes');
+for (const x of ['record.content || record.story || record.text','data.content','data.story','data.text']) assert(nestService.includes(x), `NestJS unwrap missing ${x}`);
+assert(fastapiRoute.includes('"/stories/generate"') && fastapiRoute.includes('"/stories/readiness"') && fastapiRoute.includes('@router.get("/readiness")'), 'FastAPI AI route/readiness aliases missing');
+for (const key of ['GEMINI_API_KEY','GOOGLE_API_KEY','GOOGLE_GENERATIVE_AI_API_KEY','OPENAI_API_KEY','ANTHROPIC_API_KEY','AI_PROVIDER_ORDER','gemini,openai,anthropic']) assert(provider.includes(key), `provider env support missing ${key}`);
+assert(webRoute.includes('/api/v1/ai-stories/generate') && !webRoute.includes('FASTAPI_BASE_URL'), 'frontend route must call NestJS/API only');
+for (const concept of ['Starlight Children','The Last Dragon','The Solar Forest','Quantum Dreams','Midnight Protocol','The Merchant']) assert(panel.includes(concept), `story concept missing ${concept}`);
+assert(panel.includes('Story generation is temporarily unavailable. Please try again.'), 'safe AI failure copy missing');
+console.log('AI stories production lock smoke passed');

@@ -133,11 +133,14 @@ export function productPrimaryVariantId(product: MedusaStoreProduct | null | und
 }
 
 export function productPrimaryImage(product: MedusaStoreProduct | null | undefined) {
-  if (typeof product?.thumbnail === "string" && product.thumbnail) return product.thumbnail;
-  if (typeof product?.image === "string" && product.image) return product.image;
+  const explicit = (product as Record<string, unknown> | null | undefined)?.imageUrl;
+  if (typeof explicit === "string" && explicit) return explicit;
   if (typeof product?.image_url === "string" && product.image_url) return product.image_url;
+  if (typeof product?.image === "string" && product.image) return product.image;
   const first = Array.isArray(product?.images) ? product.images.find((image) => image?.url) : null;
-  return first?.url || "";
+  if (first?.url) return first.url;
+  if (typeof product?.thumbnail === "string" && product.thumbnail) return product.thumbnail;
+  return "";
 }
 
 export function productAvailabilityLabel(product: MedusaStoreProduct | null | undefined) {
@@ -182,6 +185,7 @@ export function normalizeStoreProduct(product: MedusaStoreProduct): MedusaStoreP
     name: publicString(safe.name ?? safe.title) || "dBaronX product",
     handle: publicString(safe.handle),
     description: publicString(safe.description),
+    imageUrl: image,
     thumbnail: publicString(safe.thumbnail ?? image),
     image,
     image_url: image,

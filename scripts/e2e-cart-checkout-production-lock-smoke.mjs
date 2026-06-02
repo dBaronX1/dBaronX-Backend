@@ -1,0 +1,17 @@
+import { read, assert, all } from './e2e-production-lock-helpers.mjs';
+const cartLib = read('apps/web/src/lib/cart/dbx-local-cart.ts');
+const cart = read('apps/web/src/components/dbx/CartClient.tsx');
+const checkout = read('apps/web/src/components/dbx/StripeCheckoutPanel.tsx');
+const apiCheckout = read('apps/api/src/modules/payments/checkout-session.controller.ts');
+const stripe = read('apps/api/src/modules/payments/stripe-checkout.service.ts');
+const paystack = read('apps/api/src/modules/payments/paystack-checkout.service.ts');
+assert(cartLib.includes('dbx_local_cart_v1'), 'cart localStorage key missing');
+for (const field of ['productId','variantId','handle','title','imageUrl','thumbnail','images','priceMinor','currencyCode','quantity','buyable','selected']) assert(cartLib.includes(`${field}:`), `cart field ${field} missing`);
+for (const text of ['Select all','Unit price','Quantity','Remove item','Line total','Cart subtotal','Selected subtotal','Selected count','Select at least one item to checkout.']) assert(cart.includes(text), `cart UI missing ${text}`);
+assert(checkout.includes('lineItems: items.map') && checkout.includes('shippingAddress') && checkout.includes('customer') && checkout.includes('paymentProvider'), 'checkout selected-items payload missing');
+assert(checkout.includes('Card Payment') && checkout.includes('Mobile Money / Local Payment'), 'safe payment method labels missing');
+assert(apiCheckout.includes('paymentProvider || body.provider || body.paymentMethod || body.payment_method || body.selectedPaymentMethod'), 'backend provider aliases missing');
+assert(stripe.includes('requestedTotal') && paystack.includes('requestedTotal'), 'backend total validation missing');
+assert(!/mark.*paid|paid_verified/.test(stripe.slice(stripe.indexOf('async createSession'), stripe.indexOf('async settlementStorageReadiness'))), 'checkout creation must not mark paid');
+assert(stripe.includes('checkout.sessions.create') && paystack.includes('/transaction/initialize'), 'hosted checkout creation missing');
+console.log('cart/checkout production lock smoke passed');
