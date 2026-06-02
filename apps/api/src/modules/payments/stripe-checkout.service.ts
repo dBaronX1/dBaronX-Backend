@@ -582,12 +582,18 @@ export class StripeCheckoutService {
     const normalized = this.normalizeCheckoutInput(input);
     if (normalized.ok === false) return normalized.response;
 
-    const payload = normalized.value;
+    const normalizedPayload = normalized.value;
     const secretKey = this.getStripeSecretKey();
     const blockers: string[] = [];
     const mode = this.getStripeSecretKeyMode(secretKey);
-    const checkoutMode = this.getRequestedCheckoutMode(payload.checkoutMode);
+    const requestedCheckoutMode = this.getRequestedCheckoutMode(normalizedPayload.checkoutMode);
     const liveSmokeOverrideAllowed = this.isLiveSmokeOverrideAllowed();
+    const checkoutMode = this.resolveEffectiveCheckoutMode(
+      requestedCheckoutMode,
+      mode,
+      liveSmokeOverrideAllowed,
+    );
+    const payload = { ...normalizedPayload, checkoutMode };
 
     if (!secretKey) {
       blockers.push("stripe_secret_key_missing");
@@ -597,7 +603,8 @@ export class StripeCheckoutService {
         provider: "stripe",
         mode,
         stripeSecretKeyMode: mode,
-        requestedCheckoutMode: checkoutMode,
+        requestedCheckoutMode,
+        effectiveCheckoutMode: checkoutMode,
         checkoutSessionPathReady: true,
         checkoutUrl: null,
         sessionId: null,
@@ -618,7 +625,8 @@ export class StripeCheckoutService {
         provider: "stripe",
         mode,
         stripeSecretKeyMode: mode,
-        requestedCheckoutMode: checkoutMode,
+        requestedCheckoutMode,
+        effectiveCheckoutMode: checkoutMode,
         checkoutSessionPathReady: true,
         checkoutUrl: null,
         sessionId: null,
@@ -626,7 +634,8 @@ export class StripeCheckoutService {
         metadata: {
           stripeKeyMode: mode,
           stripeSecretKeyMode: mode,
-          requestedCheckoutMode: checkoutMode,
+          requestedCheckoutMode,
+          effectiveCheckoutMode: checkoutMode,
         },
         message: "Payment provider is temporarily unavailable. Please try again.",
       };
@@ -640,7 +649,8 @@ export class StripeCheckoutService {
         provider: "stripe",
         mode,
         stripeSecretKeyMode: mode,
-        requestedCheckoutMode: checkoutMode,
+        requestedCheckoutMode,
+        effectiveCheckoutMode: checkoutMode,
         checkoutSessionPathReady: true,
         checkoutUrl: null,
         sessionId: null,
@@ -648,7 +658,8 @@ export class StripeCheckoutService {
         metadata: {
           stripeKeyMode: mode,
           stripeSecretKeyMode: mode,
-          requestedCheckoutMode: checkoutMode,
+          requestedCheckoutMode,
+          effectiveCheckoutMode: checkoutMode,
         },
         message: "Payment provider is temporarily unavailable. Please try again.",
       };
@@ -695,7 +706,8 @@ export class StripeCheckoutService {
           provider: "stripe",
           mode,
           stripeSecretKeyMode: mode,
-          requestedCheckoutMode: checkoutMode,
+          requestedCheckoutMode,
+          effectiveCheckoutMode: checkoutMode,
           checkoutSessionPathReady: true,
           checkoutUrl: null,
           sessionId: session.id || null,
@@ -714,7 +726,8 @@ export class StripeCheckoutService {
         provider: "stripe",
         mode,
         stripeSecretKeyMode: mode,
-        requestedCheckoutMode: checkoutMode,
+        requestedCheckoutMode,
+        effectiveCheckoutMode: checkoutMode,
         checkoutSessionPathReady: true,
         checkoutUrl: session.url,
         url: session.url,
@@ -729,7 +742,8 @@ export class StripeCheckoutService {
           ...metadata,
           stripeKeyMode: mode,
           stripeSecretKeyMode: mode,
-          requestedCheckoutMode: checkoutMode,
+          requestedCheckoutMode,
+          effectiveCheckoutMode: checkoutMode,
         },
       };
     } catch (error) {
@@ -741,7 +755,8 @@ export class StripeCheckoutService {
         provider: "stripe",
         mode,
         stripeSecretKeyMode: mode,
-        requestedCheckoutMode: checkoutMode,
+        requestedCheckoutMode,
+        effectiveCheckoutMode: checkoutMode,
         checkoutSessionPathReady: true,
         checkoutUrl: null,
         sessionId: null,
@@ -1954,6 +1969,23 @@ export class StripeCheckoutService {
     mode: CreateStripeCheckoutSessionDto["checkoutMode"],
   ): RequestedCheckoutMode {
     return mode === "live" ? "live" : "test";
+  }
+
+  private resolveEffectiveCheckoutMode(
+    requestedMode: RequestedCheckoutMode,
+    stripeKeyMode: StripeSecretKeyMode,
+    liveSmokeOverrideAllowed: boolean,
+  ): RequestedCheckoutMode {
+    if (
+      requestedMode === "test" &&
+      stripeKeyMode === "live" &&
+      this.liveCheckoutExplicitlyAllowed() &&
+      !liveSmokeOverrideAllowed
+    ) {
+      return "live";
+    }
+
+    return requestedMode;
   }
 
   private isLiveSmokeOverrideAllowed(): boolean {

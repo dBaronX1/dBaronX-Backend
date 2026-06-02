@@ -52,9 +52,9 @@ class AiProviderService:
         self.openai_api_key = self._env("OPENAI_API_KEY")
         self.anthropic_api_key = self._env("ANTHROPIC_API_KEY")
 
-        self.gemini_model = self._env("GEMINI_MODEL", "gemini-1.5-pro")
+        self.gemini_model = self._env("GEMINI_MODEL", "gemini-2.5-flash")
         self.openai_model = self._env("OPENAI_MODEL", "gpt-4o")
-        self.anthropic_model = self._env("ANTHROPIC_MODEL", "claude-3-5-sonnet-latest")
+        self.anthropic_model = self._env("ANTHROPIC_MODEL", "claude-sonnet-4-20250514")
 
     async def generate_story(
         self,

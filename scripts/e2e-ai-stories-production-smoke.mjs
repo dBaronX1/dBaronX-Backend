@@ -26,8 +26,9 @@ assert(apiService.includes("fastapi_unavailable") && apiService.includes("ai_pro
 
 assert(fastapiRoute.includes('"/stories/generate"'), "FastAPI /ai/stories/generate route is missing.");
 assert(fastapiRoute.includes('"/stories/readiness"'), "FastAPI /ai/stories/readiness route is missing.");
-assert(/providers\.append\("gemini"\)[\s\S]*providers\.append\("openai"\)[\s\S]*providers\.append\("anthropic"\)/.test(fastapiProvider), "Provider fallback order must be Gemini, OpenAI, Anthropic.");
+assert(/AI_PROVIDER_ORDER", "gemini,openai,anthropic"/.test(fastapiProvider) && /for provider in \("gemini", "openai", "anthropic"\)/.test(fastapiProvider), "Provider fallback order must be Gemini, OpenAI, Anthropic.");
 assert(fastapiProvider.includes("GOOGLE_GENERATIVE_AI_API_KEY"), "FastAPI must accept GOOGLE_GENERATIVE_AI_API_KEY alias.");
+assert(fastapiProvider.includes("gemini-2.5-flash") && fastapiProvider.includes("claude-sonnet-4-20250514"), "FastAPI story providers must default to current production-capable Gemini and Claude models unless env overrides them.");
 assert(fastapiStory.includes("insert_ai_story") && fastapiStory.includes("persistence_failed"), "FastAPI story generation must persist and surface persistence warnings.");
 assert(fastapiStory.includes("ai_provider_missing") && fastapiStory.includes("ai_provider_failed"), "FastAPI provider errors must be exact and safe.");
 
