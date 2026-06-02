@@ -17,9 +17,11 @@ type EnvReader = (key: string) => string | undefined | null;
 
 const PAYMENT_SECRET_ENV_CONTRACT = [
   "STRIPE_TEST_SECRET_KEY",
+  "STRIPE_SANDBOX_SECRET_KEY",
   "STRIPE_SECRET_KEY",
   "STRIPE_LIVE_SECRET_KEY",
   "PAYSTACK_TEST_SECRET_KEY",
+  "PAYSTACK_SANDBOX_SECRET_KEY",
   "PAYSTACK_SECRET_KEY",
   "PAYSTACK_LIVE_SECRET_KEY",
 ] as const;
@@ -49,14 +51,21 @@ export function resolvePaymentMode(provider: PaymentProviderName, read: EnvReade
   void PAYMENT_SECRET_ENV_CONTRACT;
   const prefix = provider.toUpperCase();
   const testKey = clean(read(`${prefix}_TEST_SECRET_KEY`));
+  const sandboxKey = clean(read(`${prefix}_SANDBOX_SECRET_KEY`));
   const sharedKey = clean(read(`${prefix}_SECRET_KEY`));
   const liveKey = clean(read(`${prefix}_LIVE_SECRET_KEY`));
+  const preferredTestKey = testKey || sandboxKey;
+  const preferredTestKeySource = testKey
+    ? `${prefix}_TEST_SECRET_KEY`
+    : sandboxKey
+      ? `${prefix}_SANDBOX_SECRET_KEY`
+      : null;
   const override = paymentModeOverride(read);
   const liveAllowed = liveCheckoutAllowed(read);
 
   const sharedIsTest = isTestKey(sharedKey);
   const sharedIsLive = isLiveKey(sharedKey);
-  const testKeyPresent = Boolean(testKey || sharedIsTest);
+  const testKeyPresent = Boolean(preferredTestKey || sharedIsTest);
   const liveKeyPresent = Boolean(liveKey || sharedIsLive);
   const blockers: string[] = [];
 
@@ -74,27 +83,27 @@ export function resolvePaymentMode(provider: PaymentProviderName, read: EnvReade
       mode = "live";
       secretKey = sharedKey;
       secretKeySource = `${prefix}_SECRET_KEY`;
-    } else if (testKey || sharedIsTest) {
+    } else if (preferredTestKey || sharedIsTest) {
       mode = "test";
-      secretKey = testKey || sharedKey;
-      secretKeySource = testKey ? `${prefix}_TEST_SECRET_KEY` : `${prefix}_SECRET_KEY`;
+      secretKey = preferredTestKey || sharedKey;
+      secretKeySource = preferredTestKeySource || `${prefix}_SECRET_KEY`;
       blockers.push(`${provider}_live_key_missing`);
     }
   } else if (override === "test") {
-    if (testKey || sharedIsTest) {
+    if (preferredTestKey || sharedIsTest) {
       mode = "test";
-      secretKey = testKey || sharedKey;
-      secretKeySource = testKey ? `${prefix}_TEST_SECRET_KEY` : `${prefix}_SECRET_KEY`;
+      secretKey = preferredTestKey || sharedKey;
+      secretKeySource = preferredTestKeySource || `${prefix}_SECRET_KEY`;
     } else if (liveKey || sharedIsLive) {
       mode = "live";
       secretKey = liveKey || sharedKey;
       secretKeySource = liveKey ? `${prefix}_LIVE_SECRET_KEY` : `${prefix}_SECRET_KEY`;
       blockers.push(`${provider}_test_key_missing_live_key_present`);
     }
-  } else if (testKey) {
+  } else if (preferredTestKey) {
     mode = "test";
-    secretKey = testKey;
-    secretKeySource = `${prefix}_TEST_SECRET_KEY`;
+    secretKey = preferredTestKey;
+    secretKeySource = preferredTestKeySource;
   } else if (sharedIsTest) {
     mode = "test";
     secretKey = sharedKey;

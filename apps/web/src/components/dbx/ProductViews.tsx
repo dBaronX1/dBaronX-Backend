@@ -68,6 +68,7 @@ export function DbxProductCard({ product }: { product: StoreProduct }) {
   const variantId = productPrimaryVariantId(product);
   const metadata = product.metadata && typeof product.metadata === "object" ? product.metadata : {};
   const categoryLabel = String(product.category || metadata.category || metadata.label || metadata.searchLabel || "dBaronX catalog");
+  const publicLabels = Array.isArray(product.publicLabels) ? product.publicLabels.filter(Boolean) : [];
   const href = product.handle ? `/products/${product.handle}${variantId ? `?variant=${encodeURIComponent(variantId)}` : ""}` : "/products";
   return (
     <DbxCard style={{ padding: 0, overflow: "hidden" }} data-product-handle={product.handle || ""} data-product-variant-id={variantId}>
