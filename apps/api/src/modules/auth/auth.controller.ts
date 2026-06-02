@@ -14,6 +14,7 @@ import { AuthService } from "./auth.service";
 import { authErrorResponse } from "./auth-error.mapper";
 import type {
   LoginAuthDto,
+  UpdateProfileAuthDto,
   PasswordResetConfirmDto,
   PasswordResetRequestDto,
   RegisterAuthDto,
@@ -49,6 +50,20 @@ export class AuthController {
   @Post("login")
   async login(@Body() body: LoginAuthDto, @Res() res: Response) {
     const result = await this.auth.login(body);
+    if (result.ok === false)
+      return res
+        .status(result.error.status)
+        .json(authErrorResponse(result.error));
+    return res.status(200).json({ success: true, ...result.value });
+  }
+
+  @Post("profile")
+  async updateProfile(
+    @Headers("authorization") authorization: string | undefined,
+    @Body() body: UpdateProfileAuthDto,
+    @Res() res: Response,
+  ) {
+    const result = await this.auth.updateProfile(authorization, body);
     if (result.ok === false)
       return res
         .status(result.error.status)

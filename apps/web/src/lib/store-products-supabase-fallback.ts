@@ -71,7 +71,7 @@ function rowToProduct(row: StorefrontProductCacheRow): MedusaStoreProduct {
     currencyCode: publicString(row.currency_code) || "usd",
     defaultVariantId,
     variants: defaultVariantId ? [{ id: defaultVariantId, prices: row.price_minor ? [{ amount: row.price_minor, currency_code: publicString(row.currency_code) || "usd" }] : [] }] : [],
-    stockStatus: defaultVariantId ? "Checkout available through Medusa" : "Currently unavailable for checkout",
+    stockStatus: defaultVariantId ? "Checkout available" : "Currently unavailable for checkout",
     supplier: publicString(row.supplier),
     supplierProductId: publicString(row.supplier_product_id),
     supplierSku: publicString(row.supplier_sku),

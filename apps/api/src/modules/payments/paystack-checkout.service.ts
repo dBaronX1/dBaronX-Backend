@@ -9,7 +9,7 @@ export class PaystackCheckoutService {
   constructor(private readonly config: ConfigService) {}
 
   async createAuthorization(input: CreateCheckoutSessionDto) {
-    const secret = this.value("PAYSTACK_SECRET_KEY");
+    const secret = this.paystackSecretKey();
     const configured = Boolean(secret);
     const candidateLineItems = input.lineItems || input.line_items || input.items || input.cartItems || [];
     const rawLineItems = Array.isArray(candidateLineItems) ? candidateLineItems : [];
@@ -103,7 +103,7 @@ export class PaystackCheckoutService {
   }
 
   async verifyTransaction(reference?: string) {
-    const secret = this.value("PAYSTACK_SECRET_KEY");
+    const secret = this.paystackSecretKey();
     if (!secret) return { success: false, verified: false, blocker: "paystack_not_configured" };
     if (!reference) return { success: false, verified: false, blocker: "paystack_reference_missing" };
     try {
@@ -138,13 +138,14 @@ export class PaystackCheckoutService {
 
   readiness() {
     return {
-      paystackReady: Boolean(this.value("PAYSTACK_SECRET_KEY")),
+      paystackReady: Boolean(this.paystackSecretKey()),
       webhookReady: Boolean(this.paystackWebhookSigningSecret()),
-      webhookSecretSource: this.value("PAYSTACK_WEBHOOK_SECRET") ? "PAYSTACK_WEBHOOK_SECRET" : this.value("PAYSTACK_SECRET_KEY") ? "PAYSTACK_SECRET_KEY" : null,
+      webhookSecretSource: this.value("PAYSTACK_WEBHOOK_SECRET") ? "PAYSTACK_WEBHOOK_SECRET" : this.paystackSecretKey() ? "PAYSTACK_SECRET_KEY" : null,
     };
   }
 
-  private paystackWebhookSigningSecret() { return this.value("PAYSTACK_WEBHOOK_SECRET") || this.value("PAYSTACK_SECRET_KEY"); }
+  private paystackWebhookSigningSecret() { return this.value("PAYSTACK_WEBHOOK_SECRET") || this.paystackSecretKey(); }
+  private paystackSecretKey() { return this.value("PAYSTACK_TEST_SECRET_KEY") || this.value("PAYSTACK_SANDBOX_SECRET_KEY") || this.value("PAYSTACK_SECRET_KEY") || this.value("PAYSTACK_LIVE_SECRET_KEY"); }
 
   private isValidPaystackSignature(signature: string, payload: unknown, signingSecret: string): boolean {
     const normalizedSignature = signature.trim().toLowerCase();
