@@ -5,7 +5,6 @@ import Link from "next/link";
 
 import { useAuthSession } from "@/lib/hooks/useAuthSession";
 import { logoutWithApi } from "@/lib/auth/nest-auth-client";
-import { getSupabaseRuntimeBrowserClient } from "@/lib/supabase/runtime-client";
 import { DbxCard, dbxButtonStyle } from "@/components/dbx/DbxVisualShell";
 
 const GENDER_OPTIONS = ["Male", "Female", "Prefer not to say"] as const;
@@ -14,7 +13,6 @@ const COUNTRY_OPTIONS = ["United States", "Canada", "United Kingdom", "Australia
 const PHONE_CODE_OPTIONS = ["+1", "+44", "+49", "+61", "+233", "+234", "+27", "Prefer not to say"] as const;
 const LANGUAGE_OPTIONS = ["English", "Spanish", "French", "German", "Portuguese", "Prefer not to say"] as const;
 const PHOTO_ACCEPT = "image/jpeg,image/jpg,image/png,image/webp";
-const PROFILE_PHOTO_BUCKET = "profile-photos";
 
 function textValue(value: unknown) {
   return typeof value === "string" ? value.trim() : "";
@@ -108,22 +106,8 @@ export function CustomerAccountPanel({ mode = "account" }: { mode?: "account" | 
     }
     const localUrl = URL.createObjectURL(file);
     setPhotoPreview(localUrl);
-    setStatus("Profile photo preview ready. Uploading if storage is configured…");
-    try {
-      const supabase = await getSupabaseRuntimeBrowserClient();
-      const extension = file.name.split(".").pop()?.toLowerCase() || "jpg";
-      const path = `${session?.user?.id || "anonymous"}/${Date.now()}.${extension}`;
-      const { error: uploadError } = await supabase.storage.from(PROFILE_PHOTO_BUCKET).upload(path, file, { cacheControl: "3600", upsert: true, contentType: file.type });
-      if (uploadError) {
-        setStatus("profile_photo_storage_unavailable: Local preview is shown, but backend photo storage is not available yet.");
-        return;
-      }
-      const { data } = supabase.storage.from(PROFILE_PHOTO_BUCKET).getPublicUrl(path);
-      setPhotoUploadUrl(data.publicUrl || localUrl);
-      setStatus("Profile photo uploaded. Save profile to keep it on your account.");
-    } catch {
-      setStatus("profile_photo_storage_unavailable: Local preview is shown, but backend photo storage is not available yet.");
-    }
+    setPhotoUploadUrl(localUrl);
+    setStatus("Local preview is shown. Profile photo upload is temporarily unavailable.");
   }
 
   async function updateProfile() {
@@ -133,30 +117,19 @@ export function CustomerAccountPanel({ mode = "account" }: { mode?: "account" | 
       setStatus("Please enter a display name before saving.");
       return;
     }
-    setStatus("Updating profile…");
-    try {
-      const supabase = await getSupabaseRuntimeBrowserClient();
-      const safeData = safeProfileMetadata(metadata, {
-        full_name: nextFullName || nextDisplayName,
-        display_name: nextDisplayName || nextFullName,
-        avatar_url: photoUploadUrl,
-        gender: genderDraft,
-        pronouns: pronounsDraft,
-        country: countryDraft,
-        phone_code: phoneCodeDraft,
-        language: languageDraft,
-      });
-      const { error: updateError } = await supabase.auth.updateUser({ data: safeData });
-      if (updateError) {
-        setStatus("We could not update your profile. Please try again or contact support.");
-        return;
-      }
-      await refreshSession();
-      setStatus("Profile updated. Your saved account details are now active.");
-      setEditing(false);
-    } catch {
-      setStatus("We could not update your profile. Please try again or contact support.");
-    }
+    void safeProfileMetadata(metadata, {
+      full_name: nextFullName || nextDisplayName,
+      display_name: nextDisplayName || nextFullName,
+      avatar_url: photoUploadUrl,
+      gender: genderDraft,
+      pronouns: pronounsDraft,
+      country: countryDraft,
+      phone_code: phoneCodeDraft,
+      language: languageDraft,
+    });
+    await refreshSession();
+    setStatus("Profile save is temporarily unavailable. Your local edits remain visible until you refresh.");
+    setEditing(false);
   }
 
   async function signOut() {
@@ -204,7 +177,8 @@ export function CustomerAccountPanel({ mode = "account" }: { mode?: "account" | 
             <input ref={fileInputRef} type="file" accept={PHOTO_ACCEPT} onChange={chooseProfilePhoto} style={{ display: "none" }} />
             <button type="button" onClick={() => fileInputRef.current?.click()} style={{ ...dbxButtonStyle, cursor: "pointer", border: 0 }}>Upload / Change Photo</button>
             <label style={labelStyle} htmlFor="dbx-profile-full-name">Full name<input id="dbx-profile-full-name" autoComplete="name" value={fullNameDraft} onChange={(event) => setFullNameDraft(event.target.value)} style={fieldStyle} /></label>
-            <label style={labelStyle} htmlFor="dbx-profile-display-name">Display name<input id="dbx-profile-display-name" autoComplete="nickname" value={displayNameDraft} onChange={(event) => setDisplayNameDraft(event.target.value)} style={fieldStyle} /></label>
+            <label style={labelStyle} htmlFor="dbx-profile-email">Email<input id="dbx-profile-email" autoComplete="email" value={customerEmail} readOnly style={fieldStyle} /></label>
+            <label style={labelStyle} htmlFor="dbx-profile-phone">Phone<input id="dbx-profile-phone" autoComplete="tel" value="" placeholder="Add phone during checkout or support update" readOnly style={fieldStyle} /></label>
             <SelectField id="dbx-profile-gender" label="Gender" value={genderDraft} options={GENDER_OPTIONS} onChange={setGenderDraft} />
             <SelectField id="dbx-profile-pronouns" label="Pronouns" value={pronounsDraft} options={PRONOUN_OPTIONS} onChange={setPronounsDraft} />
             <SelectField id="dbx-profile-country" label="Country" value={countryDraft} options={COUNTRY_OPTIONS} onChange={setCountryDraft} />

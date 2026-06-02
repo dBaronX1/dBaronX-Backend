@@ -1,0 +1,16 @@
+import { read, assert, all } from './e2e-production-lock-helpers.mjs';
+const catalogController = read('apps/api/src/modules/catalog/catalog.controller.ts');
+const catalogService = read('apps/api/src/modules/catalog/catalog.service.ts');
+const catalogTypes = read('apps/api/src/modules/catalog/catalog.types.ts');
+const storeServer = read('apps/web/src/lib/store-products-server.ts');
+const productClient = read('apps/web/src/lib/api/medusa-store-client.ts');
+const views = read('apps/web/src/components/dbx/ProductViews.tsx');
+assert(catalogController.includes('@Get("readiness")') && catalogController.includes('@Get("products")') && catalogController.includes('@Get("products/:handle")'), 'catalog routes missing');
+assert(catalogService.includes('fetchCatalogProductsWithFallback') && catalogService.includes('normalizeProduct'), 'catalog bridge normalization missing');
+for (const field of ['id','productId','variantId','handle','title','description','imageUrl','thumbnail','images','priceMinor','currencyCode','category','buyable','deliveryEstimate','publicLabels']) assert(catalogTypes.includes(`${field}:`), `public product field ${field} missing`);
+assert(storeServer.includes('/api/catalog/products') && !/supplier_products/.test(storeServer), 'frontend catalog must call API catalog and not supplier_products fallback');
+assert(productClient.indexOf('imageUrl') < productClient.indexOf('thumbnail') || productClient.includes('product?.image_url'), 'product image preference must favor high quality image before thumbnail');
+assert(views.includes('quality={92}') && views.includes('sizes="(max-width: 768px) 100vw'), 'product cards must use high-quality responsive images');
+assert(views.includes('Verified Supplier') && views.includes('Direct Shipping'), 'safe public product labels missing');
+assert(!/>CJ<|CJ Dropshipping|supplier=cj|supplier: cj/.test(all('apps/web/src/components/dbx/ProductViews.tsx','apps/web/src/app/api/store/products/store-products-response.ts')), 'customer product UI leaks supplier/source label');
+console.log('shop/products production lock smoke passed');

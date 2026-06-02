@@ -29,3 +29,20 @@ async def rewrite_story(
     service: StoryGenerationService = Depends(story_generation_service_dep),
 ) -> StoryGenerationResult:
     return await service.rewrite_story(payload)
+
+
+@router.get("/readiness")
+async def ai_stories_readiness() -> dict:
+    from app.api.routes.ai_generation import get_ai_provider_service
+
+    provider_service = get_ai_provider_service()
+    provider_flags = provider_service.configured_provider_flags()
+    provider_configured = any(provider_flags.values())
+    return {
+        "success": True,
+        "providerConfigured": provider_configured,
+        "generationEndpointReady": True,
+        "providersDetected": provider_flags,
+        "providerOrder": provider_service.provider_order(),
+        "blockers": [] if provider_configured else ["ai_provider_missing"],
+    }

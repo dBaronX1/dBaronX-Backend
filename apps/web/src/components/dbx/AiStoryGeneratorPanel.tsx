@@ -14,13 +14,14 @@ const storyConcepts = [
 ] as const;
 
 const errorMessages: Record<string, string> = {
-  ai_provider_missing: "ai_provider_missing: Provider not configured. Please contact support so AI generation can be enabled.",
-  provider_failed: "provider_failed: The AI provider could not generate this story. Try a clearer prompt or retry.",
-  fastapi_route_missing: "fastapi_route_missing: The AI Stories generation route is not deployed yet. Please contact support.",
-  fastapi_unavailable: "fastapi_unavailable: Generation service unavailable. Please retry in a moment.",
-  validation_failed: "validation_failed: Request validation failed. Please check the prompt, length, and tone.",
-  rate_limited: "Generation is rate limited. Please wait a moment and retry.",
-  persistence_failed: "persistence_failed: Persistence failed but the story may have generated. Copy any visible story before leaving.",
+  ai_provider_missing: "Story generation is temporarily unavailable. Please try again.",
+  provider_failed: "Story generation is temporarily unavailable. Please try again.",
+  all_ai_providers_failed: "Story generation is temporarily unavailable. Please try again.",
+  fastapi_route_missing: "Story generation is temporarily unavailable. Please try again.",
+  fastapi_unavailable: "Story generation is temporarily unavailable. Please try again.",
+  validation_failed: "Please check the story details and try again.",
+  rate_limited: "Too many attempts. Please wait a moment and try again.",
+  persistence_failed: "Story generation is temporarily unavailable. Please try again.",
 };
 
 export function AiStoryGeneratorPanel({ compact = false }: { compact?: boolean }) {
@@ -64,16 +65,15 @@ export function AiStoryGeneratorPanel({ compact = false }: { compact?: boolean }
       if (!data?.success) {
         const code = typeof data?.code === "string" ? data.code : "fastapi_unavailable";
         setLastError(code);
-        const safeMessage = errorMessages[code] || data?.message || "Story generation could not complete. Please retry.";
+        const safeMessage = errorMessages[code] || "Story generation is temporarily unavailable. Please try again.";
         setStatus(safeMessage);
         return;
       }
       const generatedContent = typeof data.content === "string" ? data.content : "";
       setContent(generatedContent);
       setSaved(data.saved === true);
-      const persistenceWarning = data.saved !== true ? " Story generated, but saving is not confirmed." : " Story generated and saved.";
-      const fallbackNote = data.fallbackUsed ? " Provider fallback was used." : "";
-      setStatus(generatedContent ? `${persistenceWarning}${fallbackNote}`.trim() : "The provider returned no story text. Please retry.");
+      const persistenceWarning = data.saved !== true ? "Story generated. Please copy it before leaving this page." : "Story generated and saved.";
+      setStatus(generatedContent ? persistenceWarning : "Story generation is temporarily unavailable. Please try again.");
     } catch {
       setLastError("fastapi_unavailable");
       setStatus(errorMessages.fastapi_unavailable);

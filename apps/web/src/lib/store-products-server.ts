@@ -62,7 +62,7 @@ export async function fetchServerStoreProductByHandle(handle: string) {
   return { product, reason: product ? null : result.reason || "products_unavailable", status: result.status, attemptedEndpoint: result.attemptedEndpoint };
 }
 
-function getRocketWebBaseUrl() {
+function getWebBaseUrl() {
   const explicit = (process.env.NEXT_PUBLIC_WEB_BASE_URL || process.env.NEXT_PUBLIC_SITE_URL || "").trim().replace(/\/+$/, "");
   if (explicit) return explicit;
   const vercelUrl = (process.env.VERCEL_URL || "").trim().replace(/\/+$/, "");
@@ -70,8 +70,8 @@ function getRocketWebBaseUrl() {
   return vercelUrl.startsWith("http") ? vercelUrl : `https://${vercelUrl}`;
 }
 
-function rocketStoreProductsUrl(options: { limit?: number; handle?: string } = {}) {
-  const baseUrl = getRocketWebBaseUrl();
+function webStoreProductsUrl(options: { limit?: number; handle?: string } = {}) {
+  const baseUrl = getWebBaseUrl();
   if (!baseUrl) return null;
   const path = options.handle ? `/api/store/products/${encodeURIComponent(options.handle)}` : "/api/store/products";
   const url = new URL(path, baseUrl);
@@ -79,8 +79,8 @@ function rocketStoreProductsUrl(options: { limit?: number; handle?: string } = {
   return url;
 }
 
-export async function fetchRocketStoreProducts(options: { limit?: number; handle?: string } = {}): Promise<MedusaProductResult> {
-  const url = rocketStoreProductsUrl(options);
+export async function fetchWebStoreProducts(options: { limit?: number; handle?: string } = {}): Promise<MedusaProductResult> {
+  const url = webStoreProductsUrl(options);
   if (!url) return fetchServerStoreProducts(options);
 
   try {

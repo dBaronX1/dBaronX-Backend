@@ -45,8 +45,10 @@ export class CheckoutSessionController {
     const blockers = [
       ...(stripeConfigured || paystackConfigured ? [] : ["payment_provider_not_configured"]),
       ...(webhookConfigured ? [] : ["payment_webhook_not_configured"]),
+      ...(Array.isArray((stripe as any).blockers) ? (stripe as any).blockers.filter((blocker: string) => blocker.includes("checkout_requires_explicit_allowance")) : []),
+      ...(Array.isArray((paystack as any).blockers) ? (paystack as any).blockers.filter((blocker: string) => blocker.includes("checkout_requires_explicit_allowance")) : []),
     ];
-    return { success: blockers.length === 0, stripeConfigured, paystackConfigured, multiLineCheckoutSupported: true, webhookConfigured, blockers };
+    return { success: blockers.length === 0, stripeConfigured, stripeMode: stripeConfigured ? ((stripe as any).stripeMode || (stripe as any).stripeSecretKeyMode || "test") : "missing", paystackConfigured, paystackMode: paystackConfigured ? ((paystack as any).paystackMode || "test") : "missing", multiLineCheckoutSupported: true, webhookConfigured, blockers: [...new Set(blockers)] };
   }
 
 

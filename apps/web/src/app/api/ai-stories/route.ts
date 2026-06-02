@@ -62,16 +62,16 @@ function unwrapBackendResponse(data: unknown) {
 
 function safeErrorMessage(code: string, fallback?: string) {
   const messages: Record<string, string> = {
-    ai_provider_missing: "AI story generation is not configured yet. Please contact support.",
-    provider_failed: "The AI provider could not generate the story. Please revise the prompt or try again.",
-    all_ai_providers_failed: "The AI providers could not generate the story. Please revise the prompt or try again.",
-    fastapi_route_missing: "The AI Stories generation route is not deployed yet. Please contact support.",
-    fastapi_unavailable: "The generation service is unavailable. Please try again shortly.",
+    ai_provider_missing: "Story generation is temporarily unavailable. Please try again.",
+    provider_failed: "Story generation is temporarily unavailable. Please try again.",
+    all_ai_providers_failed: "Story generation is temporarily unavailable. Please try again.",
+    fastapi_route_missing: "Story generation is temporarily unavailable. Please try again.",
+    fastapi_unavailable: "Story generation is temporarily unavailable. Please try again.",
     validation_failed: "Please check the prompt, length, and tone before trying again.",
     rate_limited: "Story generation is rate limited. Please wait a moment and try again.",
-    persistence_failed: "The story was generated, but saving it failed. Please copy it before leaving this page.",
+    persistence_failed: "Story generation is temporarily unavailable. Please try again.",
   };
-  return messages[code] || fallback || "Story generation could not complete. Please try again.";
+  return messages[code] || fallback || "Story generation is temporarily unavailable. Please try again.";
 }
 
 export async function POST(request: NextRequest) {
@@ -136,8 +136,6 @@ export async function POST(request: NextRequest) {
         storyId: String(backend.storyId || ""),
         title: String(backend.title || title),
         content: String(backend.content || ""),
-        provider: String(backend.provider || "unknown"),
-        model: String(backend.model || "unknown"),
         wordCount: Number(backend.wordCount || 0),
         estimatedReadingMinutes: Number(backend.estimatedReadingMinutes || 1),
         saved: backend.saved === true,

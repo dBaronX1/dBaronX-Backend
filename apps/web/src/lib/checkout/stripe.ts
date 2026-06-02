@@ -1,5 +1,9 @@
 import { getPublicEnv } from "@/lib/env";
 
+type CheckoutLineItemInput = { productId?: string; variantId: string; handle?: string; title?: string; quantity: number; unitPriceMinor: number; currencyCode?: string };
+type CheckoutCustomerInput = { email: string; fullName?: string; phone?: string };
+type CheckoutShippingAddressInput = { country: string; city: string; state?: string; addressLine1: string; addressLine2?: string; postalCode: string };
+
 type StripeCheckoutSessionInput = {
   cartId: string;
   productId?: string;
@@ -30,6 +34,16 @@ type StripeCheckoutSessionInput = {
   supplierSku?: string;
   successUrl?: string;
   cancelUrl?: string;
+  customer?: CheckoutCustomerInput;
+  shippingAddress?: CheckoutShippingAddressInput;
+  lineItems?: CheckoutLineItemInput[];
+  totalMinor?: number;
+  paymentProvider?: "stripe" | "paystack";
+  provider?: "stripe" | "paystack";
+  paymentMethod?: "stripe" | "paystack";
+  payment_method?: "stripe" | "paystack";
+  selectedPaymentMethod?: "stripe" | "paystack";
+  source?: string;
 };
 
 export async function createStripeCheckoutSession(input: StripeCheckoutSessionInput) {
@@ -43,7 +57,7 @@ export async function createStripeCheckoutSession(input: StripeCheckoutSessionIn
       checkoutUrl: null,
       sessionId: null,
       blockers: ["api_base_url_missing"],
-      message: "Checkout is temporarily unavailable. Please try again shortly or contact support.",
+      message: "Checkout is temporarily unavailable. Please try again.",
     };
   }
 
@@ -64,7 +78,7 @@ export async function createStripeCheckoutSession(input: StripeCheckoutSessionIn
       configured: true,
       checkoutUrl: null,
       sessionId: null,
-      message: "Checkout is temporarily unavailable. Please try again shortly or contact support.",
+      message: "Checkout is temporarily unavailable. Please try again.",
     };
   }
   return response.json();

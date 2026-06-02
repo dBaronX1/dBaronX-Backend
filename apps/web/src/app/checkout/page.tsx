@@ -16,13 +16,13 @@ export default async function CheckoutPage({ searchParams }: { searchParams: Pro
   const normalizedVariant = variant || productPrimaryVariantId(product);
 
   return (
-    <DbxVisualShell title="Checkout" description="Create a secure dBaronX checkout session through the NestJS API.">
+    <DbxVisualShell title="Checkout" description="Create a secure dBaronX checkout session through the payment service.">
       {product && normalizedVariant ? (
         <StripeCheckoutPanel product={product} variantId={normalizedVariant} />
       ) : (
         <DbxCard>
           <h2 style={{ marginTop: 0 }}>Select a product first</h2>
-          <p style={{ color: "#fed7aa", lineHeight: 1.7 }}>Checkout requires a normalized catalog product and variant from the NestJS API catalog.</p>
+          <p style={{ color: "#fed7aa", lineHeight: 1.7 }}>Checkout requires a product and variant from the product service.</p>
           {result.reason ? <p style={{ color: "#fdba74" }}>Catalog status: {result.reason}</p> : null}
           <Link href="/products" style={dbxButtonStyle}>Browse products</Link>
         </DbxCard>

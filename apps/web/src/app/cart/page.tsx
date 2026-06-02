@@ -1,6 +1,7 @@
-import Link from "next/link";
-
-import { DbxCard, DbxVisualShell, dbxButtonStyle } from "@/components/dbx/DbxVisualShell";
+import { CartClient } from "@/components/dbx/CartClient";
+import { DbxVisualShell } from "@/components/dbx/DbxVisualShell";
+import { fetchServerStoreProducts } from "@/lib/store-products-server";
+import { productPrimaryVariantId } from "@/lib/store-products";
 
 export const dynamic = "force-dynamic";
 
@@ -8,29 +9,12 @@ export default async function CartPage({ searchParams }: { searchParams: Promise
   const params = await searchParams;
   const variant = String(params.variant || "").trim();
   const handle = String(params.handle || "").trim();
-  const checkoutHref = variant
-    ? `/checkout?variant=${encodeURIComponent(variant)}&handle=${encodeURIComponent(handle)}`
-    : "/products";
+  const result = variant || handle ? await fetchServerStoreProducts({ handle: handle || undefined, limit: handle ? 5 : 24 }) : { products: [] };
+  const product = "products" in result ? (handle ? result.products.find((item) => item.handle === handle) || result.products[0] || null : result.products.find((item) => productPrimaryVariantId(item) === variant) || null) : null;
+
   return (
-    <DbxVisualShell title="Cart" description="Review your selected dBaronX product before checkout.">
-      <DbxCard>
-        <h2 style={{ marginTop: 0 }}>Cart review</h2>
-        <p style={{ color: "#fed7aa", lineHeight: 1.7 }}>
-          Cart and checkout stay connected to the backend/Medusa product variant. Rocket does not set fake stock, fake prices, fake payments, or fulfillment state.
-        </p>
-        {variant ? (
-          <>
-            <p style={{ color: "#fdba74", wordBreak: "break-word" }}>Selected variant: <code>{variant}</code></p>
-            {handle ? <p style={{ color: "#fdba74", wordBreak: "break-word" }}>Product handle: <code>{handle}</code></p> : null}
-            <Link href={checkoutHref} style={dbxButtonStyle}>Continue to checkout</Link>
-          </>
-        ) : (
-          <>
-            <p style={{ color: "#fdba74" }}>No variant is selected yet.</p>
-            <Link href="/products" style={dbxButtonStyle}>Browse products</Link>
-          </>
-        )}
-      </DbxCard>
+    <DbxVisualShell title="Cart" description="Review cart images, quantities, selected items, and subtotals before secure checkout.">
+      <CartClient initialItem={product} />
     </DbxVisualShell>
   );
 }
