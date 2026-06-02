@@ -65,7 +65,7 @@ export function AiStoryGeneratorPanel({ compact = false }: { compact?: boolean }
         const code = typeof data?.code === "string" ? data.code : "fastapi_unavailable";
         setLastError(code);
         const safeMessage = errorMessages[code] || data?.message || "Story generation could not complete. Please retry.";
-        setStatus(`${code}: ${safeMessage}`);
+        setStatus(safeMessage);
         return;
       }
       const generatedContent = typeof data.content === "string" ? data.content : "";

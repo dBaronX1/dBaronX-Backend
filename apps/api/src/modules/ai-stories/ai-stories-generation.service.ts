@@ -211,7 +211,7 @@ export class AiStoriesGenerationService {
   }
 
   private normalizeSuccess(data: unknown): StoryResponse {
-    const record = data && typeof data === "object" ? (data as Record<string, unknown>) : {};
+    const record = this.unwrapFastapiEnvelope(data);
     if (record.success === false) {
       const rawCode = this.extractErrorCode(record);
       const code = (rawCode === "ai_provider_failed" ? "provider_failed" : rawCode) as StoryFailureCode;
@@ -296,7 +296,7 @@ export class AiStoriesGenerationService {
   }
 
   private fastapiPaths(kind: "generate" | "readiness"): string[] {
-    const suffixes = kind === "generate" ? ["/ai/stories/generate", "/ai/generate"] : ["/ai/stories/readiness"];
+    const suffixes = kind === "generate" ? ["/ai/stories/generate", "/stories/ai-stories/generate", "/ai/generate"] : ["/ai/stories/readiness", "/stories/ai-stories/readiness"];
     return this.fastapiBaseUrlCandidates().flatMap((baseUrl) => suffixes.map((suffix) => `${baseUrl}${suffix}`));
   }
 
@@ -347,14 +347,22 @@ export class AiStoriesGenerationService {
     return token ? { "x-internal-service-token": token, authorization: `Bearer ${token}` } : {};
   }
 
-  private extractErrorCode(data: unknown): string {
+  private unwrapFastapiEnvelope(data: unknown): Record<string, unknown> {
     const record = data && typeof data === "object" ? (data as Record<string, unknown>) : {};
+    if (record.data && typeof record.data === "object") {
+      return record.data as Record<string, unknown>;
+    }
+    return record;
+  }
+
+  private extractErrorCode(data: unknown): string {
+    const record = this.unwrapFastapiEnvelope(data);
     const nested = record.error && typeof record.error === "object" ? (record.error as Record<string, unknown>) : {};
     return String(record.code || nested.code || "ai_provider_failed").toLowerCase();
   }
 
   private safeDiagnostics(data: unknown): Record<string, unknown> {
-    const record = data && typeof data === "object" ? (data as Record<string, unknown>) : {};
+    const record = this.unwrapFastapiEnvelope(data);
     return {
       code: this.extractErrorCode(record),
       provider: typeof record.provider === "string" ? record.provider : undefined,

@@ -15,7 +15,7 @@ function humanLoginError(message: string) {
 function LoginForm() {
   const router = useRouter();
   const [params, setParams] = useState(() => new URLSearchParams());
-  const nextPath = safeLocalPath(params.get("next"), "/account");
+  const nextPath = safeLocalPath(params.get("next"), "/profile");
   const referral = useMemo(() => captureReferralParams(params), [params]);
 
   useEffect(() => {
@@ -31,6 +31,7 @@ function LoginForm() {
     setMessage("Signing in…");
     try {
       await loginWithApi({ email, password });
+      setMessage(nextPath === "/profile" ? "Signed in. Opening your profile…" : "Signed in. Opening your account…");
       router.push(nextPath);
     } catch (error) {
       setMessage(error instanceof Error ? humanLoginError(error.message) : "We could not sign you in. Please check your email and password.");

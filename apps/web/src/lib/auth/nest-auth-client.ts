@@ -50,7 +50,9 @@ export function safeAuthMessage(input: unknown, fallback: string) {
 }
 
 export function storeAuthSession(session: AuthSession | undefined) {
-  if (typeof window === "undefined" || !session?.accessToken) return;
+  if (typeof window === "undefined" || !session?.accessToken) {
+    throw new Error("AUTH_TEMPORARILY_UNAVAILABLE");
+  }
   window.localStorage.setItem(AUTH_SESSION_STORAGE_KEY, JSON.stringify(session));
 }
 

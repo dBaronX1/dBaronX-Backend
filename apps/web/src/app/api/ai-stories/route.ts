@@ -64,6 +64,7 @@ function safeErrorMessage(code: string, fallback?: string) {
   const messages: Record<string, string> = {
     ai_provider_missing: "AI story generation is not configured yet. Please contact support.",
     provider_failed: "The AI provider could not generate the story. Please revise the prompt or try again.",
+    all_ai_providers_failed: "The AI providers could not generate the story. Please revise the prompt or try again.",
     fastapi_route_missing: "The AI Stories generation route is not deployed yet. Please contact support.",
     fastapi_unavailable: "The generation service is unavailable. Please try again shortly.",
     validation_failed: "Please check the prompt, length, and tone before trying again.",
