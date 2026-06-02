@@ -44,6 +44,7 @@ export type MedusaStoreProduct = Record<string, unknown> & {
   realSupplierProduct?: boolean;
   manualCurated?: boolean;
   buyable?: boolean;
+  publicLabels?: string[];
   productUrl?: string;
   metadata?: Record<string, unknown>;
 };
@@ -176,6 +177,11 @@ export function normalizeStoreProduct(product: MedusaStoreProduct): MedusaStoreP
   const supplierSku = publicString(metadata.supplierSku ?? metadata.supplier_sku ?? safe.supplierSku ?? variantsWithFlatFallback[0]?.sku);
   const category = publicString(metadata.category ?? metadata.categoryLabel ?? safe.category);
   const deliveryEstimate = publicString(metadata.deliveryEstimate ?? metadata.delivery_estimate ?? safe.deliveryEstimate);
+  const publicLabels = Array.isArray(safe.publicLabels)
+    ? safe.publicLabels.map((label) => publicString(label)).filter(Boolean)
+    : Array.isArray(metadata.publicLabels)
+      ? metadata.publicLabels.map((label) => publicString(label)).filter(Boolean)
+      : [];
 
   return {
     id: productId,
@@ -205,6 +211,7 @@ export function normalizeStoreProduct(product: MedusaStoreProduct): MedusaStoreP
     ...(typeof safe.realSupplierProduct === "boolean" ? { realSupplierProduct: safe.realSupplierProduct } : {}),
     ...(typeof safe.manualCurated === "boolean" ? { manualCurated: safe.manualCurated } : {}),
     ...(typeof safe.buyable === "boolean" ? { buyable: safe.buyable } : {}),
+    ...(publicLabels.length ? { publicLabels } : {}),
     ...(deliveryEstimate ? { deliveryEstimate } : {}),
     productUrl: safe.handle ? `/products/${safe.handle}` : "/products",
     metadata,
