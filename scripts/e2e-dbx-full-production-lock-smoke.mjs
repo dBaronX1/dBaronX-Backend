@@ -4,6 +4,7 @@ const smokes = [
   'scripts/e2e-shop-products-production-lock-smoke.mjs',
   'scripts/e2e-cart-checkout-production-lock-smoke.mjs',
   'scripts/e2e-payment-mode-resolution-smoke.mjs',
+  'scripts/e2e-paystack-payment-mode-build-contract-smoke.mjs',
   'scripts/e2e-order-payment-status-lock-smoke.mjs',
   'scripts/e2e-ai-stories-production-lock-smoke.mjs',
   'scripts/e2e-no-public-third-party-leaks-smoke.mjs',

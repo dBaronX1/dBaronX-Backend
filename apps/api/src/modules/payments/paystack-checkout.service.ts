@@ -10,8 +10,9 @@ export class PaystackCheckoutService {
   constructor(private readonly config: ConfigService) {}
 
   async createAuthorization(input: CreateCheckoutSessionDto) {
-    const secret = this.paystackSecretKey();
-    const configured = Boolean(secret);
+    const paymentMode = this.resolvePaystackPaymentMode();
+    const secret = paymentMode.secretKey;
+    const configured = paymentMode.configured;
     const candidateLineItems = input.lineItems || input.line_items || input.items || input.cartItems || [];
     const rawLineItems = Array.isArray(candidateLineItems) ? candidateLineItems : [];
     const toText = (value: unknown) => String(value ?? "").trim();
@@ -56,7 +57,7 @@ export class PaystackCheckoutService {
     const postalCode = toText(input.postalCode ?? input.zip ?? input.postcode ?? shipping.postalCode ?? shipping.zip ?? shipping.postcode);
 
     if (!configured) {
-      return { success: false, provider: "paystack", configured: Boolean(secret), mode: paymentMode.mode, blockers: paymentMode.blockers.length ? paymentMode.blockers : ["paystack_not_configured"], authorizationUrl: null, reference: null, message: "Payment provider is temporarily unavailable. Please try again." };
+      return { success: false, provider: "paystack", configured, mode: paymentMode.mode, blockers: paymentMode.blockers.length ? paymentMode.blockers : ["paystack_not_configured"], authorizationUrl: null, reference: null, message: "Payment provider is temporarily unavailable. Please try again." };
     }
     if (!customerEmail || !country || !city || !addressLine1 || !postalCode || lineItems.length === 0 || lineItems.some((item) => !item.variantId || !Number.isInteger(item.quantity) || item.quantity < 1 || !Number.isInteger(item.unitPriceMinor) || item.unitPriceMinor <= 0) || (requestedTotal !== undefined && requestedTotal !== amount)) {
       return { success: false, provider: "paystack", configured, blocker: "checkout_payload_invalid", blockers: ["checkout_payload_invalid"], authorizationUrl: null, reference: null, message: "Some cart items are unavailable. Please update your cart and try again." };
@@ -140,14 +141,26 @@ export class PaystackCheckoutService {
   readiness() {
     const paymentMode = this.resolvePaystackPaymentMode();
     return {
-      paystackReady: Boolean(this.paystackSecretKey()),
+      provider: "paystack",
+      configured: paymentMode.configured,
+      paystackReady: paymentMode.configured,
+      mode: paymentMode.mode,
+      paystackMode: paymentMode.mode,
+      blockers: paymentMode.blockers,
+      authorizationUrl: null,
+      reference: null,
+      message: paymentMode.configured ? null : "Payment provider is temporarily unavailable. Please try again.",
       webhookReady: Boolean(this.paystackWebhookSigningSecret()),
-      webhookSecretSource: this.value("PAYSTACK_WEBHOOK_SECRET") ? "PAYSTACK_WEBHOOK_SECRET" : this.paystackSecretKey() ? "PAYSTACK_SECRET_KEY" : null,
+      webhookSecretSource: this.value("PAYSTACK_WEBHOOK_SECRET") ? "PAYSTACK_WEBHOOK_SECRET" : paymentMode.secretKeySource,
     };
   }
 
+  private resolvePaystackPaymentMode() {
+    return resolvePaymentMode("paystack", (key) => this.config.get<string>(key) || process.env[key]);
+  }
+
   private paystackWebhookSigningSecret() { return this.value("PAYSTACK_WEBHOOK_SECRET") || this.paystackSecretKey(); }
-  private paystackSecretKey() { return this.value("PAYSTACK_TEST_SECRET_KEY") || this.value("PAYSTACK_SANDBOX_SECRET_KEY") || this.value("PAYSTACK_SECRET_KEY") || this.value("PAYSTACK_LIVE_SECRET_KEY"); }
+  private paystackSecretKey() { return this.resolvePaystackPaymentMode().secretKey; }
 
   private isValidPaystackSignature(signature: string, payload: unknown, signingSecret: string): boolean {
     const normalizedSignature = signature.trim().toLowerCase();

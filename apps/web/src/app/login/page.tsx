@@ -24,17 +24,27 @@ function LoginForm() {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [message, setMessage] = useState("");
+  const [submitting, setSubmitting] = useState(false);
   const [configReady] = useState(true);
 
   async function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
+    const normalizedEmail = email.trim().toLowerCase();
+    if (!normalizedEmail || !password) {
+      setMessage("Please enter your email and password to sign in.");
+      return;
+    }
+    setSubmitting(true);
     setMessage("Signing in…");
     try {
-      await loginWithApi({ email, password });
+      await loginWithApi({ email: normalizedEmail, password });
       setMessage(nextPath === "/profile" ? "Signed in. Opening your profile…" : "Signed in. Opening your account…");
       router.push(nextPath);
+      router.refresh();
     } catch (error) {
       setMessage(error instanceof Error ? humanLoginError(error.message) : "We could not sign you in. Please check your email and password.");
+    } finally {
+      setSubmitting(false);
     }
   }
 
@@ -45,6 +55,7 @@ function LoginForm() {
       password={password}
       message={message}
       configReady={configReady}
+      submitting={submitting}
       referral={referral}
       nextPath={nextPath}
       onEmailChange={setEmail}

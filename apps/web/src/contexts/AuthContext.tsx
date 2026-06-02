@@ -2,7 +2,7 @@
 
 import { createContext, useContext, useEffect, useMemo, useState } from "react";
 
-import { clearAuthSession, meWithApi, readAuthSession, safeAuthMessage, type AuthUser } from "@/lib/auth/nest-auth-client";
+import { AUTH_SESSION_CHANGED_EVENT, clearAuthSession, meWithApi, readAuthSession, readStoredAuthUser, safeAuthMessage, type AuthUser } from "@/lib/auth/nest-auth-client";
 
 type SafeSession = {
   accessToken?: string;
@@ -24,9 +24,9 @@ type AuthContextValue = {
 const AuthContext = createContext<AuthContextValue | null>(null);
 const AuthContextProvider = AuthContext.Provider as any;
 
-function sessionFromUser(user: AuthUser): SafeSession {
+function sessionFromUser(user: AuthUser, accessToken = readAuthSession()?.accessToken): SafeSession {
   return {
-    accessToken: readAuthSession()?.accessToken,
+    accessToken,
     user: {
       id: user.id,
       email: user.email,
@@ -55,21 +55,42 @@ export function AuthProvider({ children }: { children: any }) {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
+  function hydrateCachedSession() {
+    const cachedSession = readAuthSession();
+    const cachedUser = readStoredAuthUser();
+    if (cachedSession?.accessToken && cachedUser?.id) {
+      setSession(sessionFromUser(cachedUser, cachedSession.accessToken));
+      setError(null);
+      return true;
+    }
+    setSession(null);
+    return false;
+  }
+
   async function refreshSession() {
-    setLoading(true);
+    const hasCachedSession = hydrateCachedSession();
+    setLoading(!hasCachedSession);
     try {
       const payload = await meWithApi();
       if (payload?.user) {
         setSession(sessionFromUser(payload.user));
         setError(null);
-      } else {
+      } else if (!hasCachedSession) {
         setSession(null);
         setError(null);
       }
     } catch (err) {
-      clearAuthSession();
-      setError(safeSessionError(err));
-      setSession(null);
+      const message = err instanceof Error ? err.message : String(err || "");
+      const cachedSession = readAuthSession();
+      const cachedUser = readStoredAuthUser();
+      if (cachedSession?.accessToken && cachedUser?.id && message !== "SESSION_EXPIRED") {
+        setSession(sessionFromUser(cachedUser, cachedSession.accessToken));
+        setError(safeSessionError(err));
+      } else {
+        clearAuthSession(false);
+        setError(safeSessionError(err));
+        setSession(null);
+      }
     } finally {
       setLoading(false);
     }
@@ -77,6 +98,13 @@ export function AuthProvider({ children }: { children: any }) {
 
   useEffect(() => {
     void refreshSession();
+    const syncAuthSession = () => void refreshSession();
+    window.addEventListener(AUTH_SESSION_CHANGED_EVENT, syncAuthSession);
+    window.addEventListener("storage", syncAuthSession);
+    return () => {
+      window.removeEventListener(AUTH_SESSION_CHANGED_EVENT, syncAuthSession);
+      window.removeEventListener("storage", syncAuthSession);
+    };
   }, []);
 
   const value = useMemo(
