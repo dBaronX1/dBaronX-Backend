@@ -7,7 +7,7 @@ import { fetchWebStoreProducts } from "@/lib/store-products-server";
 
 const metricCards = [
   ["Verified commerce", "Shop dBaronX products and checkout securely."],
-  ["Account access", "Create an account, sign in, and manage your profile."],
+  ["Account access", "Create an account, log in, and manage your profile."],
   ["dBaronX style", "Dark launch visuals, gold accents, rounded glass cards, and customer-first pages."],
 ];
 

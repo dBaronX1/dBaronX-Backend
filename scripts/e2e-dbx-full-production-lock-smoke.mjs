@@ -1,6 +1,7 @@
 import { exists, assert, read } from './e2e-production-lock-helpers.mjs';
 const smokes = [
   'scripts/e2e-auth-profile-production-lock-smoke.mjs',
+  'scripts/e2e-auth-login-no-register-conflict-smoke.mjs',
   'scripts/e2e-shop-products-production-lock-smoke.mjs',
   'scripts/e2e-cart-checkout-production-lock-smoke.mjs',
   'scripts/e2e-payment-mode-resolution-smoke.mjs',

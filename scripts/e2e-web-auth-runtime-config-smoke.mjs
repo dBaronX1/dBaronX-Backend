@@ -98,7 +98,7 @@ const fullNameFieldReadySource = /Full Name/.test(rocketSource) && /fullName/.te
 const emailFieldReadySource = /Email/.test(rocketSource) && /type="email"/.test(rocketSource);
 const passwordFieldReadySource = /Password/.test(rocketSource) && /minLength=\{isRegister \? 8/.test(rocketSource);
 const confirmPasswordFieldReadySource = /Confirm Password/.test(rocketSource) && /confirmPassword/.test(registerSource) && /Passwords must match/.test(registerSource);
-const emailConfirmationUxReadySource = registerSource.includes("Account created. Check your email to confirm your account, then return to sign in.") && registerSource.includes("/auth/callback?next=");
+const emailConfirmationUxReadySource = registerSource.includes("Account created. Check your email to confirm your account, then return to log in.") && registerSource.includes("/auth/callback?next=");
 const resendConfirmationReadySource = registerSource.includes("Resend confirmation email") && registerSource.includes("supabase.auth.resend") && registerSource.includes('type: "signup"');
 const metadataSource = `${registerSource}\n${read("apps/web/src/lib/auth/referral-capture.ts")}`;
 const metadataReadySource = ["display_name", "referral_code", "invite_code", "initiation_code", "web_register", "onboarding_target"].every((text) => metadataSource.includes(text));
@@ -172,7 +172,7 @@ if (WEB_BASE_URL) {
   emailFieldReadyRuntime = /Email/.test(registerHtml);
   passwordFieldReadyRuntime = /Password/.test(registerHtml);
   confirmPasswordFieldReadyRuntime = /Confirm Password/.test(registerHtml);
-  emailConfirmationUxReadyRuntime = /confirm your account|return to sign in/i.test(registerHtml);
+  emailConfirmationUxReadyRuntime = /confirm your account|return to log in/i.test(registerHtml);
   resendConfirmationReadyRuntime = /Resend confirmation email|Resend confirmation/i.test(registerHtml);
 
   const json = configProbe?.json;

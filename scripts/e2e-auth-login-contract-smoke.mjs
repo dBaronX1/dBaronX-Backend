@@ -19,7 +19,7 @@ check("login returns safe user", /user:\s*profile\.value/.test(service) && /Safe
 check("login returns session.accessToken", /session/.test(service) && /accessToken:\s*input\.apiAccessToken/.test(service));
 check("login returns token alias", /token:\s*input\.apiAccessToken/.test(service) && /token:\s*session\.token/.test(service));
 check("login returns top-level accessToken alias", /accessToken:\s*session\.accessToken/.test(service));
-check("wrong credentials map to INVALID_CREDENTIALS", /INVALID_CREDENTIALS/.test(mapper) && /We could not sign you in\. Please check your email and password\./.test(mapper));
+check("wrong credentials map to INVALID_CREDENTIALS", /INVALID_CREDENTIALS/.test(mapper) && /We could not log you in\. Please check your email and password\./.test(mapper));
 check("email not confirmed is not leaked raw", /email\.\*not\.\*confirm|not\.\*confirmed/.test(mapper) && /AUTH_TEMPORARILY_UNAVAILABLE/.test(mapper));
 check("registration confirms email for immediate login", /auth\.admin\.createUser/.test(service) && /email_confirm:\s*true/.test(service));
 check("/me accepts bearer token", /@Get\("me"\)/.test(controller) && /extractBearer/.test(service) && /auth\.getUser\(token\)/.test(service));

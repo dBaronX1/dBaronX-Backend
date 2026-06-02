@@ -216,7 +216,7 @@ export function DbxAuthShell({
             <div style={{ display: "grid", gap: 8, marginBottom: 18 }}>
               <div style={styles.eyebrow}>{isRegister ? "Create account" : "Customer login"}</div>
               <h2 style={{ margin: 0, fontSize: 30, letterSpacing: "-.04em" }}>
-                {isRegister ? "Join dBaronX" : "Sign in securely"}
+                {isRegister ? "Join dBaronX" : "Login securely"}
               </h2>
             </div>
 
@@ -260,7 +260,7 @@ export function DbxAuthShell({
                 </>
               ) : null}
               <button type="submit" disabled={submitDisabled} style={{ ...styles.button, opacity: submitDisabled ? .55 : 1, cursor: submitDisabled ? "not-allowed" : "pointer" }}>
-                {submitting ? (isRegister ? "Creating account…" : "Signing in…") : isRegister ? "Create Free Account" : "Log in"}
+                {submitting ? (isRegister ? "Creating account…" : "Logging in…") : isRegister ? "Create Free Account" : "Log in"}
               </button>
               {onMagicLink ? (
                 <button type="button" onClick={onMagicLink} disabled={!configReady || !email || submitting} style={{ ...styles.secondaryButton, opacity: configReady && email && !submitting ? 1 : .55, cursor: configReady && email && !submitting ? "pointer" : "not-allowed" }}>

@@ -47,7 +47,7 @@ function sessionFromUser(user: AuthUser, accessToken = readAuthSession()?.access
 
 function safeSessionError(error: unknown) {
   const message = error instanceof Error ? error.message : String(error || "");
-  return safeAuthMessage(message, "Unable to load auth session. Please sign in again or contact support.");
+  return safeAuthMessage(message, "Unable to load auth session. Please log in again or contact support.");
 }
 
 export function AuthProvider({ children }: { children: any }) {

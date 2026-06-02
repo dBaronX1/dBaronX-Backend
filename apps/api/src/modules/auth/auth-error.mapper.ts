@@ -42,11 +42,11 @@ export const AUTH_SAFE_MESSAGES: Record<PublicAuthErrorCode, string> = {
   WEAK_PASSWORD: "Your password is too weak. Please use a stronger password.",
   PASSWORD_MISMATCH: "Passwords do not match.",
   EMAIL_ALREADY_REGISTERED:
-    "This email is already registered. Please sign in instead.",
+    "This email is already registered. Please log in instead.",
   INVALID_CREDENTIALS:
-    "We could not sign you in. Please check your email and password.",
+    "We could not log you in. Please check your email and password.",
   RATE_LIMITED: "Too many attempts. Please wait a moment and try again.",
-  SESSION_EXPIRED: "Your session has expired. Please sign in again.",
+  SESSION_EXPIRED: "Your session has expired. Please log in again.",
   PROFILE_CREATION_FAILED:
     "We could not finish creating your profile. Please try again.",
   VALIDATION_FAILED: "Please check your details and try again.",
@@ -114,6 +114,27 @@ export function mapSupabaseAuthError(
     "AUTH_TEMPORARILY_UNAVAILABLE",
     HttpStatus.SERVICE_UNAVAILABLE,
   );
+}
+
+export function mapSupabaseLoginError(error: unknown): PublicAuthError {
+  const message = extractProviderMessageForMappingOnly(error);
+
+  if (/rate|too many/i.test(message))
+    return publicAuthError("RATE_LIMITED", HttpStatus.TOO_MANY_REQUESTS);
+
+  if (/invalid.*credential|invalid login|email or password|invalid.*password/i.test(message))
+    return publicAuthError("INVALID_CREDENTIALS", HttpStatus.UNAUTHORIZED);
+
+  if (/email.*not.*confirm|confirm.*email|not.*confirmed/i.test(message))
+    return publicAuthError("AUTH_TEMPORARILY_UNAVAILABLE", HttpStatus.SERVICE_UNAVAILABLE);
+
+  if (/jwt|expired|session/i.test(message))
+    return publicAuthError("SESSION_EXPIRED", HttpStatus.UNAUTHORIZED);
+
+  if (/already|registered|exists|duplicate|email_exists/i.test(message))
+    return publicAuthError("INVALID_CREDENTIALS", HttpStatus.UNAUTHORIZED);
+
+  return publicAuthError("AUTH_TEMPORARILY_UNAVAILABLE", HttpStatus.SERVICE_UNAVAILABLE);
 }
 
 export function authErrorResponse(error: PublicAuthError) {

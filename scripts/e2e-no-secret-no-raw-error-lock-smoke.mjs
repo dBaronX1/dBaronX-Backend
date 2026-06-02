@@ -9,5 +9,6 @@ for (const file of files) {
 }
 const mapper = read('apps/web/src/lib/auth/nest-auth-client.ts');
 assert(mapper.includes('RAW_BACKEND_ERROR_PATTERN') && mapper.includes('safeAuthMessage'), 'frontend safe auth mapper missing');
+assert(mapper.includes('Please log in instead.') && mapper.includes('We could not log you in.') && !/sign in|Sign in|sign-in/i.test(mapper), 'frontend auth mapper must use log in copy');
 assert(leaks.length === 0, `raw error/secret leaks in customer UI:\n${leaks.join('\n')}`);
 console.log('no secret/no raw error lock smoke passed');
