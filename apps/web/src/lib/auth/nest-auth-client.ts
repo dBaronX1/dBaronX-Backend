@@ -13,6 +13,13 @@ export type AuthUser = {
   email: string | null;
   fullName?: string | null;
   referralCode?: string | null;
+  displayName?: string | null;
+  avatarUrl?: string | null;
+  gender?: string | null;
+  pronouns?: string | null;
+  country?: string | null;
+  phoneCode?: string | null;
+  language?: string | null;
 };
 
 export type AuthResponse = {
@@ -105,6 +112,12 @@ export async function loginWithApi(input: { email: string; password: string }) {
   const payload = await authFetch("/api/auth/login", { method: "POST", body: JSON.stringify(input) });
   storeAuthSession(payload.session);
   return payload;
+}
+
+export async function updateProfileWithApi(input: { fullName?: string; displayName?: string; avatarUrl?: string; gender?: string; pronouns?: string; country?: string; phoneCode?: string; language?: string }) {
+  const session = readAuthSession();
+  if (!session?.accessToken) throw new Error("SESSION_EXPIRED");
+  return authFetch("/api/auth/profile", { method: "POST", headers: { authorization: `Bearer ${session.accessToken}` }, body: JSON.stringify(input) });
 }
 
 export async function meWithApi() {

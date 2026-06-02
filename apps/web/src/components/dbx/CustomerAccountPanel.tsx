@@ -4,8 +4,7 @@ import { ChangeEvent, useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 
 import { useAuthSession } from "@/lib/hooks/useAuthSession";
-import { logoutWithApi } from "@/lib/auth/nest-auth-client";
-import { getSupabaseRuntimeBrowserClient } from "@/lib/supabase/runtime-client";
+import { logoutWithApi, updateProfileWithApi } from "@/lib/auth/nest-auth-client";
 import { DbxCard, dbxButtonStyle } from "@/components/dbx/DbxVisualShell";
 
 const GENDER_OPTIONS = ["Male", "Female", "Prefer not to say"] as const;
@@ -14,7 +13,6 @@ const COUNTRY_OPTIONS = ["United States", "Canada", "United Kingdom", "Australia
 const PHONE_CODE_OPTIONS = ["+1", "+44", "+49", "+61", "+233", "+234", "+27", "Prefer not to say"] as const;
 const LANGUAGE_OPTIONS = ["English", "Spanish", "French", "German", "Portuguese", "Prefer not to say"] as const;
 const PHOTO_ACCEPT = "image/jpeg,image/jpg,image/png,image/webp";
-const PROFILE_PHOTO_BUCKET = "profile-photos";
 
 function textValue(value: unknown) {
   return typeof value === "string" ? value.trim() : "";
@@ -108,22 +106,8 @@ export function CustomerAccountPanel({ mode = "account" }: { mode?: "account" | 
     }
     const localUrl = URL.createObjectURL(file);
     setPhotoPreview(localUrl);
-    setStatus("Profile photo preview ready. Uploading if storage is configured…");
-    try {
-      const supabase = await getSupabaseRuntimeBrowserClient();
-      const extension = file.name.split(".").pop()?.toLowerCase() || "jpg";
-      const path = `${session?.user?.id || "anonymous"}/${Date.now()}.${extension}`;
-      const { error: uploadError } = await supabase.storage.from(PROFILE_PHOTO_BUCKET).upload(path, file, { cacheControl: "3600", upsert: true, contentType: file.type });
-      if (uploadError) {
-        setStatus("profile_photo_storage_unavailable: Local preview is shown, but backend photo storage is not available yet.");
-        return;
-      }
-      const { data } = supabase.storage.from(PROFILE_PHOTO_BUCKET).getPublicUrl(path);
-      setPhotoUploadUrl(data.publicUrl || localUrl);
-      setStatus("Profile photo uploaded. Save profile to keep it on your account.");
-    } catch {
-      setStatus("profile_photo_storage_unavailable: Local preview is shown, but backend photo storage is not available yet.");
-    }
+    setPhotoUploadUrl(photoUploadUrl || initialAvatarUrl);
+    setStatus("Profile photo preview ready. Photo saving is temporarily unavailable, but your other profile details can still be saved.");
   }
 
   async function updateProfile() {
@@ -135,7 +119,6 @@ export function CustomerAccountPanel({ mode = "account" }: { mode?: "account" | 
     }
     setStatus("Updating profile…");
     try {
-      const supabase = await getSupabaseRuntimeBrowserClient();
       const safeData = safeProfileMetadata(metadata, {
         full_name: nextFullName || nextDisplayName,
         display_name: nextDisplayName || nextFullName,
@@ -146,11 +129,16 @@ export function CustomerAccountPanel({ mode = "account" }: { mode?: "account" | 
         phone_code: phoneCodeDraft,
         language: languageDraft,
       });
-      const { error: updateError } = await supabase.auth.updateUser({ data: safeData });
-      if (updateError) {
-        setStatus("We could not update your profile. Please try again or contact support.");
-        return;
-      }
+      await updateProfileWithApi({
+        fullName: String(safeData.full_name || ""),
+        displayName: String(safeData.display_name || ""),
+        avatarUrl: String(safeData.avatar_url || ""),
+        gender: String(safeData.gender || "Prefer not to say"),
+        pronouns: String(safeData.pronouns || "Prefer not to say"),
+        country: String(safeData.country || ""),
+        phoneCode: String(safeData.phone_code || ""),
+        language: String(safeData.language || ""),
+      });
       await refreshSession();
       setStatus("Profile updated. Your saved account details are now active.");
       setEditing(false);
@@ -176,7 +164,7 @@ export function CustomerAccountPanel({ mode = "account" }: { mode?: "account" | 
       <DbxCard>
         <h2 style={{ marginTop: 0 }}>Sign in to continue</h2>
         <p style={{ color: "#fed7aa", lineHeight: 1.7 }}>
-          {error ? "We could not load the current session. Please sign in again or contact support." : "Access profile details, referrals, orders, wallet links, and support after login."}
+          {error ? "We could not load the current session. Please sign in again or contact support." : "Access profile details, referrals, orders, and support after login."}
         </p>
         <div style={{ display: "flex", gap: 12, flexWrap: "wrap" }}>
           <Link href={`/login?next=/${mode}`} style={dbxButtonStyle}>Login</Link>
@@ -219,7 +207,7 @@ export function CustomerAccountPanel({ mode = "account" }: { mode?: "account" | 
       </DbxCard>
       <DbxCard>
         <p style={{ marginTop: 0, color: "#fbbf24", fontWeight: 900 }}>Account actions</p>
-        <p style={{ color: "#fed7aa", lineHeight: 1.7 }}>Manage customer-safe profile details, orders, rewards, referrals, support requests, and account preferences.</p>
+        <p style={{ color: "#fed7aa", lineHeight: 1.7 }}>Manage customer-safe profile details, orders, referrals, support requests, and account preferences.</p>
         <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
           <Link href="/orders" style={dbxButtonStyle}>Orders</Link>
           <Link href="/profile" style={dbxButtonStyle}>Profile</Link>

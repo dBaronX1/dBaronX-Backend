@@ -10,6 +10,7 @@ check("Paystack initializes hosted transaction", /transaction\/initialize/.test(
 check("Paystack supports multi-line totals", /lineItems\.reduce/.test(paystack) && /lineItemCount:\s*lineItems\.length/.test(paystack));
 check("Paystack response exposes checkoutUrl and reference", /checkoutUrl/.test(controller) && /reference/.test(controller));
 check("Paystack missing key maps to safe provider unavailable", /paystack_not_configured/.test(paystack) && /Payment provider is temporarily unavailable/.test(paystack));
+check("Paystack defaults to sandbox/test key when present", /PAYSTACK_TEST_SECRET_KEY/.test(paystack) && /PAYSTACK_SANDBOX_SECRET_KEY/.test(paystack) && /PAYSTACK_LIVE_SECRET_KEY/.test(paystack) && /paystackSecretKey/.test(paystack));
 check("Paystack webhook falls back to secret key for HMAC", /PAYSTACK_WEBHOOK_SECRET/.test(paystack) && /PAYSTACK_SECRET_KEY/.test(paystack) && /createHmac\("sha512"/.test(paystack) && /paystackWebhookSigningSecret/.test(paystack));
 check("Paystack readiness does not require separate webhook secret", /webhookReady:\s*Boolean\(this\.paystackWebhookSigningSecret\(\)\)/.test(paystack));
 check("Paystack checkout does not mark paid", !/paid_verified|payment_status:\s*["']paid["']|status:\s*["']paid["']/.test(combined));

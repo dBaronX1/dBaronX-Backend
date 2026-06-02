@@ -14,13 +14,13 @@ const storyConcepts = [
 ] as const;
 
 const errorMessages: Record<string, string> = {
-  ai_provider_missing: "ai_provider_missing: Provider not configured. Please contact support so AI generation can be enabled.",
-  provider_failed: "provider_failed: The AI provider could not generate this story. Try a clearer prompt or retry.",
-  fastapi_route_missing: "fastapi_route_missing: The AI Stories generation route is not deployed yet. Please contact support.",
-  fastapi_unavailable: "fastapi_unavailable: Generation service unavailable. Please retry in a moment.",
-  validation_failed: "validation_failed: Request validation failed. Please check the prompt, length, and tone.",
+  ai_provider_missing: "Story generation is temporarily unavailable. Please contact support so it can be enabled.",
+  provider_failed: "Story generation could not complete. Try a clearer prompt or retry.",
+  fastapi_route_missing: "Story generation is temporarily unavailable. Please contact support.",
+  fastapi_unavailable: "Story generation is temporarily unavailable. Please retry in a moment.",
+  validation_failed: "Please check the prompt, length, and tone.",
   rate_limited: "Generation is rate limited. Please wait a moment and retry.",
-  persistence_failed: "persistence_failed: Persistence failed but the story may have generated. Copy any visible story before leaving.",
+  persistence_failed: "The story may have generated, but saving is not confirmed. Copy any visible story before leaving.",
 };
 
 export function AiStoryGeneratorPanel({ compact = false }: { compact?: boolean }) {
@@ -72,8 +72,8 @@ export function AiStoryGeneratorPanel({ compact = false }: { compact?: boolean }
       setContent(generatedContent);
       setSaved(data.saved === true);
       const persistenceWarning = data.saved !== true ? " Story generated, but saving is not confirmed." : " Story generated and saved.";
-      const fallbackNote = data.fallbackUsed ? " Provider fallback was used." : "";
-      setStatus(generatedContent ? `${persistenceWarning}${fallbackNote}`.trim() : "The provider returned no story text. Please retry.");
+      const fallbackNote = data.fallbackUsed ? "" : "";
+      setStatus(generatedContent ? `${persistenceWarning}${fallbackNote}`.trim() : "No story text was returned. Please retry.");
     } catch {
       setLastError("fastapi_unavailable");
       setStatus(errorMessages.fastapi_unavailable);

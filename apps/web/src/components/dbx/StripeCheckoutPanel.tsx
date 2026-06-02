@@ -29,7 +29,7 @@ export function StripeCheckoutPanel({ product, variantId }: Props) {
     setLoading(true);
     setStatus("Creating secure checkout session…");
     const result = await createStripeCheckoutSession({
-      cartId: `rocket_${product.handle || product.id || variantId}_${Date.now()}`,
+      cartId: `dbx_${product.handle || product.id || variantId}_${Date.now()}`,
       productId: String(product.productId || product.id || ""),
       variantId,
       priceMinor,
@@ -45,9 +45,9 @@ export function StripeCheckoutPanel({ product, variantId }: Props) {
       city,
       addressLine1,
       postalCode,
-      supplier: String(product.supplier || "cj"),
-      supplierProductId: String(product.supplierProductId || ""),
-      supplierSku: String(product.supplierSku || ""),
+      ...(product.supplier ? { supplier: String(product.supplier) } : {}),
+      ...(product.supplierProductId ? { supplierProductId: String(product.supplierProductId) } : {}),
+      ...(product.supplierSku ? { supplierSku: String(product.supplierSku) } : {}),
     });
     setLoading(false);
     if (result?.checkoutUrl) {
@@ -62,10 +62,9 @@ export function StripeCheckoutPanel({ product, variantId }: Props) {
     <DbxCard>
       <h2 style={{ marginTop: 0 }}>Secure checkout</h2>
       <p style={{ color: "#fed7aa", lineHeight: 1.7 }}>
-        Rocket sends the normalized product, variant, quantity, customer, and shipping details to the NestJS API. Stripe payment verification remains webhook-controlled.
+Your product, contact, and shipping details are sent securely so hosted payment can begin. Payment status updates only after verified payment confirmation.
       </p>
       <p style={{ color: "#fdba74", wordBreak: "break-word" }}>Product: {product.title || product.handle}</p>
-      <p style={{ color: "#fdba74", wordBreak: "break-word" }}>Variant: <code>{variantId}</code></p>
       <p style={{ color: "#fff7ed", fontWeight: 950 }}>{productDisplayPrice(product)}</p>
       <form onSubmit={submit} style={{ display: "grid", gap: 12 }}>
         <label style={labelStyle}>Email<input required type="email" value={email} onChange={(event) => setEmail(event.target.value)} style={fieldStyle} /></label>
@@ -75,7 +74,7 @@ export function StripeCheckoutPanel({ product, variantId }: Props) {
         <label style={labelStyle}>City<input required value={city} onChange={(event) => setCity(event.target.value)} style={fieldStyle} /></label>
         <label style={labelStyle}>Address<input required value={addressLine1} onChange={(event) => setAddressLine1(event.target.value)} style={fieldStyle} /></label>
         <label style={labelStyle}>Postal code<input required value={postalCode} onChange={(event) => setPostalCode(event.target.value)} style={fieldStyle} /></label>
-        <button type="submit" disabled={loading || !variantId || !priceMinor} style={{ ...dbxButtonStyle, border: 0, cursor: loading ? "wait" : "pointer", opacity: loading || !variantId || !priceMinor ? 0.7 : 1 }}>{loading ? "Starting checkout…" : "Pay with Stripe"}</button>
+        <button type="submit" disabled={loading || !variantId || !priceMinor} style={{ ...dbxButtonStyle, border: 0, cursor: loading ? "wait" : "pointer", opacity: loading || !variantId || !priceMinor ? 0.7 : 1 }}>{loading ? "Starting checkout…" : "Start secure payment"}</button>
       </form>
       {status ? <p role="status" style={{ color: "#fed7aa", lineHeight: 1.6 }}>{status}</p> : null}
       <Link href={product.handle ? `/products/${product.handle}` : "/products"} style={{ color: "#fbbf24", fontWeight: 900 }}>Back to product</Link>
