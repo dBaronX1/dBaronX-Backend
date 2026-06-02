@@ -1,0 +1,25 @@
+#!/usr/bin/env node
+import { readFileSync } from "node:fs";
+const profile = readFileSync("apps/web/src/components/dbx/CustomerAccountPanel.tsx", "utf8");
+const client = readFileSync("apps/web/src/lib/auth/nest-auth-client.ts", "utf8");
+const controller = readFileSync("apps/api/src/modules/auth/auth.controller.ts", "utf8");
+const service = readFileSync("apps/api/src/modules/auth/auth.service.ts", "utf8");
+const register = readFileSync("apps/web/src/app/register/page.tsx", "utf8");
+const productViews = readFileSync("apps/web/src/components/dbx/ProductViews.tsx", "utf8");
+const checkoutPanel = readFileSync("apps/web/src/components/dbx/StripeCheckoutPanel.tsx", "utf8");
+const aiPanel = readFileSync("apps/web/src/components/dbx/AiStoryGeneratorPanel.tsx", "utf8");
+const orderLookup = readFileSync("apps/web/src/components/dbx/CustomerOrderStatusLookup.tsx", "utf8");
+const ordersPage = readFileSync("apps/web/src/app/(platform)/orders/page.tsx", "utf8");
+const checks = [];
+const check = (name, pass) => checks.push({ name, pass: Boolean(pass) });
+check("registration defaults to profile", /safeLocalPath\(params\.get\("next"\), "\/profile"\)/.test(register));
+check("profile updates go through API auth gateway", /updateProfileWithApi/.test(profile) && /\/api\/auth\/profile/.test(client) && /@Post\("profile"\)/.test(controller) && /async updateProfile/.test(service));
+check("profile no longer calls browser storage service directly", !/getSupabaseRuntimeBrowserClient|storage\.from|updateUser\(/.test(profile));
+check("profile photo unavailable message is safe", /Photo saving is temporarily unavailable/.test(profile) && !/profile_photo_storage_unavailable/.test(profile));
+check("shop UI hides internal endpoint and supplier identifiers", !/Attempted catalog endpoint|Handle:|Variant:/.test(productViews) && !/product\.supplier \|\| metadata/.test(productViews));
+check("checkout UI is customer-safe and has no hardcoded supplier", !/Rocket sends|NestJS API|Pay with Stripe|\|\| "cj"/.test(checkoutPanel) && /Start secure payment/.test(checkoutPanel));
+check("AI story UI does not display raw backend codes", !/"(?:ai_provider_missing|provider_failed|fastapi_route_missing|fastapi_unavailable|validation_failed|persistence_failed):/.test(aiPanel));
+check("orders page has customer-safe status lookup", /CustomerOrderStatusLookup/.test(ordersPage) && /\/api\/order-status\?reference=/.test(orderLookup) && /Payment status is shown only after verified confirmation/.test(orderLookup));
+const failed = checks.filter((item) => !item.pass);
+for (const item of checks) console.log(`${item.pass ? "ok" : "not ok"} - ${item.name}`);
+if (failed.length) process.exit(1);

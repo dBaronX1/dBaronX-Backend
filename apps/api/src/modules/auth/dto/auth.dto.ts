@@ -20,3 +20,14 @@ export type PasswordResetConfirmDto = {
   password?: string;
   confirmPassword?: string;
 };
+
+export type UpdateProfileAuthDto = {
+  fullName?: string;
+  displayName?: string;
+  avatarUrl?: string;
+  gender?: string;
+  pronouns?: string;
+  country?: string;
+  phoneCode?: string;
+  language?: string;
+};

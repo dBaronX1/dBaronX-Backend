@@ -4,7 +4,7 @@ import { ChangeEvent, useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 
 import { useAuthSession } from "@/lib/hooks/useAuthSession";
-import { logoutWithApi } from "@/lib/auth/nest-auth-client";
+import { logoutWithApi, updateProfileWithApi } from "@/lib/auth/nest-auth-client";
 import { DbxCard, dbxButtonStyle } from "@/components/dbx/DbxVisualShell";
 
 const GENDER_OPTIONS = ["Male", "Female", "Prefer not to say"] as const;
@@ -106,8 +106,8 @@ export function CustomerAccountPanel({ mode = "account" }: { mode?: "account" | 
     }
     const localUrl = URL.createObjectURL(file);
     setPhotoPreview(localUrl);
-    setPhotoUploadUrl(localUrl);
-    setStatus("Local preview is shown. Profile photo upload is temporarily unavailable.");
+    setPhotoUploadUrl(photoUploadUrl || initialAvatarUrl);
+    setStatus("Profile photo preview ready. Photo saving is temporarily unavailable, but your other profile details can still be saved.");
   }
 
   async function updateProfile() {
@@ -117,19 +117,34 @@ export function CustomerAccountPanel({ mode = "account" }: { mode?: "account" | 
       setStatus("Please enter a display name before saving.");
       return;
     }
-    void safeProfileMetadata(metadata, {
-      full_name: nextFullName || nextDisplayName,
-      display_name: nextDisplayName || nextFullName,
-      avatar_url: photoUploadUrl,
-      gender: genderDraft,
-      pronouns: pronounsDraft,
-      country: countryDraft,
-      phone_code: phoneCodeDraft,
-      language: languageDraft,
-    });
-    await refreshSession();
-    setStatus("Profile save is temporarily unavailable. Your local edits remain visible until you refresh.");
-    setEditing(false);
+    setStatus("Updating profile…");
+    try {
+      const safeData = safeProfileMetadata(metadata, {
+        full_name: nextFullName || nextDisplayName,
+        display_name: nextDisplayName || nextFullName,
+        avatar_url: photoUploadUrl,
+        gender: genderDraft,
+        pronouns: pronounsDraft,
+        country: countryDraft,
+        phone_code: phoneCodeDraft,
+        language: languageDraft,
+      });
+      await updateProfileWithApi({
+        fullName: String(safeData.full_name || ""),
+        displayName: String(safeData.display_name || ""),
+        avatarUrl: String(safeData.avatar_url || ""),
+        gender: String(safeData.gender || "Prefer not to say"),
+        pronouns: String(safeData.pronouns || "Prefer not to say"),
+        country: String(safeData.country || ""),
+        phoneCode: String(safeData.phone_code || ""),
+        language: String(safeData.language || ""),
+      });
+      await refreshSession();
+      setStatus("Profile updated. Your saved account details are now active.");
+      setEditing(false);
+    } catch {
+      setStatus("We could not update your profile. Please try again or contact support.");
+    }
   }
 
   async function signOut() {
@@ -149,7 +164,7 @@ export function CustomerAccountPanel({ mode = "account" }: { mode?: "account" | 
       <DbxCard>
         <h2 style={{ marginTop: 0 }}>Sign in to continue</h2>
         <p style={{ color: "#fed7aa", lineHeight: 1.7 }}>
-          {error ? "We could not load the current session. Please sign in again or contact support." : "Access profile details, referrals, orders, wallet links, and support after login."}
+          {error ? "We could not load the current session. Please sign in again or contact support." : "Access profile details, referrals, orders, and support after login."}
         </p>
         <div style={{ display: "flex", gap: 12, flexWrap: "wrap" }}>
           <Link href={`/login?next=/${mode}`} style={dbxButtonStyle}>Login</Link>
@@ -193,7 +208,7 @@ export function CustomerAccountPanel({ mode = "account" }: { mode?: "account" | 
       </DbxCard>
       <DbxCard>
         <p style={{ marginTop: 0, color: "#fbbf24", fontWeight: 900 }}>Account actions</p>
-        <p style={{ color: "#fed7aa", lineHeight: 1.7 }}>Manage customer-safe profile details, orders, rewards, referrals, support requests, and account preferences.</p>
+        <p style={{ color: "#fed7aa", lineHeight: 1.7 }}>Manage customer-safe profile details, orders, referrals, support requests, and account preferences.</p>
         <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
           <Link href="/orders" style={dbxButtonStyle}>Orders</Link>
           <Link href="/profile" style={dbxButtonStyle}>Profile</Link>

@@ -9,7 +9,7 @@ import { safeLocalPath } from "@/lib/auth/routes";
 import { registerWithApi, safeAuthMessage } from "@/lib/auth/nest-auth-client";
 
 const EMAIL_PATTERN = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-const CONFIRMATION_MESSAGE = "Account created. Redirecting to your account.";
+const CONFIRMATION_MESSAGE = "Account created. Opening your profile.";
 
 type FieldErrors = Partial<Record<"fullName" | "email" | "password" | "confirmPassword", string>>;
 
@@ -30,7 +30,7 @@ function RegisterForm() {
   const router = useRouter();
   const [params, setParams] = useState(() => new URLSearchParams());
   const referral = useMemo(() => captureReferralParams(params), [params]);
-  const nextPath = safeLocalPath(params.get("next"), "/account");
+  const nextPath = safeLocalPath(params.get("next"), "/profile");
 
   useEffect(() => {
     setParams(new URLSearchParams(window.location.search));

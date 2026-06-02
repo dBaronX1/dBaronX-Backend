@@ -13,7 +13,7 @@ function productCategory(product: StoreProduct) {
 }
 
 export function DbxProductGrid({ handle, initialProducts = [] }: { handle?: string; initialProducts?: StoreProduct[] }) {
-  const { products, loading } = useStoreProducts({ limit: handle ? 8 : 24, handle, initialProducts });
+  const { products, loading, reason } = useStoreProducts({ limit: handle ? 8 : 24, handle, initialProducts });
   const [selectedCategory, setSelectedCategory] = useState("All");
   const baseProducts = handle ? products.filter((product) => product.handle === handle) : products;
   const categories = useMemo(() => ["All", ...Array.from(new Set(baseProducts.map(productCategory).filter(Boolean)))], [baseProducts]);
@@ -23,7 +23,7 @@ export function DbxProductGrid({ handle, initialProducts = [] }: { handle?: stri
   if (loading) return <DbxCard>Loading dBaronX products…</DbxCard>;
 
   if (!visible.length) {
-    const fallbackMessage = "Products are temporarily unavailable. Please try again.";
+    const fallbackMessage = reason ? "Products are temporarily unavailable. Please try again shortly or contact dBaronX support." : "Products are being prepared for launch. Please check back shortly or contact support.";
     return (
       <DbxCard>
         <h2 style={{ marginTop: 0 }}>dBaronX products</h2>
@@ -67,8 +67,7 @@ export function DbxProductCard({ product }: { product: StoreProduct }) {
   const image = productPrimaryImage(product) || "/assets/images/no_image.svg";
   const variantId = productPrimaryVariantId(product);
   const metadata = product.metadata && typeof product.metadata === "object" ? product.metadata : {};
-  const publicLabels = Array.isArray((product as Record<string, unknown>).publicLabels) ? ((product as Record<string, unknown>).publicLabels as unknown[]).map(String).filter(Boolean) : ["Verified Supplier", "Direct Shipping"];
-  const categoryLabel = String(metadata.category || product.category || publicLabels[0] || "Verified Supplier");
+  const categoryLabel = String(product.category || metadata.category || metadata.label || metadata.searchLabel || "dBaronX catalog");
   const href = product.handle ? `/products/${product.handle}${variantId ? `?variant=${encodeURIComponent(variantId)}` : ""}` : "/products";
   return (
     <DbxCard style={{ padding: 0, overflow: "hidden" }} data-product-handle={product.handle || ""} data-product-variant-id={variantId}>

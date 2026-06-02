@@ -15,6 +15,7 @@ import {
 } from "./auth-error.mapper";
 import type {
   LoginAuthDto,
+  UpdateProfileAuthDto,
   PasswordResetConfirmDto,
   PasswordResetRequestDto,
   RegisterAuthDto,
@@ -26,6 +27,13 @@ export type SafeAuthUser = {
   fullName?: string | null;
   referralCode?: string | null;
   role?: string | null;
+  displayName?: string | null;
+  avatarUrl?: string | null;
+  gender?: string | null;
+  pronouns?: string | null;
+  country?: string | null;
+  phoneCode?: string | null;
+  language?: string | null;
 };
 
 type AuthResult<T> =
@@ -256,7 +264,8 @@ export class AuthService {
         decoded.email ? String(decoded.email) : undefined,
       );
       if (profile.ok === false) return { ok: false, error: profile.error };
-      return { ok: true, value: { user: profile.value } };
+      const metadata = await this.safeAuthMetadataForUser(String(decoded.sub || decoded.id));
+      return { ok: true, value: { user: { ...profile.value, ...this.safeUserFieldsFromMetadata(metadata, profile.value) } } };
     } catch {
       const serviceReady = this.ensureSupabaseConfigured();
       if (serviceReady.ok === false) return serviceReady;
@@ -274,6 +283,50 @@ export class AuthService {
           error: mapSupabaseAuthError(error, "SESSION_EXPIRED"),
         };
       }
+    }
+  }
+
+
+  async updateProfile(
+    authorization: string | undefined,
+    input: UpdateProfileAuthDto,
+  ): Promise<AuthResult<{ user: SafeAuthUser }>> {
+    const token = this.extractBearer(authorization);
+    if (!token)
+      return { ok: false, error: publicAuthError("SESSION_EXPIRED", 401) };
+
+    const decodedResult = this.userIdentityFromToken(token);
+    if (decodedResult.ok === false) return decodedResult;
+
+    const normalized = this.normalizeProfileUpdate(input);
+    try {
+      const existing = await this.loadProfile(
+        decodedResult.value.userId,
+        decodedResult.value.email || undefined,
+      );
+      const currentFullName = existing.ok ? existing.value.fullName || "" : "";
+      const currentReferral = existing.ok ? existing.value.referralCode || "" : "";
+      const fullName = normalized.fullName || normalized.displayName || currentFullName;
+      const profile = await this.upsertProfile(
+        { id: decodedResult.value.userId, email: decodedResult.value.email || null } as User,
+        { fullName, referralCode: currentReferral },
+      );
+      if (profile.ok === false) return { ok: false, error: profile.error };
+
+      if (this.supabase.isConfigured()) {
+        await this.supabase.client.auth.admin.updateUserById(
+          decodedResult.value.userId,
+          { user_metadata: this.safeUserMetadata(normalized, profile.value) },
+        );
+      }
+
+      return { ok: true, value: { user: { ...profile.value, ...this.safeUserFieldsFromUpdate(normalized, profile.value) } } };
+    } catch (error) {
+      this.logger.warn(JSON.stringify({ event: "auth_profile_update_failed" }));
+      return {
+        ok: false,
+        error: mapSupabaseAuthError(error, "PROFILE_CREATION_FAILED"),
+      };
     }
   }
 
@@ -534,6 +587,113 @@ export class AuthService {
     };
   }
 
+
+
+  private async safeAuthMetadataForUser(userId: string): Promise<Record<string, unknown>> {
+    if (!this.supabase.isConfigured() || !userId) return {};
+    try {
+      const { data, error } = await this.supabase.client.auth.admin.getUserById(userId);
+      if (error || !data.user?.user_metadata) return {};
+      return data.user.user_metadata;
+    } catch {
+      return {};
+    }
+  }
+
+  private safeUserFieldsFromMetadata(
+    metadata: unknown,
+    profile: SafeAuthUser,
+  ): Partial<SafeAuthUser> {
+    const row = metadata && typeof metadata === "object" ? (metadata as Record<string, unknown>) : {};
+    const text = (key: string) => (typeof row[key] === "string" ? String(row[key]).trim() : "");
+    const fullName = text("full_name") || profile.fullName || null;
+    return {
+      fullName,
+      displayName: text("display_name") || fullName,
+      avatarUrl: text("avatar_url") || null,
+      gender: text("gender") || null,
+      pronouns: text("pronouns") || null,
+      country: text("country") || null,
+      phoneCode: text("phone_code") || text("phoneCode") || null,
+      language: text("language") || null,
+    };
+  }
+
+  private userIdentityFromToken(
+    token: string,
+  ): AuthResult<{ userId: string; email: string | null }> {
+    try {
+      const decoded = this.jwt.verify(token);
+      const userId = String(decoded.sub || decoded.id || "").trim();
+      if (!userId)
+        return { ok: false, error: publicAuthError("SESSION_EXPIRED", 401) };
+      return {
+        ok: true,
+        value: {
+          userId,
+          email: decoded.email ? String(decoded.email) : null,
+        },
+      };
+    } catch {
+      return { ok: false, error: publicAuthError("SESSION_EXPIRED", 401) };
+    }
+  }
+
+  private normalizeProfileUpdate(input: UpdateProfileAuthDto) {
+    const option = (value: unknown, allowed: string[], fallback = "") => {
+      const text = this.cleanProfileText(value, 80);
+      return allowed.includes(text) ? text : fallback;
+    };
+    return {
+      fullName: this.cleanProfileText(input.fullName, 180),
+      displayName: this.cleanProfileText(input.displayName, 180),
+      avatarUrl: this.cleanProfileText(input.avatarUrl, 2048),
+      gender: option(input.gender, ["Male", "Female", "Prefer not to say"], "Prefer not to say"),
+      pronouns: option(input.pronouns, ["He", "She", "Prefer not to say"], "Prefer not to say"),
+      country: this.cleanProfileText(input.country, 120),
+      phoneCode: this.cleanProfileText(input.phoneCode, 40),
+      language: this.cleanProfileText(input.language, 80),
+    };
+  }
+
+  private cleanProfileText(value: unknown, maxLength: number): string {
+    return String(value || "").trim().slice(0, maxLength);
+  }
+
+  private safeUserMetadata(
+    normalized: ReturnType<AuthService["normalizeProfileUpdate"]>,
+    profile: SafeAuthUser,
+  ) {
+    const fullName = normalized.fullName || normalized.displayName || profile.fullName || "";
+    return {
+      full_name: fullName,
+      display_name: normalized.displayName || fullName,
+      avatar_url: normalized.avatarUrl || undefined,
+      gender: normalized.gender || "Prefer not to say",
+      pronouns: normalized.pronouns || "Prefer not to say",
+      country: normalized.country || undefined,
+      phone_code: normalized.phoneCode || undefined,
+      language: normalized.language || undefined,
+      referral_code: profile.referralCode || undefined,
+    };
+  }
+
+  private safeUserFieldsFromUpdate(
+    normalized: ReturnType<AuthService["normalizeProfileUpdate"]>,
+    profile: SafeAuthUser,
+  ): Partial<SafeAuthUser> {
+    return {
+      fullName: normalized.fullName || normalized.displayName || profile.fullName || null,
+      displayName: normalized.displayName || normalized.fullName || profile.fullName || null,
+      avatarUrl: normalized.avatarUrl || null,
+      gender: normalized.gender || null,
+      pronouns: normalized.pronouns || null,
+      country: normalized.country || null,
+      phoneCode: normalized.phoneCode || null,
+      language: normalized.language || null,
+    };
+  }
+
   private validateRegister(input: RegisterAuthDto): AuthResult<{
     email: string;
     password: string;
@@ -663,7 +823,7 @@ export class AuthService {
     user: User,
   ): Promise<AuthResult<SafeAuthUser>> {
     const profile = await this.loadProfile(user.id, user.email || undefined);
-    if (profile.ok) return profile;
+    if (profile.ok) return { ok: true, value: { ...profile.value, ...this.safeUserFieldsFromMetadata(user.user_metadata, profile.value) } };
     if (
       profile.ok === false &&
       profile.error.errorCode !== "PROFILE_CREATION_FAILED"

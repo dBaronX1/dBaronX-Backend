@@ -62,11 +62,11 @@ function unwrapBackendResponse(data: unknown) {
 
 function safeErrorMessage(code: string, fallback?: string) {
   const messages: Record<string, string> = {
-    ai_provider_missing: "Story generation is temporarily unavailable. Please try again.",
-    provider_failed: "Story generation is temporarily unavailable. Please try again.",
-    all_ai_providers_failed: "Story generation is temporarily unavailable. Please try again.",
-    fastapi_route_missing: "Story generation is temporarily unavailable. Please try again.",
-    fastapi_unavailable: "Story generation is temporarily unavailable. Please try again.",
+    ai_provider_missing: "AI story generation is not configured yet. Please contact support.",
+    provider_failed: "Story generation could not complete. Please revise the prompt or try again.",
+    all_ai_providers_failed: "Story generation could not complete. Please revise the prompt or try again.",
+    fastapi_route_missing: "Story generation is temporarily unavailable. Please contact support.",
+    fastapi_unavailable: "Story generation is temporarily unavailable. Please try again shortly.",
     validation_failed: "Please check the prompt, length, and tone before trying again.",
     rate_limited: "Story generation is rate limited. Please wait a moment and try again.",
     persistence_failed: "Story generation is temporarily unavailable. Please try again.",
@@ -124,7 +124,7 @@ export async function POST(request: NextRequest) {
           success: false,
           code,
           message: safeErrorMessage(code, typeof backend?.message === "string" ? backend.message : undefined),
-          diagnostics: backend?.diagnostics && typeof backend.diagnostics === "object" ? backend.diagnostics : { status: response.status },
+          diagnostics: { status: response.status },
         },
         { status: 200, headers: { "cache-control": "no-store, max-age=0" } },
       );
@@ -150,7 +150,7 @@ export async function POST(request: NextRequest) {
         success: false,
         code: "fastapi_unavailable",
         message: safeErrorMessage("fastapi_unavailable"),
-        diagnostics: { route: "/api/v1/ai-stories/generate" },
+        diagnostics: { status: "unavailable" },
       },
       { status: 200, headers: { "cache-control": "no-store, max-age=0" } },
     );

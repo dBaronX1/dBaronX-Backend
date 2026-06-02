@@ -1984,7 +1984,14 @@ export class StripeCheckoutService {
   }
 
   private getStripeSecretKey(): string {
-    return this.resolveStripePaymentMode().secretKey;
+    const testKey =
+      this.value("STRIPE_TEST_SECRET_KEY") ||
+      this.value("STRIPE_SANDBOX_SECRET_KEY");
+    const defaultKey = this.value("STRIPE_SECRET_KEY");
+    const liveKey = this.value("STRIPE_LIVE_SECRET_KEY");
+    if (testKey) return testKey;
+    if (this.getStripeSecretKeyMode(defaultKey) === "test") return defaultKey;
+    return defaultKey || liveKey;
   }
 
   private getMedusaBaseUrl(): string {
@@ -2041,6 +2048,12 @@ export class StripeCheckoutService {
         .trim()
         .toLowerCase() === "true"
     );
+  }
+
+  private value(key: string): string {
+    return String(
+      this.config.get<string>(key) || process.env[key] || "",
+    ).trim();
   }
 
   private getStripeSecretKeyMode(
