@@ -67,6 +67,10 @@ export function hasSupabasePublicConfig(config: Pick<PublicRuntimeConfig, "supab
   return Boolean(config.supabaseUrl && config.supabaseAnonKey);
 }
 
+function hasAuthGatewayPublicConfig(config: Pick<PublicRuntimeConfig, "apiBaseUrl">) {
+  return Boolean(config.apiBaseUrl);
+}
+
 export function isSafePublicConfigPayload(value: unknown): value is PublicRuntimeConfig {
   if (!value || typeof value !== "object") return false;
   const keys = Object.keys(value);
@@ -87,7 +91,7 @@ async function fetchRuntimePublicConfig(): Promise<PublicRuntimeConfig> {
 
 export async function getBrowserPublicConfig(): Promise<PublicRuntimeConfig> {
   const buildTime = getBuildTimePublicConfig();
-  if (hasSupabasePublicConfig(buildTime)) return buildTime;
+  if (hasSupabasePublicConfig(buildTime) && hasAuthGatewayPublicConfig(buildTime)) return buildTime;
   if (typeof window === "undefined") return buildTime;
   browserConfigPromise ||= fetchRuntimePublicConfig().catch((error) => {
     browserConfigPromise = null;

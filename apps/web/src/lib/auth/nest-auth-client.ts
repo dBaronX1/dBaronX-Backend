@@ -31,6 +31,8 @@ export type AuthResponse = {
 };
 
 const AUTH_SESSION_STORAGE_KEY = "dbx.auth.session.v1";
+const AUTH_USER_STORAGE_KEY = "dbx.auth.user.v1";
+export const AUTH_SESSION_CHANGED_EVENT = "dbx-auth-session-changed";
 
 const SAFE_AUTH_MESSAGES: Record<string, string> = {
   AUTH_TEMPORARILY_UNAVAILABLE: "Account service is temporarily unavailable. Please try again.",
@@ -56,11 +58,13 @@ export function safeAuthMessage(input: unknown, fallback: string) {
   return message || fallback;
 }
 
-export function storeAuthSession(session: AuthSession | undefined) {
+export function storeAuthSession(session: AuthSession | undefined, user?: AuthUser) {
   if (typeof window === "undefined" || !session?.accessToken) {
     throw new Error("AUTH_TEMPORARILY_UNAVAILABLE");
   }
   window.localStorage.setItem(AUTH_SESSION_STORAGE_KEY, JSON.stringify(session));
+  if (user) window.localStorage.setItem(AUTH_USER_STORAGE_KEY, JSON.stringify(user));
+  window.dispatchEvent(new Event(AUTH_SESSION_CHANGED_EVENT));
 }
 
 export function readAuthSession(): AuthSession | null {
@@ -73,9 +77,21 @@ export function readAuthSession(): AuthSession | null {
   }
 }
 
-export function clearAuthSession() {
+export function readStoredAuthUser(): AuthUser | null {
+  if (typeof window === "undefined") return null;
+  try {
+    const raw = window.localStorage.getItem(AUTH_USER_STORAGE_KEY);
+    return raw ? (JSON.parse(raw) as AuthUser) : null;
+  } catch {
+    return null;
+  }
+}
+
+export function clearAuthSession(emitChange = true) {
   if (typeof window === "undefined") return;
   window.localStorage.removeItem(AUTH_SESSION_STORAGE_KEY);
+  window.localStorage.removeItem(AUTH_USER_STORAGE_KEY);
+  if (emitChange) window.dispatchEvent(new Event(AUTH_SESSION_CHANGED_EVENT));
 }
 
 async function apiBaseUrl() {
@@ -104,13 +120,13 @@ async function authFetch(path: string, init: RequestInit = {}) {
 
 export async function registerWithApi(input: { email: string; password: string; confirmPassword: string; fullName?: string; referralCode?: string }) {
   const payload = await authFetch("/api/auth/register", { method: "POST", body: JSON.stringify(input) });
-  storeAuthSession(payload.session);
+  storeAuthSession(payload.session, payload.user);
   return payload;
 }
 
 export async function loginWithApi(input: { email: string; password: string }) {
   const payload = await authFetch("/api/auth/login", { method: "POST", body: JSON.stringify(input) });
-  storeAuthSession(payload.session);
+  storeAuthSession(payload.session, payload.user);
   return payload;
 }
 

@@ -157,6 +157,8 @@ export function CustomerAccountPanel({ mode = "account" }: { mode?: "account" | 
     }
   }
 
+  const accountStatus = status || (signedIn && error ? "Account service is temporarily unavailable. Showing your saved profile while we retry." : "");
+
   if (loading) return <DbxCard>Loading secure customer session…</DbxCard>;
 
   if (!signedIn) {
@@ -204,7 +206,7 @@ export function CustomerAccountPanel({ mode = "account" }: { mode?: "account" | 
         ) : (
           <button type="button" onClick={() => setEditing(true)} style={{ ...dbxButtonStyle, cursor: "pointer", border: 0 }}>Edit profile</button>
         )}
-        {status ? <p role="status" style={{ color: status.includes("unavailable") ? "#fecaca" : "#fed7aa", lineHeight: 1.6 }}>{status}</p> : null}
+        {accountStatus ? <p role="status" style={{ color: accountStatus.includes("unavailable") ? "#fecaca" : "#fed7aa", lineHeight: 1.6 }}>{accountStatus}</p> : null}
       </DbxCard>
       <DbxCard>
         <p style={{ marginTop: 0, color: "#fbbf24", fontWeight: 900 }}>Account actions</p>
