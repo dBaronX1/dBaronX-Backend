@@ -9,7 +9,7 @@ import { safeLocalPath } from "@/lib/auth/routes";
 import { loginWithApi, safeAuthMessage } from "@/lib/auth/nest-auth-client";
 
 function humanLoginError(message: string) {
-  return safeAuthMessage(message, "We could not sign you in. Please check your email and password.");
+  return safeAuthMessage(message, "We could not log you in. Please check your email and password.");
 }
 
 function LoginForm() {
@@ -31,18 +31,18 @@ function LoginForm() {
     event.preventDefault();
     const normalizedEmail = email.trim().toLowerCase();
     if (!normalizedEmail || !password) {
-      setMessage("Please enter your email and password to sign in.");
+      setMessage("Please enter your email and password to log in.");
       return;
     }
     setSubmitting(true);
-    setMessage("Signing in…");
+    setMessage("Logging in…");
     try {
       await loginWithApi({ email: normalizedEmail, password });
-      setMessage(nextPath === "/profile" ? "Signed in. Opening your profile…" : "Signed in. Opening your account…");
+      setMessage(nextPath === "/profile" ? "Logged in. Opening your profile…" : "Logged in. Opening your account…");
       router.push(nextPath);
       router.refresh();
     } catch (error) {
-      setMessage(error instanceof Error ? humanLoginError(error.message) : "We could not sign you in. Please check your email and password.");
+      setMessage(error instanceof Error ? humanLoginError(error.message) : "We could not log you in. Please check your email and password.");
     } finally {
       setSubmitting(false);
     }

@@ -153,7 +153,7 @@ export function CustomerAccountPanel({ mode = "account" }: { mode?: "account" | 
       await logoutWithApi();
       window.location.href = "/home";
     } catch {
-      setStatus("We could not sign you out. Please try again or contact support.");
+      setStatus("We could not log you out. Please try again or contact support.");
     }
   }
 
@@ -164,9 +164,9 @@ export function CustomerAccountPanel({ mode = "account" }: { mode?: "account" | 
   if (!signedIn) {
     return (
       <DbxCard>
-        <h2 style={{ marginTop: 0 }}>Sign in to continue</h2>
+        <h2 style={{ marginTop: 0 }}>Login to continue</h2>
         <p style={{ color: "#fed7aa", lineHeight: 1.7 }}>
-          {error ? "We could not load the current session. Please sign in again or contact support." : "Access profile details, referrals, orders, and support after login."}
+          {error ? "We could not load the current session. Please log in again or contact support." : "Access profile details, referrals, orders, and support after login."}
         </p>
         <div style={{ display: "flex", gap: 12, flexWrap: "wrap" }}>
           <Link href={`/login?next=/${mode}`} style={dbxButtonStyle}>Login</Link>

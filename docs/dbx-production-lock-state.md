@@ -34,7 +34,7 @@ Readiness returns safe booleans and modes only; no key values are logged or retu
 ## Manual tests after deploy
 
 1. Visit `/register`, create a test account, verify a safe success or safe account-service error.
-2. Visit `/login`, sign in, and verify `/profile` hydrates safely.
+2. Visit `/login`, log in, and verify `/profile` hydrates safely.
 3. Visit `/shop`, confirm product cards show high-quality images and safe supplier labels only.
 4. Add two products to cart, unselect one, verify selected subtotal and checkout selected only.
 5. Complete checkout shipping details, test Card Payment hosted checkout, and confirm the success page does not mark paid.

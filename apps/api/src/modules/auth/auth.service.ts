@@ -10,6 +10,7 @@ import { SupabaseService } from "../../shared/services/supabase.service";
 import { AuthJwtService } from "../../shared/services/auth.jwt.service";
 import {
   mapSupabaseAuthError,
+  mapSupabaseLoginError,
   publicAuthError,
   type PublicAuthError,
 } from "./auth-error.mapper";
@@ -200,18 +201,31 @@ export class AuthService {
       const response: AuthTokenResponsePassword =
         await this.supabase.client.auth.signInWithPassword(normalized.value);
       const { data, error } = response;
-      if (error || !data.user || !data.session?.access_token) {
+      if (error || !data.user) {
         this.logger.warn(
           JSON.stringify({
             event: "auth_login_provider_failed",
             code: error?.code,
             status: error?.status,
-            nextAction: "run auth user creation diagnostic SQL",
+            nextAction: "verify Supabase password auth configuration",
           }),
         );
         return {
           ok: false,
-          error: mapSupabaseAuthError(error, "INVALID_CREDENTIALS"),
+          error: mapSupabaseLoginError(error),
+        };
+      }
+
+      if (!data.session?.access_token) {
+        this.logger.warn(
+          JSON.stringify({
+            event: "auth_login_missing_provider_session",
+            hasUser: Boolean(data.user),
+          }),
+        );
+        return {
+          ok: false,
+          error: publicAuthError("AUTH_TEMPORARILY_UNAVAILABLE", 503),
         };
       }
 
@@ -245,7 +259,7 @@ export class AuthService {
       );
       return {
         ok: false,
-        error: mapSupabaseAuthError(error, "INVALID_CREDENTIALS"),
+        error: mapSupabaseLoginError(error),
       };
     }
   }
@@ -259,12 +273,17 @@ export class AuthService {
 
     try {
       const decoded = this.jwt.verify(token);
-      const profile = await this.loadProfile(
-        String(decoded.sub || decoded.id),
-        decoded.email ? String(decoded.email) : undefined,
-      );
-      if (profile.ok === false) return { ok: false, error: profile.error };
-      const metadata = await this.safeAuthMetadataForUser(String(decoded.sub || decoded.id));
+      const userId = String(decoded.sub || decoded.id);
+      const email = decoded.email ? String(decoded.email) : undefined;
+      const profile = await this.loadProfile(userId, email);
+      if (profile.ok === false) {
+        if (profile.error.errorCode !== "PROFILE_CREATION_FAILED")
+          return { ok: false, error: profile.error };
+        const created = await this.loadOrCreateProfile({ id: userId, email: email || null } as User);
+        if (created.ok === false) return { ok: false, error: created.error };
+        return { ok: true, value: { user: created.value } };
+      }
+      const metadata = await this.safeAuthMetadataForUser(userId);
       return { ok: true, value: { user: { ...profile.value, ...this.safeUserFieldsFromMetadata(metadata, profile.value) } } };
     } catch {
       const serviceReady = this.ensureSupabaseConfigured();
@@ -867,6 +886,12 @@ export class AuthService {
         error: publicAuthError("PROFILE_CREATION_FAILED", 503),
       };
     }
+    if (!data)
+      return {
+        ok: false,
+        error: publicAuthError("PROFILE_CREATION_FAILED", 503),
+      };
+
     return {
       ok: true,
       value: this.safeUserFromProfile(data, {

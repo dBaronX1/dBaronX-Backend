@@ -39,10 +39,10 @@ const SAFE_AUTH_MESSAGES: Record<string, string> = {
   INVALID_EMAIL: "We could not create your account right now. Please check your details and try again.",
   WEAK_PASSWORD: "Your password is too weak. Please use a stronger password.",
   PASSWORD_MISMATCH: "We could not create your account right now. Please check your details and try again.",
-  EMAIL_ALREADY_REGISTERED: "This email is already registered. Please sign in instead.",
-  INVALID_CREDENTIALS: "We could not sign you in. Please check your email and password.",
+  EMAIL_ALREADY_REGISTERED: "This email is already registered. Please log in instead.",
+  INVALID_CREDENTIALS: "We could not log you in. Please check your email and password.",
   RATE_LIMITED: "Too many attempts. Please wait a moment and try again.",
-  SESSION_EXPIRED: "We could not sign you in. Please check your email and password.",
+  SESSION_EXPIRED: "We could not log you in. Please check your email and password.",
   PROFILE_CREATION_FAILED: "We could not create your account right now. Please check your details and try again.",
   VALIDATION_FAILED: "We could not create your account right now. Please check your details and try again.",
 };

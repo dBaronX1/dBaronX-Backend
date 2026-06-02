@@ -28,7 +28,7 @@ Because `NEXT_PUBLIC_*` values are compiled into the browser bundle, rebuild and
 1. Visit `/register`.
 2. Register a user with full name, email, password, confirm password, and an optional referral code.
 3. Confirm a new Supabase Auth user is created with user metadata for `full_name`, `display_name`, `referral_code` when provided, and `source=rocket_web`.
-4. Visit `/login` and sign in with email/password.
+4. Visit `/login` and log in with email/password.
 5. Confirm login redirects to `/account` unless a safe `next` path is provided.
 6. Open `/account` or `/profile` and confirm name, email, referral/reference details, profile edit, delete-account support link, and sign-out controls are visible.
 7. Edit the displayed profile name and confirm the Supabase Auth user metadata updates.

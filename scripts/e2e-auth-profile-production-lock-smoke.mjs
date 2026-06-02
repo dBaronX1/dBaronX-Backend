@@ -11,13 +11,16 @@ assert(authController.includes('@Post("register")') && authController.includes('
 assert(authController.includes('@Post("logout")') && authController.includes('@Get("me")') && authController.includes('@Get("readiness")'), 'auth logout/me/readiness routes missing');
 assert(authController.includes('@Post("password-reset/request")') && authController.includes('@Post("owner/bootstrap")'), 'auth password reset or owner bootstrap route missing');
 assert(authService.includes('auth.admin.createUser') && authService.includes('upsertProfile'), 'register must create auth user and safe profile');
-assert(authService.includes('safeSessionContract') && authService.includes('accessToken'), 'login/register must return usable token contract');
+assert(authService.includes('safeSessionContract') && authService.includes('accessToken') && authService.includes('mapSupabaseLoginError'), 'login/register must return usable token contract with dedicated login mapper');
+assert(!authService.slice(authService.indexOf('  async login('), authService.indexOf('  async me(')).includes('EMAIL_ALREADY_REGISTERED'), 'login must never return EMAIL_ALREADY_REGISTERED');
+assert(authMapper.includes('This email is already registered. Please log in instead.') && authMapper.includes('We could not log you in. Please check your email and password.'), 'auth messages must use log in copy');
 assert(authMapper.includes('AUTH_DATABASE_USER_CREATION_FAILED') && authMapper.includes('Account service is temporarily unavailable. Please try again.'), 'safe auth database failure code/message missing');
 assert(authService.includes('run auth user creation diagnostic SQL'), 'sanitized auth DB diagnostic next action missing');
 assert(client.includes('/api/auth/register') && client.includes('/api/auth/login') && client.includes('/api/auth/me'), 'frontend auth must call API gateway auth routes');
 assert(client.includes('AUTH_SESSION_CHANGED_EVENT') && client.includes('readStoredAuthUser') && client.includes('storeAuthSession(payload.session, payload.user)'), 'login/register must cache safe user and notify auth context');
 assert(authContext.includes('AUTH_SESSION_CHANGED_EVENT') && authContext.includes('hydrateCachedSession') && authContext.includes('readStoredAuthUser'), 'auth context must hydrate cached API sessions after login navigation');
-assert(loginPage.includes('setMessage("Signing in…")') && loginPage.includes('submitting={submitting}') && loginPage.includes('Please enter your email and password'), 'login must provide visible feedback and pending state');
+assert(loginPage.includes('setMessage("Logging in…")') && loginPage.includes('submitting={submitting}') && loginPage.includes('Please enter your email and password'), 'login must provide visible feedback and pending state');
+assert(!/sign in|Sign in|sign-in/i.test([authMapper, client, authContext, loginPage].join('\n')), 'customer-facing auth copy must not say sign in');
 assert(publicConfig.includes('hasAuthGatewayPublicConfig') && publicConfig.includes('apiBaseUrl'), 'browser public config must require API gateway config for auth');
 assert(client.includes('throw new Error("AUTH_TEMPORARILY_UNAVAILABLE")'), 'frontend must not silently store missing auth token');
 for (const f of ['supabase/sql/diagnostics/auth_user_creation_diagnostic.sql','supabase/sql/repairs/auth_user_creation_safe_repair.sql']) assert(exists(f), `${f} missing`);
