@@ -33,6 +33,10 @@ function csv(value: string | undefined, fallback: string): string[] {
     .filter(Boolean);
 }
 
+function mergeCsv(value: string | undefined, requiredDefaults: string): string[] {
+  return Array.from(new Set([...csv(requiredDefaults, ""), ...csv(value, "")]));
+}
+
 function formatStartupError(error: unknown): Record<string, unknown> {
   if (error instanceof Error) {
     const base: Record<string, unknown> = {
@@ -93,9 +97,9 @@ async function bootstrap() {
   const host = process.env.HOST || "0.0.0.0";
   const port = Number(process.env.PORT || 3001);
   const apiPrefix = configService.get<string>("API_PREFIX") ?? "api";
-  const corsOrigins = csv(
+  const corsOrigins = mergeCsv(
     configService.get<string>("CORS_ORIGINS") ?? process.env.CORS_ORIGINS,
-    "http://localhost:3000",
+    "http://localhost:3000,https://dbaronx.com,https://www.dbaronx.com",
   );
 
   app.use(

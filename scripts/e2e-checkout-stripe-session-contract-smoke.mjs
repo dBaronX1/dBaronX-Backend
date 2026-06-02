@@ -14,5 +14,6 @@ check("Stripe response exposes checkoutUrl, checkoutSessionId, reference", /chec
 check("Stripe missing secret maps to safe provider unavailable", /stripe_secret_key_missing/.test(stripe) && /Payment provider is temporarily unavailable/.test(stripe));
 check("Stripe session failure maps to safe checkout unavailable", /stripe_session_failed/.test(stripe) && /Checkout is temporarily unavailable/.test(stripe));
 check("Stripe checkout route does not mark paid", !/paid_verified|payment_status:\s*["']paid["']|status:\s*["']paid["']/.test(controller));
+check("Stripe live production key can open hosted Checkout only with explicit live allowance", /resolveEffectiveCheckoutMode/.test(stripe) && /stripeKeyMode === "live"/.test(stripe) && /liveCheckoutExplicitlyAllowed\(\)/.test(stripe) && /stripe_live_checkout_not_explicitly_allowed/.test(stripe));
 check("Stripe route does not return raw Stripe errors", !/error\.message/.test(controller) && !/raw Stripe/.test(combined));
 const failed=checks.filter((c)=>!c.pass); for (const c of checks) console.log(`${c.pass?"ok":"not ok"} - ${c.name}`); if(failed.length) process.exit(1);
