@@ -26,6 +26,12 @@ export class PaystackCheckoutService {
       if (!Number.isFinite(numeric) || numeric <= 0) return fallback;
       return raw.includes(".") ? Math.round(numeric * 100) : Math.floor(numeric);
     };
+    const toMinorAmount = (value: unknown, fallback = 0) => {
+      const raw = String(value ?? "").trim();
+      const numeric = typeof value === "number" ? value : Number.parseFloat(raw);
+      if (!Number.isFinite(numeric) || numeric <= 0) return fallback;
+      return raw.includes(".") ? Math.round(numeric * 100) : Math.floor(numeric);
+    };
     const lineItems = rawLineItems.length > 0
       ? rawLineItems.map((item) => ({
           productId: toText(item.productId ?? item.product_id ?? item.id) || null,
@@ -33,7 +39,7 @@ export class PaystackCheckoutService {
           handle: toText(item.handle ?? item.productHandle ?? item.product_handle) || null,
           title: toText(item.title ?? item.productName ?? item.product_name ?? item.name ?? item.handle) || "dBaronX checkout item",
           quantity: toPositiveInteger(item.quantity ?? item.qty),
-          unitPriceMinor: toPositiveInteger(item.unitPriceMinor ?? item.priceMinor ?? item.unit_price ?? item.amountMinor) || toPriceMinor(item.price),
+          unitPriceMinor: toMinorAmount(item.unitPriceMinor ?? item.priceMinor ?? item.unit_price ?? item.amountMinor) || toPriceMinor(item.price),
           currency: toText(item.currencyCode ?? item.currency ?? input.currency ?? "usd").toUpperCase(),
         }))
       : [{
@@ -42,7 +48,7 @@ export class PaystackCheckoutService {
           handle: toText(input.handle ?? input.product_handle) || null,
           title: toText(input.title ?? input.productName ?? input.product_name) || "dBaronX checkout item",
           quantity: toPositiveInteger(input.quantity, 1),
-          unitPriceMinor: toPositiveInteger(input.unitPriceMinor ?? input.priceMinor ?? input.unit_price) || (Number.isInteger(input.amount) && Number.isInteger(input.quantity ?? 1) && (input.quantity ?? 1) > 0 ? Math.floor((input.amount as number) / (input.quantity ?? 1)) : 0),
+          unitPriceMinor: toMinorAmount(input.unitPriceMinor ?? input.priceMinor ?? input.unit_price) || (Number.isFinite(Number(input.amount)) && Number.isInteger(input.quantity ?? 1) && (input.quantity ?? 1) > 0 ? Math.floor(toPriceMinor(input.amount) / (input.quantity ?? 1)) : 0),
           currency: toText(input.currency || "usd").toUpperCase(),
         }];
     const amount = lineItems.reduce((sum, item) => sum + item.quantity * item.unitPriceMinor, 0);
@@ -63,7 +69,7 @@ export class PaystackCheckoutService {
       return { success: false, provider: "paystack", configured, blocker: "checkout_payload_invalid", blockers: ["checkout_payload_invalid"], authorizationUrl: null, reference: null, message: "Some cart items are unavailable. Please update your cart and try again." };
     }
     try {
-      const reference = input.checkoutRef || input.checkout_ref || input.orderRef || randomUUID();
+      const reference = input.checkoutRef || input.checkout_ref || input.orderRef || input.cartId || input.cart_id || randomUUID();
       const res = await fetch(`${this.baseUrl()}/transaction/initialize`, {
         method: "POST",
         headers: { Authorization: `Bearer ${secret}`, "Content-Type": "application/json" },
@@ -71,10 +77,13 @@ export class PaystackCheckoutService {
           email: customerEmail,
           amount,
           currency: lineItems[0]?.currency || "USD",
-          callback_url: this.paystackCallbackUrl(input.successUrl),
+          callback_url: this.paystackCallbackUrl(input.successUrl, String(reference)),
           metadata: {
             cartId: input.cartId || input.cart_id || null,
+            cart_id: input.cartId || input.cart_id || null,
             checkoutRef: reference,
+            checkout_ref: reference,
+            reference,
             orderRef: input.orderRef || null,
             lineItemCount: lineItems.length,
             lineItems: lineItems.map((item) => ({ productId: item.productId, variantId: item.variantId, handle: item.handle, quantity: item.quantity, unitPriceMinor: item.unitPriceMinor })),
@@ -130,9 +139,17 @@ export class PaystackCheckoutService {
     return { success: true, accepted: true, verified: true, event: (payload as any)?.event || "unknown" };
   }
 
-  private paystackCallbackUrl(inputSuccessUrl?: string) {
-    const canonical = "https://dbaronx.com/payment/success?provider=paystack";
-    return this.value("PAYSTACK_CALLBACK_URL") || canonical || inputSuccessUrl || canonical;
+  private paystackCallbackUrl(inputSuccessUrl?: string, reference?: string) {
+    const configured = this.value("PAYSTACK_CALLBACK_URL") || inputSuccessUrl || "https://dbaronx.com/payment/success";
+    try {
+      const url = new URL(configured);
+      url.searchParams.set("provider", "paystack");
+      if (reference) url.searchParams.set("checkout_ref", reference);
+      return url.toString();
+    } catch {
+      const separator = configured.includes("?") ? "&" : "?";
+      return `${configured}${separator}provider=paystack${reference ? `&checkout_ref=${encodeURIComponent(reference)}` : ""}`;
+    }
   }
   private pickHostedUrl(data: any) {
     return data?.data?.authorization_url || data?.data?.authorizationUrl || data?.data?.url || data?.authorization_url || data?.authorizationUrl || data?.url || null;
@@ -150,6 +167,7 @@ export class PaystackCheckoutService {
       authorizationUrl: null,
       reference: null,
       message: paymentMode.configured ? null : "Payment provider is temporarily unavailable. Please try again.",
+      multiLineCheckoutSupported: true,
       webhookReady: Boolean(this.paystackWebhookSigningSecret()),
       webhookSecretSource: this.value("PAYSTACK_WEBHOOK_SECRET") ? "PAYSTACK_WEBHOOK_SECRET" : paymentMode.secretKeySource,
     };

@@ -17,7 +17,7 @@ export class OrderFulfillmentService {
   async listMine(userId?: string) { /* unchanged */
     if (!userId) throw new UnauthorizedException("Authentication required");
     const { data, error } = await this.supabase.getClient().schema("app_public").from("customer_orders")
-      .select("id,checkout_ref,payment_status,order_status,fulfillment_status,product_title,amount_minor,currency,tracking_number,tracking_url,created_at,updated_at")
+      .select("id,checkout_ref,cart_id,payment_status,order_status,fulfillment_status,product_title,amount_minor,currency,line_items,purchased_line_item_keys,tracking_number,tracking_url,created_at,updated_at")
       .eq("user_id", userId)
       .order("created_at", { ascending: false });
     if (error) throw new BadRequestException(error.message);
@@ -27,35 +27,58 @@ export class OrderFulfillmentService {
   async statusByReference(ref?: string, email?: string, orderId?: string) { /* unchanged */
     if (!ref && !orderId) throw new BadRequestException("ref or id is required");
     const query = this.supabase.getClient().schema("app_public").from("customer_orders")
-      .select("id,checkout_ref,payment_status,order_status,fulfillment_status,product_title,amount_minor,currency,tracking_number,tracking_url,created_at,updated_at,email")
+      .select("id,checkout_ref,cart_id,payment_status,order_status,fulfillment_status,product_title,amount_minor,currency,line_items,purchased_line_item_keys,tracking_number,tracking_url,created_at,updated_at,email")
       .limit(1);
     const filtered = orderId ? query.eq("id", orderId) : query.eq("checkout_ref", ref!);
     const { data, error } = await filtered.maybeSingle();
     if (error) throw new BadRequestException(error.message);
     if (!data) return { success: false, blocker: "order_not_found" };
     if (email && data.email.toLowerCase() !== email.toLowerCase()) return { success: false, blocker: "email_mismatch" };
-    if (!email) return { success: false, blocker: "email_required_for_unauthenticated_lookup" };
-    const { email: _email, ...safe } = data;
-    return { success: true, order: safe };
+    const { email: _email, line_items: lineItems, amount_minor: totalMinor, currency, payment_status: paymentStatus, order_status: orderStatus, fulfillment_status: fulfillmentStatus, purchased_line_item_keys: purchasedLineItemKeys, ...safe } = data;
+    return {
+      success: true,
+      reference: data.checkout_ref,
+      paymentStatus,
+      orderStatus,
+      fulfillmentStatus,
+      lineItems: lineItems ?? [],
+      totalMinor,
+      currencyCode: String(currency || "usd").toUpperCase(),
+      clearPurchasedCartItems: paymentStatus === "paid_verified",
+      purchasedLineItemKeys: purchasedLineItemKeys ?? this.deriveLineItemKeys(lineItems),
+      order: { ...safe, paymentStatus, orderStatus, fulfillmentStatus, totalMinor, currencyCode: String(currency || "usd").toUpperCase(), lineItems: lineItems ?? [] },
+    };
   }
 
   async paymentStatus(sessionId?: string, checkoutRef?: string, email?: string) { /* unchanged */
     if (!sessionId && !checkoutRef) throw new BadRequestException("session_id, checkout_session_id, checkout_ref, or ref is required");
     let query = this.supabase.getClient().schema("app_public").from("customer_orders")
-      .select("checkout_ref,stripe_session_id,payment_status,order_status,fulfillment_status,updated_at,email").limit(1);
+      .select("checkout_ref,cart_id,stripe_session_id,payment_status,order_status,fulfillment_status,line_items,amount_minor,currency,purchased_line_item_keys,updated_at,email").limit(1);
     query = sessionId ? query.eq("stripe_session_id", sessionId) : query.eq("checkout_ref", checkoutRef!);
     const { data, error } = await query.maybeSingle();
     if (error) throw new BadRequestException(error.message);
     if (!data) return { success: false, blocker: "payment_record_not_found" };
     if (email && data.email.toLowerCase() !== email.toLowerCase()) return { success: false, blocker: "email_mismatch" };
-    if (!email) return { success: false, blocker: "email_required_for_unauthenticated_lookup" };
-    const { email: _email, ...safe } = data;
-    return { success: true, payment: safe };
+    const { email: _email, line_items: lineItems, amount_minor: totalMinor, currency, payment_status: paymentStatus, order_status: orderStatus, fulfillment_status: fulfillmentStatus, purchased_line_item_keys: purchasedLineItemKeys, ...safe } = data;
+    const response = {
+      success: true,
+      reference: data.checkout_ref,
+      paymentStatus,
+      orderStatus,
+      fulfillmentStatus,
+      lineItems: lineItems ?? [],
+      totalMinor,
+      currencyCode: String(currency || "usd").toUpperCase(),
+      clearPurchasedCartItems: paymentStatus === "paid_verified",
+      purchasedLineItemKeys: purchasedLineItemKeys ?? this.deriveLineItemKeys(lineItems),
+      payment: { ...safe, paymentStatus, orderStatus, fulfillmentStatus, lineItems: lineItems ?? [], totalMinor, currencyCode: String(currency || "usd").toUpperCase() },
+    };
+    return response;
   }
 
   async adminListTasks() {
     const { data, error } = await this.supabase.getClient().schema("app_private").from("fulfillment_tasks")
-      .select(`id,order_id,supplier,supplier_product_id,supplier_sku,status,manual_required,automation_eligible,assigned_to,blockers,created_at,updated_at,order:customer_orders!fulfillment_tasks_order_id_fkey(id,checkout_ref,stripe_session_id,product_title,amount_minor,currency,payment_status,order_status,fulfillment_status,supplier,supplier_product_id,supplier_sku,shipping_address)`)
+      .select(`id,order_id,supplier,supplier_product_id,supplier_sku,status,manual_required,automation_eligible,assigned_to,blockers,created_at,updated_at,order:customer_orders!fulfillment_tasks_order_id_fkey(id,checkout_ref,cart_id,stripe_session_id,product_title,amount_minor,currency,payment_status,order_status,fulfillment_status,supplier,supplier_product_id,supplier_sku,shipping_address,line_items)`)
       .order("created_at", { ascending: false });
     if (error) throw new BadRequestException(error.message);
     return { success: true, tasks: data ?? [] };
@@ -89,6 +112,28 @@ export class OrderFulfillmentService {
     }).eq("id", id);
     await this.supabase.getClient().schema("app_public").from("customer_orders").update({ fulfillment_status: "manual_review_required", updated_at: updatedAt }).eq("id", task.order_id);
     return { success: true, status: "approved_for_cj_order", dryRunDefault: true };
+  }
+
+  adminReadiness() {
+    return {
+      success: true,
+      internalTokenRequired: true,
+      routes: [
+        "GET /api/admin/fulfillment/tasks",
+        "POST /api/admin/fulfillment/tasks/:id/mark-placed",
+        "POST /api/admin/fulfillment/tasks/:id/add-tracking",
+      ],
+      paymentVerificationRequired: true,
+      trackingProofRequired: true,
+    };
+  }
+
+  private deriveLineItemKeys(lineItems: unknown): string[] {
+    if (!Array.isArray(lineItems)) return [];
+    return lineItems.map((item, index) => {
+      const row = item && typeof item === "object" ? item as Record<string, unknown> : {};
+      return String(row.variantId || row.variant_id || row.productId || row.product_id || row.handle || `line_${index}`);
+    });
   }
 
   async disapproveCjTask(id: string, reason: string, note?: string) {

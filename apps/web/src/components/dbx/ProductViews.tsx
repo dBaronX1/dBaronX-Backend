@@ -81,6 +81,13 @@ export function DbxProductCard({ product }: { product: StoreProduct }) {
         <p style={{ margin: 0, color: "#fed7aa", lineHeight: 1.6 }}>{product.description || "Verified dBaronX product."}</p>
         <p style={{ margin: 0, fontSize: 22, fontWeight: 950 }}>{productDisplayPrice(product)}</p>
         <p style={{ margin: 0, color: "#fdba74" }}>Delivery: {productDeliveryEstimate(product)}</p>
+        <div aria-label="Product trust labels" style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+          {(publicLabels.length ? publicLabels : ["Verified Supplier", "Direct Shipping"]).map((label) => (
+            <span key={label} style={{ border: "1px solid rgba(251,191,36,.28)", borderRadius: 999, color: "#fde68a", padding: "4px 10px", fontSize: 12, fontWeight: 800 }}>
+              {label}
+            </span>
+          ))}
+        </div>
         <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
           <Link href={href} style={dbxButtonStyle}>View product</Link>
           {variantId ? (

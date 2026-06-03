@@ -74,12 +74,15 @@ export function StripeCheckoutPanel({ product, variantId = "" }: Props) {
       lineItems: items.map((item) => ({ productId: item.productId, variantId: item.variantId, handle: item.handle, title: item.title, quantity: item.quantity, unitPriceMinor: item.priceMinor, currencyCode: item.currencyCode })),
       totalMinor: total,
       paymentProvider,
+      customer: { email, fullName, phone },
+      shippingAddress: { country, state, city, addressLine1, addressLine2, postalCode },
       customerEmail: email,
       fullName,
       phone,
       country,
       city,
       addressLine1,
+      addressLine2,
       postalCode,
       ...(product?.supplier ? { supplier: String(product.supplier) } : {}),
       ...(product?.supplierProductId ? { supplierProductId: String(product.supplierProductId) } : {}),
@@ -115,6 +118,16 @@ Your product, contact, and shipping details are sent securely so hosted payment 
         <label style={labelStyle}>Address line 1<input required value={addressLine1} onChange={(event) => setAddressLine1(event.target.value)} style={fieldStyle} /></label>
         <label style={labelStyle}>Address line 2<input value={addressLine2} onChange={(event) => setAddressLine2(event.target.value)} style={fieldStyle} /></label>
         <label style={labelStyle}>Postal code<input required value={postalCode} onChange={(event) => setPostalCode(event.target.value)} style={fieldStyle} /></label>
+        <div role="radiogroup" aria-label="Payment method" style={{ display: "grid", gap: 8 }}>
+          <label style={paymentOptionStyle}>
+            <input type="radio" name="paymentProvider" value="stripe" checked={paymentProvider === "stripe"} onChange={() => setPaymentProvider("stripe")} />
+            Card Payment
+          </label>
+          <label style={paymentOptionStyle}>
+            <input type="radio" name="paymentProvider" value="paystack" checked={paymentProvider === "paystack"} onChange={() => setPaymentProvider("paystack")} />
+            Mobile Money / Local Payment
+          </label>
+        </div>
         <button type="submit" disabled={loading || !checkoutVariantId || !total} style={{ ...dbxButtonStyle, border: 0, cursor: loading ? "wait" : "pointer", opacity: loading || !checkoutVariantId || !total ? 0.7 : 1 }}>{loading ? "Starting checkout…" : "Start secure payment"}</button>
       </form>
       {status ? <p role="status" style={{ color: status.includes("temporarily") || status.includes("Select") || status.includes("complete") ? "#fecaca" : "#fed7aa", lineHeight: 1.6 }}>{status}</p> : null}
@@ -125,3 +138,4 @@ Your product, contact, and shipping details are sent securely so hosted payment 
 
 const labelStyle = { display: "grid", gap: 8, color: "#fed7aa", fontWeight: 800 } as const;
 const fieldStyle = { border: "1px solid rgba(255,255,255,.16)", borderRadius: 16, background: "rgba(255,255,255,.08)", color: "#fff7ed", padding: "12px 14px", fontWeight: 800, width: "100%" } as const;
+const paymentOptionStyle = { display: "flex", alignItems: "center", gap: 10, color: "#fff7ed", border: "1px solid rgba(251,191,36,.28)", borderRadius: 14, padding: "10px 12px", fontWeight: 900 } as const;
