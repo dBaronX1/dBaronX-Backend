@@ -23,7 +23,7 @@ import { PaymentReadinessService } from "./payment-readiness.service";
 import { EconomicReadinessController } from "./economic-readiness.controller";
 import { StripeCheckoutController } from "./stripe-checkout.controller";
 import { StripeCheckoutService } from "./stripe-checkout.service";
-import { AdminFulfillmentController, OrdersStatusController, PaymentsStatusController } from "./orders-status.controller";
+import { AdminFulfillmentController, OrderStatusByReferenceController, OrdersStatusController, PaymentStatusByReferenceController, PaymentsStatusController } from "./orders-status.controller";
 import { OrderFulfillmentService } from "./order-fulfillment.service";
 import { CjApprovalController } from "./cj-approval.controller";
 import { CjApprovalService } from "./cj-approval.service";
@@ -43,6 +43,8 @@ import { SupabaseEconomicEventRepository } from "../../shared/services/supabase-
     EconomicReadinessController,
     OrdersStatusController,
     PaymentsStatusController,
+    PaymentStatusByReferenceController,
+    OrderStatusByReferenceController,
     AdminFulfillmentController,
     CjApprovalController,
   ],

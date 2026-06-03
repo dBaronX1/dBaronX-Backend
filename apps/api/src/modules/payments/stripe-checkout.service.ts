@@ -239,6 +239,7 @@ type NormalizedCheckoutInput = {
   supplierSku: string;
   checkoutRef: string;
   source: string;
+  userId: string;
 };
 
 interface StripeWebhookIdempotencyRecorder {
@@ -687,6 +688,8 @@ export class StripeCheckoutService {
           message: "Payment provider is temporarily unavailable. Please try again.",
         };
       }
+
+      await this.persistPendingCustomerOrder(payload, session.id);
 
       this.logger.log(
         `stripe_checkout_session_created mode=${mode} cart=${payload.cartId} session=${session.id}`,
@@ -1201,6 +1204,56 @@ export class StripeCheckoutService {
     });
   }
 
+  private async persistPendingCustomerOrder(payload: NormalizedCheckoutInput, stripeSessionId: string): Promise<void> {
+    if (!this.isSupabaseUrlConfigured() || !this.isSupabaseServiceRoleConfigured()) return;
+    const email = String(payload.customerEmail || "").trim().toLowerCase();
+    if (!email) return;
+    const now = new Date().toISOString();
+    const lineItems = payload.lineItems.map((item) => ({
+      productId: item.productId || null,
+      variantId: item.variantId || null,
+      handle: item.handle || null,
+      title: item.productName || "dBaronX checkout item",
+      quantity: item.quantity,
+      unitPriceMinor: item.unitPriceMinor,
+      currencyCode: item.currency.toUpperCase(),
+      imageUrl: item.imageUrl || null,
+    }));
+    try {
+      await this.supabase.getClient().schema("app_public").from("customer_orders").upsert({
+        user_id: payload.userId || null,
+        email,
+        checkout_ref: payload.checkoutRef || payload.cartId,
+        cart_id: payload.cartId,
+        stripe_session_id: stripeSessionId,
+        payment_status: "pending_verification",
+        order_status: "checkout_created",
+        fulfillment_status: "not_started",
+        product_handle: payload.handle || null,
+        product_title: payload.productName || null,
+        amount_minor: payload.amount,
+        currency: payload.currency,
+        supplier: payload.supplier || "cj",
+        supplier_product_id: payload.supplierProductId || null,
+        supplier_sku: payload.supplierSku || null,
+        shipping_name: payload.customerName || null,
+        shipping_address: {
+          country: payload.country,
+          city: payload.city,
+          address1: payload.addressLine1,
+          address2: payload.addressLine2,
+          postal_code: payload.postalCode,
+          phone: payload.customerPhone,
+        },
+        line_items: lineItems,
+        purchased_line_item_keys: this.derivePurchasedLineItemKeys(payload.lineItems),
+        updated_at: now,
+      }, { onConflict: "stripe_session_id" });
+    } catch (error) {
+      this.logger.warn(`stripe_pending_order_record_skipped ${(error as Error).message}`);
+    }
+  }
+
   private async upsertCustomerOrderAndFulfillmentTask(input: {
     session: Stripe.Checkout.Session;
     eventId: string;
@@ -1218,6 +1271,7 @@ export class StripeCheckoutService {
       checkout_ref: input.metadata.checkoutRef || input.session.client_reference_id || input.session.id,
       stripe_session_id: input.session.id,
       stripe_payment_intent_id: input.paymentIntentId,
+      cart_id: input.metadata.cartId || null,
       payment_status: "paid_verified",
       order_status: "pending_fulfillment",
       fulfillment_status: "manual_review_required",
@@ -1229,7 +1283,13 @@ export class StripeCheckoutService {
       supplier_product_id: input.metadata.supplierProductId || null,
       supplier_sku: input.metadata.supplierSku || null,
       shipping_name: shipping?.name || null,
-      shipping_address: shipping?.address || {},
+      shipping_address: shipping?.address || {
+        country: input.metadata.country,
+        city: input.metadata.city,
+        address1: input.metadata.addressLine1,
+        postal_code: input.metadata.postalCode,
+      },
+      purchased_line_item_keys: this.parseMetadataList(input.metadata.selectedLineItemKeys),
       updated_at: new Date().toISOString(),
     };
     const { data: order } = await this.supabase.getClient().schema("app_public").from("customer_orders")
@@ -1246,6 +1306,14 @@ export class StripeCheckoutService {
       blockers: ["manual_cj_placement_required"],
       updated_at: new Date().toISOString(),
     }, { onConflict: "order_id" });
+  }
+
+  private derivePurchasedLineItemKeys(lineItems: NormalizedCheckoutLineItem[]): string[] {
+    return lineItems.map((item, index) => item.variantId || item.productId || item.handle || `line_${index}`);
+  }
+
+  private parseMetadataList(value: string | null | undefined): string[] {
+    return String(value || "").split(",").map((item) => item.trim()).filter(Boolean);
   }
 
   private unverifiedWebhookResult(blockers: string[]): StripeWebhookResult {
@@ -1740,6 +1808,11 @@ export class StripeCheckoutService {
       userId: metadata.userId || null,
       productId: metadata.productId || null,
       variantId: metadata.variantId || null,
+      selectedLineItemKeys: metadata.selectedLineItemKeys || null,
+      country: metadata.country || null,
+      city: metadata.city || null,
+      addressLine1: metadata.addressLine1 || null,
+      postalCode: metadata.postalCode || null,
     };
   }
 
@@ -1771,6 +1844,7 @@ export class StripeCheckoutService {
       orderRef: input.checkoutRef || input.cartId,
       checkoutRef: input.checkoutRef || input.cartId,
       customerRef: input.customerEmail || "",
+      userId: input.userId || "",
       productId: input.productId || "",
       variantId: input.variantId || "",
       source: metadataSource,
@@ -1788,6 +1862,8 @@ export class StripeCheckoutService {
       addressLine1: ("addressLine1" in input ? input.addressLine1 : "") || "",
       postalCode: ("postalCode" in input ? input.postalCode : "") || "",
       mode: input.checkoutMode || "test",
+      lineItemCount: String(input.lineItems.length),
+      selectedLineItemKeys: this.derivePurchasedLineItemKeys(input.lineItems).join(","),
     });
   }
 
@@ -1888,10 +1964,11 @@ export class StripeCheckoutService {
     const supplierSku = input.supplierSku ?? input.supplier_sku ?? "";
     const cartId = input.cartId ?? input.cart_id ?? input.checkoutRef ?? input.checkout_ref ?? `rocket_${Date.now()}`;
     const checkoutRef = input.checkoutRef ?? input.checkout_ref ?? cartId;
-    const successUrl = input.successUrl || `${this.getSiteBaseUrl()}/checkout/success`;
+    const defaultSuccessUrl = `${this.getSiteBaseUrl()}/payment/success?checkout_ref=${encodeURIComponent(checkoutRef)}`;
+    const successUrl = input.successUrl || defaultSuccessUrl;
     const cancelUrl = input.cancelUrl || `${this.getSiteBaseUrl()}/checkout/cancel`;
 
-    return { ok: true, value: { cartId, amount, unitPriceMinor: first.unitPriceMinor, quantity: first.quantity, lineItems, currency: first.currency, successUrl, cancelUrl, checkoutMode: input.checkoutMode ?? "test", customerEmail, customerName, customerPhone, country, city, addressLine1, addressLine2, postalCode, productId: first.productId, variantId: first.variantId, handle: first.handle, productName: first.productName || `dBaronX checkout cart ${cartId}`, imageUrl: first.imageUrl, supplier: input.supplier ?? "", supplierProductId, supplierSku, checkoutRef, source: input.source ?? "dbaronx" } };
+    return { ok: true, value: { cartId, amount, unitPriceMinor: first.unitPriceMinor, quantity: first.quantity, lineItems, currency: first.currency, successUrl, cancelUrl, checkoutMode: input.checkoutMode ?? "test", customerEmail, customerName, customerPhone, country, city, addressLine1, addressLine2, postalCode, productId: first.productId, variantId: first.variantId, handle: first.handle, productName: first.productName || `dBaronX checkout cart ${cartId}`, imageUrl: first.imageUrl, supplier: input.supplier ?? "", supplierProductId, supplierSku, checkoutRef, source: input.source ?? "dbaronx", userId: toText(input.userId) } };
   }
 
   private getSiteBaseUrl(): string {

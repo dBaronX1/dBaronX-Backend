@@ -25,6 +25,7 @@ type StripeCheckoutSessionInput = {
   country?: string;
   city?: string;
   addressLine1?: string;
+  addressLine2?: string;
   postalCode?: string;
   handle?: string;
   productName?: string;
@@ -68,7 +69,7 @@ export async function createStripeCheckoutSession(input: StripeCheckoutSessionIn
     body: JSON.stringify({
       ...input,
       currency: input.currency || "usd",
-      successUrl: input.successUrl || `${webBase}/checkout/success`,
+      successUrl: input.successUrl || `${webBase}/payment/success?checkout_ref=${encodeURIComponent(input.checkoutRef || input.cartId)}`,
       cancelUrl: input.cancelUrl || `${webBase}/checkout/cancel`,
     }),
   });

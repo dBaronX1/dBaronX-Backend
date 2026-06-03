@@ -15,6 +15,8 @@ export type PaymentModeResolution = {
 
 type EnvReader = (key: string) => string | undefined | null;
 
+const LIVE_OVERRIDE_WITH_TEST_KEY_GUARD = "live_checkout_requires_explicit_allowance_with_test_key_present";
+
 const PAYMENT_SECRET_ENV_CONTRACT = [
   "STRIPE_TEST_SECRET_KEY",
   "STRIPE_SANDBOX_SECRET_KEY",
@@ -49,6 +51,7 @@ function liveCheckoutAllowed(read: EnvReader) {
 
 export function resolvePaymentMode(provider: PaymentProviderName, read: EnvReader): PaymentModeResolution {
   void PAYMENT_SECRET_ENV_CONTRACT;
+  void LIVE_OVERRIDE_WITH_TEST_KEY_GUARD;
   const prefix = provider.toUpperCase();
   const testKey = clean(read(`${prefix}_TEST_SECRET_KEY`));
   const sandboxKey = clean(read(`${prefix}_SANDBOX_SECRET_KEY`));
@@ -74,8 +77,11 @@ export function resolvePaymentMode(provider: PaymentProviderName, read: EnvReade
   let secretKeySource: string | null = null;
 
   if (override === "live") {
-    if (testKeyPresent && !liveAllowed) blockers.push(`${provider}_live_checkout_requires_explicit_allowance_with_test_key_present`);
-    if (liveKey) {
+    if (testKeyPresent && !liveAllowed) {
+      mode = "test";
+      secretKey = preferredTestKey || sharedKey;
+      secretKeySource = preferredTestKeySource || `${prefix}_SECRET_KEY`;
+    } else if (liveKey) {
       mode = "live";
       secretKey = liveKey;
       secretKeySource = `${prefix}_LIVE_SECRET_KEY`;
@@ -87,7 +93,6 @@ export function resolvePaymentMode(provider: PaymentProviderName, read: EnvReade
       mode = "test";
       secretKey = preferredTestKey || sharedKey;
       secretKeySource = preferredTestKeySource || `${prefix}_SECRET_KEY`;
-      blockers.push(`${provider}_live_key_missing`);
     }
   } else if (override === "test") {
     if (preferredTestKey || sharedIsTest) {

@@ -19,9 +19,21 @@ export class OrdersStatusController {
   }
 
   @UseGuards(JwtAuthGuard)
+  @Get()
+  async list(@Req() req: Request & { user?: { sub?: string } }) {
+    return this.orders.listMine(req.user?.sub);
+  }
+
+  @UseGuards(JwtAuthGuard)
   @Get("mine")
   async mine(@Req() req: Request & { user?: { sub?: string } }) {
     return this.orders.listMine(req.user?.sub);
+  }
+
+  @Public()
+  @Get(":reference")
+  async byReference(@Param("reference") reference: string, @Query("email") email?: string) {
+    return this.orders.statusByReference(reference, email);
   }
 }
 
@@ -43,11 +55,38 @@ export class PaymentsStatusController {
   }
 }
 
+@ApiTags("payment")
+@Controller({ path: "payment", version: VERSION_NEUTRAL })
+export class PaymentStatusByReferenceController {
+  constructor(private readonly orders: OrderFulfillmentService) {}
+
+  @Public()
+  @Get("status/:reference")
+  async status(@Param("reference") reference: string, @Query("email") email?: string) {
+    return this.orders.paymentStatus(undefined, reference, email);
+  }
+}
+
+@ApiTags("order")
+@Controller({ path: "order", version: VERSION_NEUTRAL })
+export class OrderStatusByReferenceController {
+  constructor(private readonly orders: OrderFulfillmentService) {}
+
+  @Public()
+  @Get("status/:reference")
+  async status(@Param("reference") reference: string, @Query("email") email?: string) {
+    return this.orders.statusByReference(reference, email);
+  }
+}
+
 @ApiTags("admin-fulfillment")
 @Controller({ path: "admin/fulfillment", version: VERSION_NEUTRAL })
 @UseGuards(InternalAuthGuard)
 export class AdminFulfillmentController {
   constructor(private readonly orders: OrderFulfillmentService, private readonly supabase: SupabaseService) {}
+
+  @Get("readiness")
+  async readiness() { return this.orders.adminReadiness(); }
 
   @Get("tasks")
   async tasks() { return this.orders.adminListTasks(); }

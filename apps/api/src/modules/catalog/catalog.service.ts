@@ -54,10 +54,19 @@ function publicMetadata(metadata: Record<string, unknown>) {
   const output: Record<string, unknown> = {};
   for (const [key, value] of Object.entries(metadata)) {
     if (SECRET_FIELD_PATTERN.test(key)) continue;
-    if (["raw", "payload", "admin_payload", "cj_raw", "medusa_raw"].includes(key)) continue;
-    output[key] = value && typeof value === "object" ? undefined : value;
+    if (["raw", "payload", "admin_payload", "cj_raw", "medusa_raw", "supplier", "source", "sourceUrl", "source_url"].includes(key)) continue;
+    if (value && typeof value === "object") continue;
+    const publicValue = typeof value === "string" ? safePublicText(value) : value;
+    if (typeof publicValue === "string" && !publicValue) continue;
+    output[key] = publicValue;
   }
   return Object.fromEntries(Object.entries(output).filter(([, value]) => value !== undefined));
+}
+
+function safePublicText(value: string) {
+  return value
+    .replace(/CJ Dropshipping|CJ|Medusa|Supabase|FastAPI|NestJS|Rocket|Render|GitHub|Kickstarter|supplier=cj|source=rocket_web/gi, "Verified Supplier")
+    .trim();
 }
 
 function imageUrls(product: MedusaStoreProduct, metadata: Record<string, unknown>) {
@@ -131,7 +140,7 @@ export class CatalogService {
       success: true,
       products: normalized.products,
       count: normalized.products.length,
-      source,
+      catalogSource: "verified_catalog",
       warnings: [...warnings, ...(normalized.products.length === 0 && products.length > 0 ? ["catalog_products_skipped_until_buyable"] : [])],
       diagnostics: normalized.diagnostics,
     };
@@ -150,11 +159,11 @@ export class CatalogService {
     const product = normalized.products.find((item) => item.handle === cleanHandle) || null;
     if (!product) {
       throw new HttpException(
-        { success: false, product: null, products: [], code: "PRODUCT_NOT_FOUND", message: "Product was not found.", source: "medusa" },
+        { success: false, product: null, products: [], code: "PRODUCT_NOT_FOUND", message: "Product was not found." },
         HttpStatus.NOT_FOUND,
       );
     }
-    return { success: true, product, products: [product], count: 1, source, warnings, diagnostics: normalized.diagnostics };
+    return { success: true, product, products: [product], count: 1, catalogSource: "verified_catalog", warnings, diagnostics: normalized.diagnostics };
   }
 
   async readiness() {
@@ -183,7 +192,7 @@ export class CatalogService {
       const normalized = this.normalizeProducts(products);
       diagnostics = normalized.diagnostics;
       productCount = normalized.products.length;
-      firstCjProductVisible = normalized.products.some((product) => product.supplier === "cj" && product.buyable) || normalized.products.some((product) => product.handle === SHIRT_HANDLE && product.buyable);
+      firstCjProductVisible = normalized.products.some((product) => product.handle === SHIRT_HANDLE && product.buyable);
       manualCuratedBuyableCount = normalized.products.filter((product) => product.manualCurated && product.buyable).length;
     } catch (error) {
       diagnostics = this.emptyDiagnostics("unreachable");
@@ -199,7 +208,7 @@ export class CatalogService {
         };
         productCount = normalized.products.length;
         medusaProductsFetched = fallbackProducts.length;
-        firstCjProductVisible = normalized.products.some((product) => product.supplier === "cj" && product.buyable) || normalized.products.some((product) => product.handle === SHIRT_HANDLE && product.buyable);
+        firstCjProductVisible = normalized.products.some((product) => product.handle === SHIRT_HANDLE && product.buyable);
         manualCuratedBuyableCount = normalized.products.filter((product) => product.manualCurated && product.buyable).length;
         source = "supabase_storefront_products";
         warnings.push("medusa_store_api_unavailable_using_verified_storefront_snapshot");
@@ -435,13 +444,13 @@ export class CatalogService {
       productId,
       inStock,
       inventoryStatus: inStock ? "in_stock" : "out_of_stock",
-      supplier,
+      supplier: "Verified Supplier",
       realSupplierProduct,
       manualCurated,
       buyable,
       deliveryEstimate: text(metadata.deliveryEstimate) || text(metadata.delivery_estimate) || "Ships after checkout confirmation",
       publicLabels: ["Verified Supplier", "Direct Shipping", "Global Supplier"],
-      sourceUrl: text(metadata.sourceUrl) || text(metadata.source_url) || "",
+      sourceUrl: "",
       metadataPublic: publicMetadata(metadata),
     };
   }
