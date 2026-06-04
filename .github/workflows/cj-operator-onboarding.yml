@@ -16,10 +16,21 @@ on:
           - "publish-approved"
           - "full-safe"
       category:
-        description: "CJ category to process. Use fashion with limit 5 first. category=all with high limits is heavy."
+        description: "Supplier category to process. Use all with limit 5 first; high limits are heavy."
         required: true
-        default: "fashion"
-        type: string
+        default: "all"
+        type: choice
+        options:
+          - "all"
+          - "electronics"
+          - "fashion"
+          - "home-living"
+          - "beauty"
+          - "sports"
+          - "automotive"
+          - "agriculture"
+          - "tech"
+          - "finance"
       limitPerCategory:
         description: "Safe first value: 5. Default: 5. Heavy: 50 with category=all."
         required: true
@@ -47,7 +58,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
-        with: { node-version: '20' }
+        with: { node-version: "20" }
       - uses: pnpm/action-setup@v4
       - run: pnpm install --frozen-lockfile
       - run: pnpm --filter dbaronx-api build
@@ -62,6 +73,7 @@ jobs:
           MEDUSA_URL: ${{ secrets.MEDUSA_URL || vars.MEDUSA_URL }}
           MEDUSA_ADMIN_API_KEY: ${{ secrets.MEDUSA_ADMIN_API_KEY }}
           MEDUSA_API_KEY: ${{ secrets.MEDUSA_API_KEY }}
+          MEDUSA_PUBLISHABLE_KEY: ${{ secrets.MEDUSA_PUBLISHABLE_KEY || vars.MEDUSA_PUBLISHABLE_KEY }}
           CJ_ACCESS_TOKEN: ${{ secrets.CJ_ACCESS_TOKEN }}
           CJ_API_KEY: ${{ secrets.CJ_API_KEY }}
           CJ_OPERATOR_MODE: ${{ inputs.mode }}
@@ -82,8 +94,8 @@ jobs:
           echo "dryRun=${CJ_OPERATOR_DRY_RUN}"
           echo "category=${CJ_OPERATOR_CATEGORY}"
           echo "limitPerCategory=${CJ_OPERATOR_LIMIT_PER_CATEGORY}"
-          echo "recommendedFirstPreview=category=fashion limitPerCategory=5"
-          echo "heavyPreviewWarning=category=all limitPerCategory=50 is supported but heavy; prefer 5-10 first"
+          echo "recommendedFirstPreview=category=all limitPerCategory=5"
+          echo "heavyPreviewWarning=category=all limitPerCategory=50 is supported but heavy; run category=all limitPerCategory=5 successfully end-to-end first"
           echo "cwd=$(pwd)"
           echo "distScriptPresent=${dist_script_present}"
           db_present=false; [ -n "${DATABASE_URL}" ] && db_present=true
